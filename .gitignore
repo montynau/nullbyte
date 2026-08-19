@@ -2,6 +2,7 @@
 node_modules
 /src-tauri/target
 /src-tauri/cores
+/src-tauri/roms
 /src-tauri/gen
 /build
 /.svelte-kit

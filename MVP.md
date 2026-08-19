@@ -217,7 +217,7 @@ Tik įrodymas, kad FFI veikia.
 
 > Čia laimima arba pralaimima. Neik toliau, kol P1.7 neveikia patikimai.
 
-### P1.1 — `libretro.h` FFI tipai `[ ]`
+### P1.1 — `libretro.h` FFI tipai `[x]`
 
 **Priklausomybės:** P0.3
 **Failai:** `src-tauri/src/core/ffi.rs`
@@ -1205,7 +1205,7 @@ CREATE TABLE scrape_cache (
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
-| 1 — libretro | 7 | 0 | 0 % |
+| 1 — libretro | 7 | 1 | 14 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
@@ -1214,7 +1214,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **5** | **11 %** |
+| **Viso** | **47** | **6** | **13 %** |
 
 ---
 
