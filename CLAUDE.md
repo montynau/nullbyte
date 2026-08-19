@@ -509,16 +509,20 @@ retro_get_region()                -> u32
 | `SET_PIXEL_FORMAT` | 10 | Įsimink formatą. Palaikom: `0RGB1555`(0), `XRGB8888`(1), `RGB565`(2). Grąžink `true`. |
 | `GET_SYSTEM_DIRECTORY` | 9 | Grąžink kelią iki BIOS katalogo (`CString`, gyvuoja visą sesiją). |
 | `GET_SAVE_DIRECTORY` | 31 | Grąžink kelią iki SRAM katalogo. |
-| `GET_CAN_DUPE` | 13 | Grąžink `true` (palaikom `data == NULL` kadrus). |
+| `GET_CAN_DUPE` | 3 | Grąžink `true` (palaikom `data == NULL` kadrus). |
 | `SET_VARIABLES` / `SET_CORE_OPTIONS*` | 16 / 53,54,55,67,68,69 | MVP: išsaugok, grąžink `true`. UI — post-MVP. |
 | `GET_VARIABLE` | 15 | Grąžink numatytąją reikšmę arba `NULL`. |
 | `GET_VARIABLE_UPDATE` | 17 | Grąžink `false`. |
 | `SET_MESSAGE` | 6 | Persiųsk į UI kaip toast. |
 | `GET_LOG_INTERFACE` | 27 | Duok savo log callback → `tracing`. **Labai padeda debug'inant.** |
-| `SHUTDOWN` | 23 | Sustabdyk emuliavimą švariai. |
+| `SHUTDOWN` | 7 | Sustabdyk emuliavimą švariai. |
 | `SET_PERFORMANCE_LEVEL` | 8 | Ignoruok, grąžink `true`. |
 | `GET_LANGUAGE` | 39 | Grąžink `RETRO_LANGUAGE_ENGLISH` (0). |
-| `GET_INPUT_BITMASKS` | 52 | Grąžink `true` — greitesnis input polling. |
+| `GET_INPUT_BITMASKS` | 51 \| EXPERIMENTAL | Grąžink `true` — greitesnis input polling. |
+
+> `EXPERIMENTAL = 0x10000` (bitų žymė, pridedama prie bazinio ID). Visos ID reikšmės čia
+> patikrintos prieš tikrą `libretro.h` (RetroArch/master) — ankstesnė šios lentelės versija
+> turėjo klaidingas `GET_CAN_DUPE`/`SHUTDOWN`/`GET_INPUT_BITMASKS` reikšmes.
 
 Visoms kitoms komandoms grąžink `false`. **Niekada nepanikuok (`panic!`) environment callback'e** —
 tai kirstų per FFI ribą ir yra UB. Naudok `catch_unwind` arba tiesiog venk panic'ų.
