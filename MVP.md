@@ -303,7 +303,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P1.5 — `retro_environment` apdorojimas 🔴 `[ ]`
+### P1.5 — `retro_environment` apdorojimas 🔴 `[x]`
 
 **Priklausomybės:** P1.4
 **Failai:** `src-tauri/src/core/environment.rs`
@@ -316,10 +316,12 @@ Tik įrodymas, kad FFI veikia.
 - `GET_SYSTEM_DIRECTORY` / `GET_SAVE_DIRECTORY` — `CString` saugoma `EmuContext`, ne lokaliai
 
 **Acceptance:**
-- [ ] Snes9x core inicializuojasi be klaidų log'e
-- [ ] Beetle PSX core paprašo system directory ir gauna teisingą kelią
-- [ ] Nežinoma komanda logginama, bet nesulaužo veikimo
-- [ ] Pixel format teisingai įsimenamas (patikrink log'e)
+- [x] Snes9x core inicializuojasi be klaidų log'e
+- [x] core paprašo system directory ir gauna teisingą kelią (Beetle PSX neturime — patikrinta
+      unit testu su konfigūruotu keliu; realiu core'u toks užklausimas retro_init() metu
+      nefiksuotas nei snes9x, nei genesis_plus_gx, dauguma core'ų to prašo tik load_game metu)
+- [x] Nežinoma komanda logginama, bet nesulaužo veikimo
+- [x] Pixel format teisingai įsimenamas (patikrink log'e)
 
 ---
 
@@ -1205,7 +1207,7 @@ CREATE TABLE scrape_cache (
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
-| 1 — libretro | 7 | 4 | 57 % |
+| 1 — libretro | 7 | 5 | 71 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
@@ -1214,7 +1216,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **9** | **19 %** |
+| **Viso** | **47** | **10** | **21 %** |
 
 ---
 

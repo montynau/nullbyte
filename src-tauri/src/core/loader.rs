@@ -186,6 +186,37 @@ impl CoreHandle {
             block_extract: info.block_extract,
         }
     }
+
+    /// Registruoja visus 6 libretro callback'us ir kviečia `retro_init()`
+    /// (CLAUDE.md §8.2, žingsniai 3–9). Pagrindas P1.7 runner.rs emuliavimo gijai;
+    /// šiame etape naudojama P1.5 integraciniam testui („core'as inicializuojasi be klaidų").
+    ///
+    /// # Safety
+    /// Kaip ir visi `retro_*` kvietimai, turi būti kviečiama tik iš gijos, kurioje bus
+    /// naudojamas `thread_local` `EmuContext` (CLAUDE.md §3.2 taisyklė #1) — callback'ai
+    /// per jį pasiekia būvį.
+    pub unsafe fn init(&self, callbacks: RetroCallbacks) {
+        unsafe {
+            (self.symbols.retro_set_environment)(callbacks.environment);
+            (self.symbols.retro_set_video_refresh)(callbacks.video_refresh);
+            (self.symbols.retro_set_input_poll)(callbacks.input_poll);
+            (self.symbols.retro_set_input_state)(callbacks.input_state);
+            (self.symbols.retro_set_audio_sample)(callbacks.audio_sample);
+            (self.symbols.retro_set_audio_sample_batch)(callbacks.audio_sample_batch);
+            (self.symbols.retro_init)();
+        }
+    }
+}
+
+/// Visi 6 libretro callback'ai, reikalingi `CoreHandle::init()` (CLAUDE.md §8.2 žingsniai 3–8).
+#[allow(dead_code)] // konstruoja tik P1.5 testai ir bus P1.7 runner.rs
+pub struct RetroCallbacks {
+    pub environment: retro_environment_t,
+    pub video_refresh: retro_video_refresh_t,
+    pub input_poll: retro_input_poll_t,
+    pub input_state: retro_input_state_t,
+    pub audio_sample: retro_audio_sample_t,
+    pub audio_sample_batch: retro_audio_sample_batch_t,
 }
 
 /// `retro_get_system_info()` laukai, konvertuoti į savarankiškus (owned) tipus.

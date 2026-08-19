@@ -15,6 +15,7 @@
 // EmuContext laukai pilnai išnaudojami tik testuose.
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::ffi::{c_void, CString};
 
 use super::ffi::{RETRO_DEVICE_ID_JOYPAD_MASK, RETRO_DEVICE_JOYPAD, RETRO_PIXEL_FORMAT_0RGB1555};
@@ -45,6 +46,12 @@ pub struct EmuContext {
     pub save_dir: Option<CString>,
     /// Užpildoma `RETRO_ENVIRONMENT_GET_LOG_INTERFACE` apdorojime (P1.5).
     pub log_callback: Option<super::ffi::retro_log_printf_t>,
+    /// `RETRO_ENVIRONMENT_SET_VARIABLES` numatytosios core option reikšmės (raktas → reikšmė),
+    /// kurias vėliau grąžina `GET_VARIABLE` (P1.5). `CString`, kad rodyklė, grąžinta core'ui,
+    /// gyventų tol, kol reikšmė yra šiame `HashMap`.
+    pub core_options: HashMap<String, CString>,
+    /// `true`, jei core'as paprašė `RETRO_ENVIRONMENT_SHUTDOWN` (P1.5) — patikrins runner.rs (P1.7).
+    pub shutdown_requested: bool,
 }
 
 impl Default for EmuContext {
@@ -58,6 +65,8 @@ impl Default for EmuContext {
             system_dir: None,
             save_dir: None,
             log_callback: None,
+            core_options: HashMap::new(),
+            shutdown_requested: false,
         }
     }
 }
@@ -86,16 +95,16 @@ pub fn take_context() -> Option<EmuContext> {
     CTX.with_borrow_mut(|slot| slot.take())
 }
 
-/// `retro_environment_t` — dar neapdoroja jokios komandos (tai P1.5 `environment.rs` darbas).
-/// Kol P1.5 neparašytas, elgiasi kaip su nežinoma komanda: logina ir grąžina `false`.
+/// `retro_environment_t` — deleguoja į `environment::handle()` (P1.5) dispatch'ą.
 ///
 /// # Safety
 /// Kviečia core'as bet kuriuo metu tarp `retro_set_environment()` ir `retro_deinit()`.
-/// `data` reikšmė ir tipas priklauso nuo `cmd` — šis stub'as jos neliečia, tad jokių
-/// papildomų invariantų nereikalaujama.
-pub unsafe extern "C" fn environment_cb(cmd: u32, _data: *mut c_void) -> bool {
-    tracing::debug!(cmd, "retro_environment komanda dar neapdorota (P1.5)");
-    false
+/// `data` reikšmė ir tipas priklauso nuo `cmd` — kiekvieną `cmd` atskirai apdoroja
+/// `environment::handle()`, kur dokumentuota, ko reikalaujama iš `data` tai komandai.
+pub unsafe extern "C" fn environment_cb(cmd: u32, data: *mut c_void) -> bool {
+    // SAFETY: žr. funkcijos SAFETY komentarą — perduodame tuos pačius (cmd, data), jokio
+    // papildomo dereferencinimo čia neatliekame.
+    unsafe { super::environment::handle(cmd, data) }
 }
 
 /// `retro_video_refresh_t`.
