@@ -193,7 +193,7 @@ pnpm dlx shadcn-svelte@latest add button card dialog input select tabs \
 
 ---
 
-### P0.5 — Logging ir dev tooling `[ ]`
+### P0.5 — Logging ir dev tooling `[x]`
 
 **Priklausomybės:** P0.3
 **Failai:** `src-tauri/src/lib.rs`
@@ -1191,7 +1191,7 @@ CREATE TABLE scrape_cache (
 
 | # | Milestone | Fazės | Įvertis | Statusas |
 |---|---|---|---|---|
-| M0 | Projektas paleidžiamas | 0 | 1 d. | ⬜ |
+| M0 | Projektas paleidžiamas | 0 | 1 d. | ✅ |
 | M1 | libretro core sukasi headless | 1 | 3–5 d. | ⬜ |
 | M2 | Vaizdas ekrane | 2 | 3–4 d. | ⬜ |
 | M3 | Vaizdas + garsas + valdymas | 3, 4 | 4–5 d. | ⬜ |
@@ -1204,7 +1204,7 @@ CREATE TABLE scrape_cache (
 
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
-| 0 — Pamatai | 5 | 4 | 80 % |
+| 0 — Pamatai | 5 | 5 | 100 % |
 | 1 — libretro | 7 | 0 | 0 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
@@ -1214,7 +1214,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **4** | **9 %** |
+| **Viso** | **47** | **5** | **11 %** |
 
 ---
 
@@ -1331,6 +1331,17 @@ Melt UI (headless — maksimali laisvė, bet žymiai daugiau darbo), DaisyUI (gr
 pasiekti unikalų dizainą).
 **Pasekmės:** Reikia mokėti Tailwind. `src/lib/components/ui/` yra generuotas kodas —
 sava logika ten nerašoma (žr. `CLAUDE.md` §7.4).
+
+### ADR-010 — `tracing-appender` log failų rotacijai
+**Data:** 2026-08-19 · **Statusas:** priimta
+**Kontekstas:** P0.5 reikalauja log failo su rotacija `data_dir()/logs/`; `tracing-subscriber`
+pats savaime rašo tik į `Write` (pvz. stdout), neturi rotuojančio failų writer'io.
+**Sprendimas:** `tracing-appender` (oficialus `tokio-rs/tracing` palydovas) —
+`rolling::daily` + `non_blocking` writer.
+**Priežastis:** Ta pati organizacija kaip `tracing`/`tracing-subscriber` (jau §2 sąraše), maža,
+gerai palaikoma, `non_blocking` neblokuoja UI/emuliavimo gijų rašydama į diską.
+**Pasekmės:** `WorkerGuard` privalo gyventi tol, kol veikia programa (laikomas `run()` viduje);
+jį numetus, likę log'ai gali neišsirašyti į failą.
 
 ---
 

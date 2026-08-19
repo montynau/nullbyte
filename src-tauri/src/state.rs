@@ -8,9 +8,6 @@ use std::path::PathBuf;
 use crate::error::AppError;
 use crate::paths;
 
-// Laukai dar neskaitomi jokios komandos — pirmas naudotojas atsiras P0.5 (log failo kelias)
-// ir P5.1 (db_path SQLite ryšiui). Nenaudoti pub laukai nereiškia klaidos šiame etape.
-#[allow(dead_code)]
 pub struct AppState {
     pub data_dir: PathBuf,
     pub cores_dir: PathBuf,
