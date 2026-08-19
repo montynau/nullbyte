@@ -153,7 +153,7 @@ pnpm dlx shadcn-svelte@latest add button card dialog input select tabs \
 
 ---
 
-### P0.3 — Rust priklausomybės ir modulių griaučiai `[ ]`
+### P0.3 — Rust priklausomybės ir modulių griaučiai `[x]`
 
 **Priklausomybės:** P0.1
 **Failai:** `src-tauri/Cargo.toml`, `src-tauri/src/**/mod.rs`
@@ -1204,7 +1204,7 @@ CREATE TABLE scrape_cache (
 
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
-| 0 — Pamatai | 5 | 2 | 40 % |
+| 0 — Pamatai | 5 | 3 | 60 % |
 | 1 — libretro | 7 | 0 | 0 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
@@ -1214,7 +1214,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **2** | **4 %** |
+| **Viso** | **47** | **3** | **6 %** |
 
 ---
 
