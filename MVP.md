@@ -281,7 +281,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P1.4 — Callback'ai ir `thread_local` kontekstas 🔴 `[ ]`
+### P1.4 — Callback'ai ir `thread_local` kontekstas 🔴 `[x]`
 
 **Priklausomybės:** P1.2
 **Failai:** `src-tauri/src/core/callbacks.rs`
@@ -1205,7 +1205,7 @@ CREATE TABLE scrape_cache (
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
-| 1 — libretro | 7 | 3 | 43 % |
+| 1 — libretro | 7 | 4 | 57 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
@@ -1214,7 +1214,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **8** | **17 %** |
+| **Viso** | **47** | **9** | **19 %** |
 
 ---
 

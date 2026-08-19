@@ -3,6 +3,7 @@
 //! Užpildoma Fazėje 1 (P1.1–P1.7): `ffi`, `loader`, `info`, `callbacks`, `environment`,
 //! `runner`, `savestate`.
 
+pub mod callbacks;
 pub mod ffi;
 pub mod info;
 pub mod loader;
