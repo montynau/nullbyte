@@ -174,7 +174,7 @@ pnpm dlx shadcn-svelte@latest add button card dialog input select tabs \
 
 ---
 
-### P0.4 — Įrankiai, lint, CI `[ ]`
+### P0.4 — Įrankiai, lint, CI `[x]`
 
 **Priklausomybės:** P0.2, P0.3
 **Failai:** `.gitignore`, `.prettierrc`, `eslint.config.js`, `rustfmt.toml`, `.github/workflows/ci.yml`, `.env.example`
@@ -1204,7 +1204,7 @@ CREATE TABLE scrape_cache (
 
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
-| 0 — Pamatai | 5 | 3 | 60 % |
+| 0 — Pamatai | 5 | 4 | 80 % |
 | 1 — libretro | 7 | 0 | 0 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
@@ -1214,7 +1214,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **3** | **6 %** |
+| **Viso** | **47** | **4** | **9 %** |
 
 ---
 

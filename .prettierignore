@@ -1,0 +1,14 @@
+node_modules
+build
+.svelte-kit
+package
+pnpm-lock.yaml
+src-tauri/target
+src-tauri/gen
+static
+
+# Rankiniu būdu formatuoti dokumentai — netvarkyti prettier (CLAUDE.md yra instrukcija,
+# MVP.md turi rankiniu būdu prižiūrimą progreso lentelę, README.md — produkto dokumentacija)
+CLAUDE.md
+MVP.md
+README.md
