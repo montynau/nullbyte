@@ -247,7 +247,7 @@ Tik įrodymas, kad FFI veikia.
 
 **Ką daryti:**
 - `struct CoreHandle { lib: Library, symbols: CoreSymbols, path: PathBuf }`
-- `CoreSymbols` — visi 20 simbolių iš `CLAUDE.md` §8.1 kaip `RawSymbol` (ne `Symbol<'_>`,
+- `CoreSymbols` — visi 22 simboliai iš `CLAUDE.md` §8.1 kaip `RawSymbol` (ne `Symbol<'_>`,
   kad išvengtum lifetime pragaro — bet tada `lib` privalo gyventi ilgiau; dokumentuok SAFETY)
 - `CoreHandle::load(path) -> Result<Self, AppError>`:
   - `Library::new(path)`
@@ -1344,6 +1344,24 @@ pats savaime rašo tik į `Write` (pvz. stdout), neturi rotuojančio failų writ
 gerai palaikoma, `non_blocking` neblokuoja UI/emuliavimo gijų rašydama į diską.
 **Pasekmės:** `WorkerGuard` privalo gyventi tol, kol veikia programa (laikomas `run()` viduje);
 jį numetus, likę log'ai gali neišsirašyti į failą.
+
+### ADR-011 — `GET_LOG_INTERFACE`: transmute'inta ne-variadic funkcija vietoj tikros C-variadic
+**Data:** 2026-08-19 · **Statusas:** priimta (laikina, iki Rust c_variadic stabilizacijos)
+**Kontekstas:** libretro `retro_log_printf_t` yra C-variadic (`void (*)(level, fmt, ...)`).
+Stabilus Rust dar negali *apibrėžti* C-variadic funkcijų (rust-lang/rust#44930 — planuojama
+Rust 1.99). Patikrinau ir `printf-compat` crate — jis irgi reikalauja `c_variadic` feature,
+t.y. nightly toolchain, kas prieštarautų CLAUDE.md §2 „Rust toolchain: stable".
+**Sprendimas:** `core_log_printf` apibrėžta kaip įprasta (ne-variadic) `unsafe extern "C" fn(level, fmt)`,
+o jos rodyklė `transmute`'inama į `retro_log_printf_t` tipą prieš perduodant core'ui per
+`retro_log_callback.log`. Ji priima tik `level`+`fmt`, NESKAITO varargs.
+**Priežastis:** System V AMD64 ir AAPCS64 (macOS + Linux, x86_64 + aarch64 — vieninteliai
+mūsų taikiniai) kalbimo konvencijose fiksuotų parametrų perdavimas identiškas variadic ir
+ne-variadic funkcijoms; papildomi varargs tiesiog lieka neperskaityti steke/registruose.
+Empiriškai patikrinta atskiru scratch projektu prieš įtraukiant į kodą.
+**Pasekmės:** Core'ų log pranešimai su `%s`/`%d` ir pan. formatavimo simboliais bus rodomi
+NEIŠPLĖSTU (neapdorotu) formatu — prarandami dinaminiai argumentai, bet pati eilutė vis
+tiek naudinga debug'inant. Kai Rust 1.99 stabilizuos `c_variadic` (arba `printf-compat`
+pereis į stable), verta grįžti ir implementuoti pilną formatavimą.
 
 ---
 
