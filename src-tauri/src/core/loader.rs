@@ -1,6 +1,6 @@
 //! Core (`.dylib` / `.so`) įkėlimas per `libloading` (CLAUDE.md §8.1, §8.2).
 
-use std::ffi::c_void;
+use std::ffi::{c_char, c_void, CStr};
 use std::path::{Path, PathBuf};
 
 use libloading::Library;
@@ -168,6 +168,48 @@ impl CoreHandle {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// Kviečia `retro_get_system_info()` ir grąžina laukus kaip savarankiškas (owned)
+    /// reikšmes — naudojama `core::info` (P1.3) core'ų metaduomenims surinkti.
+    pub fn system_info(&self) -> CoreSystemInfo {
+        // SAFETY: `info` užpildomas paties core'o retro_get_system_info() implementacijos;
+        // libretro kontraktas garantuoja, kad grąžintos *const c_char rodyklės yra arba
+        // NULL, arba galioja bent tiek, kiek core'as įkeltas (statinės eilutės).
+        let mut info: retro_system_info = unsafe { std::mem::zeroed() };
+        unsafe { (self.symbols.retro_get_system_info)(&mut info) };
+
+        CoreSystemInfo {
+            library_name: unsafe { c_str_to_string(info.library_name) },
+            library_version: unsafe { c_str_to_string(info.library_version) },
+            valid_extensions: unsafe { c_str_to_string(info.valid_extensions) },
+            need_fullpath: info.need_fullpath,
+            block_extract: info.block_extract,
+        }
+    }
+}
+
+/// `retro_get_system_info()` laukai, konvertuoti į savarankiškus (owned) tipus.
+#[allow(dead_code)] // laukus skaito core::info (P1.3), kol kas naudoja tik testai
+#[derive(Debug, Clone)]
+pub struct CoreSystemInfo {
+    pub library_name: String,
+    pub library_version: String,
+    /// Neapdorotas `|`-skirtas sąrašas, pvz. `"smc|sfc|swc|fig|bs"`.
+    pub valid_extensions: String,
+    pub need_fullpath: bool,
+    pub block_extract: bool,
+}
+
+/// # Safety
+/// `ptr` privalo būti arba NULL, arba rodyti į teisingai nul-terminuotą C eilutę, kurios
+/// gyvavimo trukmė apima šio iškvietimo momentą.
+unsafe fn c_str_to_string(ptr: *const c_char) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    unsafe { CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 impl Drop for CoreHandle {

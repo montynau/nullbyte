@@ -4,4 +4,5 @@
 //! `runner`, `savestate`.
 
 pub mod ffi;
+pub mod info;
 pub mod loader;

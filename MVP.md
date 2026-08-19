@@ -262,7 +262,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P1.3 — Core metaduomenys ir `.info` parsinimas `[ ]`
+### P1.3 — Core metaduomenys ir `.info` parsinimas `[x]`
 
 **Priklausomybės:** P1.2
 **Failai:** `src-tauri/src/core/info.rs`
@@ -1205,7 +1205,7 @@ CREATE TABLE scrape_cache (
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
-| 1 — libretro | 7 | 2 | 29 % |
+| 1 — libretro | 7 | 3 | 43 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
@@ -1214,7 +1214,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **7** | **15 %** |
+| **Viso** | **47** | **8** | **17 %** |
 
 ---
 
