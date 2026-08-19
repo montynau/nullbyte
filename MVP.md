@@ -240,7 +240,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P1.2 — Core įkėlimas per `libloading` `[ ]`
+### P1.2 — Core įkėlimas per `libloading` `[x]`
 
 **Priklausomybės:** P1.1
 **Failai:** `src-tauri/src/core/loader.rs`
@@ -1205,7 +1205,7 @@ CREATE TABLE scrape_cache (
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
-| 1 — libretro | 7 | 1 | 14 % |
+| 1 — libretro | 7 | 2 | 29 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
@@ -1214,7 +1214,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **6** | **13 %** |
+| **Viso** | **47** | **7** | **15 %** |
 
 ---
 
