@@ -131,7 +131,7 @@ pnpm install
 
 ---
 
-### P0.2 — Tailwind v4 + shadcn-svelte `[ ]`
+### P0.2 — Tailwind v4 + shadcn-svelte `[x]`
 
 **Priklausomybės:** P0.1
 **Failai:** `src/app.css`, `components.json`, `src/lib/components/ui/`
@@ -1204,7 +1204,7 @@ CREATE TABLE scrape_cache (
 
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
-| 0 — Pamatai | 5 | 1 | 20 % |
+| 0 — Pamatai | 5 | 2 | 40 % |
 | 1 — libretro | 7 | 0 | 0 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
@@ -1214,7 +1214,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **1** | **2 %** |
+| **Viso** | **47** | **2** | **4 %** |
 
 ---
 
