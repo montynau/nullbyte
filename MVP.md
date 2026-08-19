@@ -126,8 +126,8 @@ pnpm install
   `version: "0.1.0"`
 
 **Acceptance:**
-- [ ] `pnpm tauri dev` atidaro langą su Svelte puslapiu
-- [ ] `pnpm tauri build` sukuria binarą be klaidų
+- [x] `pnpm tauri dev` atidaro langą su Svelte puslapiu
+- [x] `pnpm tauri build` sukuria binarą be klaidų
 
 ---
 
@@ -147,9 +147,9 @@ pnpm dlx shadcn-svelte@latest add button card dialog input select tabs \
 - Tema: neutralus pilkas pagrindas, vienas akcento atspalvis (siūlomas: `oklch` violetinis/žydras)
 
 **Acceptance:**
-- [ ] `<Button>` iš shadcn renderinasi
-- [ ] Tamsi tema aktyvi be `class="dark"` perjungimo
-- [ ] `pnpm check` be klaidų
+- [x] `<Button>` iš shadcn renderinasi
+- [x] Tamsi tema aktyvi be `class="dark"` perjungimo
+- [x] `pnpm check` be klaidų
 
 ---
 
@@ -168,9 +168,9 @@ pnpm dlx shadcn-svelte@latest add button card dialog input select tabs \
 - `state.rs`: `AppState` struct (kol kas tuščias)
 
 **Acceptance:**
-- [ ] `cargo build` be klaidų ir be warning'ų
-- [ ] `cargo clippy -- -D warnings` praeina
-- [ ] `paths::data_dir()` grąžina teisingą kelią abiejose platformose
+- [x] `cargo build` be klaidų ir be warning'ų
+- [x] `cargo clippy -- -D warnings` praeina
+- [x] `paths::data_dir()` grąžina teisingą kelią abiejose platformose
 
 ---
 
@@ -204,8 +204,8 @@ pnpm dlx shadcn-svelte@latest add button card dialog input select tabs \
 - Tauri komanda `get_app_info()` → versija, keliai, platforma (naudinga debug'inant)
 
 **Acceptance:**
-- [ ] `RUST_LOG=debug pnpm tauri dev` rodo log'us konsolėje
-- [ ] Log failas kuriamas
+- [x] `RUST_LOG=debug pnpm tauri dev` rodo log'us konsolėje
+- [x] Log failas kuriamas
 
 ---
 
@@ -234,9 +234,9 @@ Tik įrodymas, kad FFI veikia.
 - Compile-time dydžių patikros: `const _: () = assert!(size_of::<retro_system_info>() == N);`
 
 **Acceptance:**
-- [ ] Visi tipai atitinka `libretro.h` (patikrink prieš originalą eilutė po eilutės)
-- [ ] `cargo build` praeina
-- [ ] Nė vieno `static mut`
+- [x] Visi tipai atitinka `libretro.h` (patikrink prieš originalą eilutė po eilutės)
+- [x] `cargo build` praeina
+- [x] Nė vieno `static mut`
 
 ---
 
@@ -256,9 +256,9 @@ Tik įrodymas, kad FFI veikia.
 - `Drop for CoreHandle` — dokumentuok, kad `retro_deinit` privalo būti iškviestas PRIEŠ drop
 
 **Acceptance:**
-- [ ] Testas: įkelia realų core'ą (pvz. `snes9x_libretro`) ir grąžina `api_version == 1`
-- [ ] Testas: neegzistuojantis failas → aiški `AppError`, ne panic
-- [ ] Testas: ne-libretro biblioteka (pvz. `libz`) → aiški klaida apie trūkstamą simbolį
+- [x] Testas: įkelia realų core'ą (pvz. `snes9x_libretro`) ir grąžina `api_version == 1`
+- [x] Testas: neegzistuojantis failas → aiški `AppError`, ne panic
+- [x] Testas: ne-libretro biblioteka (pvz. `libz`) → aiški klaida apie trūkstamą simbolį
 
 ---
 
@@ -275,9 +275,9 @@ Tik įrodymas, kad FFI veikia.
 - Mapping'as plėtinys → core'ai (`.sfc` → `[snes9x, bsnes]`)
 
 **Acceptance:**
-- [ ] Nuskaito katalogą su 5+ core'ais ir grąžina teisingus pavadinimus ir plėtinius
-- [ ] `.info` failo nebuvimas nesulaužo skenavimo
-- [ ] Testas su fixture katalogu
+- [x] Nuskaito katalogą su 5+ core'ais ir grąžina teisingus pavadinimus ir plėtinius
+- [x] `.info` failo nebuvimas nesulaužo skenavimo
+- [x] Testas su fixture katalogu
 
 ---
 
@@ -297,9 +297,9 @@ Tik įrodymas, kad FFI veikia.
 - **Visuose callback'uose:** jokių `unwrap()`, jokio alokavimo kur įmanoma išvengti
 
 **Acceptance:**
-- [ ] Visi callback'ai `unsafe extern "C"`, visi su `// SAFETY:` komentaru
-- [ ] `data == NULL` kadras neuždaro programos
-- [ ] `cargo clippy -- -D warnings` praeina
+- [x] Visi callback'ai `unsafe extern "C"`, visi su `// SAFETY:` komentaru
+- [x] `data == NULL` kadras neuždaro programos
+- [x] `cargo clippy -- -D warnings` praeina
 
 ---
 
