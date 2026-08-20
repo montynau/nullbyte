@@ -412,7 +412,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P2.2 — Triple buffer tarp gijų `[ ]`
+### P2.2 — Triple buffer tarp gijų `[x]`
 
 **Priklausomybės:** P2.1
 **Failai:** `src-tauri/src/video/frame_buffer.rs`
@@ -423,8 +423,12 @@ Tik įrodymas, kad FFI veikia.
 - Kadras neša metaduomenis: `width`, `height`, `generation`
 
 **Acceptance:**
-- [ ] Testas: 2 gijos, 10 000 kadrų, jokio data race (`cargo test` + `--release`)
-- [ ] Emu gija niekada neblokuojasi (matuok `write_frame` trukmę)
+- [x] Testas: 2 gijos, 10 000 kadrų, jokio data race (`cargo test --release`) — 340/10000
+      kadrų pamatyta (tikėtasi — triple buffer dizainu praleidžia tarpinius), paskutinis
+      (10000-asis) kadras patvirtintai pagautas, visų pamatytų kadrų baitai nuoseklūs
+      (nė vieno „suplėšyto" skaitymo)
+- [x] Emu gija niekada neblokuojasi — `write_frame` ilgiausiai truko 8.375µs per 10 000
+      kvietimų (limitas teste 5ms)
 
 ---
 
@@ -1221,7 +1225,7 @@ CREATE TABLE scrape_cache (
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
 | 1 — libretro | 7 | 7 | 100 % |
-| 2 — Vaizdas | 5 | 1 | 20 % |
+| 2 — Vaizdas | 5 | 2 | 40 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
@@ -1229,7 +1233,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **13** | **28 %** |
+| **Viso** | **47** | **14** | **30 %** |
 
 ---
 
