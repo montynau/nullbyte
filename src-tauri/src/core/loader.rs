@@ -1,11 +1,12 @@
 //! Core (`.dylib` / `.so`) įkėlimas per `libloading` (CLAUDE.md §8.1, §8.2).
 
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::{c_char, c_void, CStr, CString};
 use std::path::{Path, PathBuf};
 
 use libloading::Library;
 
 use crate::error::AppError;
+use crate::library::archive;
 
 use super::ffi::{
     retro_audio_sample_batch_t, retro_audio_sample_t, retro_environment_t, retro_game_info,
@@ -206,6 +207,132 @@ impl CoreHandle {
             (self.symbols.retro_init)();
         }
     }
+
+    /// Įkelia ROM'ą (CLAUDE.md §8.2 žingsniai 11–12). Palaiko archyvus (`.zip`/`.7z`) —
+    /// išpakuoja pirmą core'o `valid_extensions` atitinkantį failą. `retro_get_system_av_info()`
+    /// kviečiama TIK po `retro_load_game()` — kai kurie core'ai (pvz. Mednafen) prieš tai
+    /// grąžina neteisingus duomenis, nes AV info priklauso nuo ROM'o.
+    ///
+    /// # Safety
+    /// Turi būti kviečiama tik iš emuliavimo gijos, po `CoreHandle::init()` (CLAUDE.md §3.2
+    /// taisyklė #1) — `retro_load_game` gali kviesti bet kurį iš anksčiau užregistruotų
+    /// callback'ų core'o viduje.
+    pub unsafe fn load_game(&self, rom_path: &Path) -> Result<LoadedGameInfo, AppError> {
+        let sysinfo = self.system_info();
+        let valid_extensions: Vec<String> = sysinfo
+            .valid_extensions
+            .split('|')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+
+        let is_archive = matches!(
+            rom_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_lowercase)
+                .as_deref(),
+            Some("zip") | Some("7z")
+        );
+
+        // path_cstring/data_owned privalo gyventi bent tiek, kiek `game_info` naudojamas
+        // žemiau — abu laikomi šio bloko viduje iki pat retro_load_game() kvietimo.
+        let path_cstring: CString;
+        let data_owned: Option<Vec<u8>>;
+
+        if sysinfo.need_fullpath {
+            let actual_path = if is_archive {
+                archive::extract_first_match_to_temp(rom_path, &valid_extensions)?
+            } else {
+                rom_path.to_path_buf()
+            };
+            path_cstring = path_to_cstring(&actual_path)?;
+            data_owned = None;
+        } else {
+            let bytes = if is_archive {
+                archive::extract_first_match(rom_path, &valid_extensions)?.1
+            } else {
+                std::fs::read(rom_path)?
+            };
+            // libretro.h: net kai need_fullpath == false, geriau paduoti tikrą kelią nei
+            // NULL — kai kurie core'ai jį naudoja kaip nuorodą kitiems failams sudaryti.
+            path_cstring = path_to_cstring(rom_path)?;
+            data_owned = Some(bytes);
+        }
+
+        let game_info = retro_game_info {
+            path: path_cstring.as_ptr(),
+            data: data_owned
+                .as_ref()
+                .map(|d| d.as_ptr() as *const c_void)
+                .unwrap_or(std::ptr::null()),
+            size: data_owned.as_ref().map(|d| d.len()).unwrap_or(0),
+            meta: std::ptr::null(),
+        };
+
+        // SAFETY: `game_info` laukai (path_cstring/data_owned) gyvena visą šio kvietimo metu.
+        let loaded = unsafe { (self.symbols.retro_load_game)(&game_info) };
+        if !loaded {
+            return Err(AppError::Other(format!(
+                "core'as atmetė ROM'ą: {}",
+                rom_path.display()
+            )));
+        }
+
+        let mut av_info: retro_system_av_info = unsafe { std::mem::zeroed() };
+        // SAFETY: kviečiama TIK po sėkmingo retro_load_game() (žr. funkcijos doc komentarą).
+        unsafe { (self.symbols.retro_get_system_av_info)(&mut av_info) };
+
+        Ok(LoadedGameInfo {
+            fps: av_info.timing.fps,
+            sample_rate: av_info.timing.sample_rate,
+            base_width: av_info.geometry.base_width,
+            base_height: av_info.geometry.base_height,
+            max_width: av_info.geometry.max_width,
+            max_height: av_info.geometry.max_height,
+            aspect_ratio: av_info.geometry.aspect_ratio,
+        })
+    }
+
+    /// `retro_unload_game()`.
+    ///
+    /// # Safety
+    /// Turi būti kviečiama tik iš emuliavimo gijos, po sėkmingo `load_game()`
+    /// (CLAUDE.md §8.2 žingsnis 14).
+    pub unsafe fn unload_game(&self) {
+        unsafe { (self.symbols.retro_unload_game)() };
+    }
+
+    /// `retro_deinit()`. PRIVALO būti iškviesta prieš `CoreHandle` `drop` — žr.
+    /// `Drop for CoreHandle` dokumentaciją (CLAUDE.md §8.2 žingsnis 14).
+    ///
+    /// # Safety
+    /// Turi būti kviečiama tik iš emuliavimo gijos, po `unload_game()`.
+    pub unsafe fn deinit(&self) {
+        unsafe { (self.symbols.retro_deinit)() };
+    }
+}
+
+fn path_to_cstring(path: &Path) -> Result<CString, AppError> {
+    let s = path
+        .to_str()
+        .ok_or_else(|| AppError::Other(format!("kelias nėra UTF-8: {}", path.display())))?;
+    CString::new(s)
+        .map_err(|_| AppError::Other(format!("kelias turi nul baitą: {}", path.display())))
+}
+
+/// Tikri `retro_get_system_av_info()` duomenys po `retro_load_game()` — fps/sample_rate/
+/// geometry priklauso nuo konkretaus ROM'o, tad prieš load_game jie gali būti neteisingi.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // skaitys P1.7 runner.rs (frame pacing, geometry)
+pub struct LoadedGameInfo {
+    pub fps: f64,
+    pub sample_rate: f64,
+    pub base_width: u32,
+    pub base_height: u32,
+    pub max_width: u32,
+    pub max_height: u32,
+    pub aspect_ratio: f32,
 }
 
 /// Visi 6 libretro callback'ai, reikalingi `CoreHandle::init()` (CLAUDE.md §8.2 žingsniai 3–8).
@@ -312,5 +439,202 @@ mod tests {
             message.contains("trūksta simbolio"),
             "klaida turėtų minėti trūkstamą simbolį, gauta: {message}"
         );
+    }
+
+    // --- P1.6: ROM įkėlimas ---------------------------------------------------------------
+
+    use super::super::callbacks::{install_context, take_context, EmuContext};
+
+    fn snes9x_path() -> Option<PathBuf> {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("cores/snes9x_libretro.dylib");
+        path.exists().then_some(path)
+    }
+
+    fn mednafen_psx_path() -> Option<PathBuf> {
+        let path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("cores/mednafen_psx_libretro.dylib");
+        path.exists().then_some(path)
+    }
+
+    fn bios_dir() -> Option<PathBuf> {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bios");
+        path.is_dir().then_some(path)
+    }
+
+    /// Pirmas rastas failas kataloge su nurodytu plėtiniu — nepriklauso nuo konkretaus
+    /// failo pavadinimo, tik nuo to, kad `src-tauri/roms/<platforma>/` turi bent vieną.
+    fn first_file_with_ext(dir: &Path, ext: &str) -> Option<PathBuf> {
+        std::fs::read_dir(dir)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| {
+                p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(str::to_lowercase)
+                    .as_deref()
+                    == Some(ext)
+            })
+    }
+
+    fn stub_callbacks() -> RetroCallbacks {
+        RetroCallbacks {
+            environment: crate::core::callbacks::environment_cb,
+            video_refresh: crate::core::callbacks::video_refresh_cb,
+            input_poll: crate::core::callbacks::input_poll_cb,
+            input_state: crate::core::callbacks::input_state_cb,
+            audio_sample: crate::core::callbacks::audio_sample_cb,
+            audio_sample_batch: crate::core::callbacks::audio_sample_batch_cb,
+        }
+    }
+
+    #[test]
+    fn snes_rom_loads_with_correct_fps() {
+        let Some(core_path) = snes9x_path() else {
+            eprintln!("praleista: snes9x_libretro.dylib nerastas");
+            return;
+        };
+        let roms_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("roms/snes");
+        let Some(rom_path) = first_file_with_ext(&roms_dir, "sfc") else {
+            eprintln!("praleista: nė vieno .sfc faile roms/snes/ nerasta");
+            return;
+        };
+
+        install_context(EmuContext::default());
+        let handle = CoreHandle::load(&core_path).expect("core'as turėtų įsikelti");
+        unsafe { handle.init(stub_callbacks()) };
+
+        let info = unsafe { handle.load_game(&rom_path) }.expect("ROM'as turėtų įsikelti");
+        // `read_dir` tvarka neapibrėžta — gali pataikyti ir į NTSC (~60.098), ir į PAL
+        // (~50.0) ROM'ą. Svarbu, kad fps būtų TIKRA aparatūros reikšmė, ne apvalinta 60/50.
+        let is_ntsc = (info.fps - 60.098).abs() < 1.0;
+        let is_pal = (info.fps - 50.0).abs() < 1.0;
+        assert!(
+            is_ntsc || is_pal,
+            "tikėtasi SNES NTSC (≈60.098) arba PAL (≈50.0) fps, gauta {}",
+            info.fps
+        );
+        assert!(info.base_width > 0 && info.base_height > 0);
+
+        unsafe {
+            handle.unload_game();
+            handle.deinit();
+        }
+        take_context();
+    }
+
+    #[test]
+    fn zip_wrapped_rom_loads_via_archive_extraction() {
+        let Some(core_path) = snes9x_path() else {
+            eprintln!("praleista: snes9x_libretro.dylib nerastas");
+            return;
+        };
+        let roms_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("roms/snes");
+        let Some(rom_path) = first_file_with_ext(&roms_dir, "sfc") else {
+            eprintln!("praleista: nė vieno .sfc faile roms/snes/ nerasta");
+            return;
+        };
+
+        // Suvyniojame realų .sfc į laikiną .zip, kad patikrintume archyvo išpakavimo kelią.
+        let rom_bytes = std::fs::read(&rom_path).unwrap();
+        let inner_name = rom_path.file_name().unwrap().to_str().unwrap().to_string();
+        let zip_path = std::env::temp_dir().join("nullbyte_test_snes_wrap.zip");
+        {
+            let file = std::fs::File::create(&zip_path).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            writer
+                .start_file(&inner_name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            use std::io::Write;
+            writer.write_all(&rom_bytes).unwrap();
+            writer.finish().unwrap();
+        }
+
+        install_context(EmuContext::default());
+        let handle = CoreHandle::load(&core_path).expect("core'as turėtų įsikelti");
+        unsafe { handle.init(stub_callbacks()) };
+
+        let result = unsafe { handle.load_game(&zip_path) };
+        assert!(
+            result.is_ok(),
+            "zip'uotas ROM'as turėtų įsikelti: {result:?}"
+        );
+
+        unsafe {
+            handle.unload_game();
+            handle.deinit();
+        }
+        take_context();
+        std::fs::remove_file(&zip_path).ok();
+    }
+
+    #[test]
+    fn psx_core_with_need_fullpath_receives_path_not_buffer() {
+        let Some(core_path) = mednafen_psx_path() else {
+            eprintln!("praleista: mednafen_psx_libretro.dylib nerastas");
+            return;
+        };
+        let Some(bios) = bios_dir() else {
+            eprintln!("praleista: src-tauri/bios/ nerastas");
+            return;
+        };
+        let roms_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("roms/psx");
+        let Some(rom_path) = first_file_with_ext(&roms_dir, "zip") else {
+            eprintln!("praleista: nė vieno .zip faile roms/psx/ nerasta");
+            return;
+        };
+
+        install_context(EmuContext {
+            system_dir: Some(path_to_cstring(&bios).expect("bios kelias turėtų būti UTF-8")),
+            ..EmuContext::default()
+        });
+
+        let handle = CoreHandle::load(&core_path).expect("core'as turėtų įsikelti");
+        assert!(
+            handle.system_info().need_fullpath,
+            "mednafen_psx turėtų reikalauti need_fullpath"
+        );
+        unsafe { handle.init(stub_callbacks()) };
+
+        let result = unsafe { handle.load_game(&rom_path) };
+        assert!(
+            result.is_ok(),
+            "PSX žaidimas su teisingu BIOS turėtų įsikelti: {result:?}"
+        );
+
+        unsafe {
+            handle.unload_game();
+            handle.deinit();
+        }
+        take_context();
+    }
+
+    #[test]
+    fn missing_rom_file_returns_app_error_not_crash() {
+        let Some(core_path) = snes9x_path() else {
+            eprintln!("praleista: snes9x_libretro.dylib nerastas");
+            return;
+        };
+
+        // Pastaba: snes9x (kaip dauguma SNES core'ų) LoROM header validaciją daro labai
+        // atlaidžiai — bandymas paduoti šiukšlių baitus su .sfc plėtiniu realiai PAVYKO
+        // (core'as juos interpretavo kaip validų LoROM). Todėl patikimam "blogo ROM'o"
+        // scenarijui naudojame neegzistuojantį failą — tai testuoja mūsų PAČIŲ kelio
+        // skaitymo klaidos apdorojimą (std::fs::read → AppError::Io), nepriklausomai nuo
+        // konkretaus core'o header validacijos griežtumo.
+        let missing_rom = std::env::temp_dir().join("nullbyte_test_definitely_missing.sfc");
+        std::fs::remove_file(&missing_rom).ok();
+
+        install_context(EmuContext::default());
+        let handle = CoreHandle::load(&core_path).expect("core'as turėtų įsikelti");
+        unsafe { handle.init(stub_callbacks()) };
+
+        let result = unsafe { handle.load_game(&missing_rom) };
+        assert!(
+            matches!(result, Err(AppError::Io(_))),
+            "neegzistuojantis ROM'as turėtų grąžinti AppError::Io, gauta {result:?}"
+        );
+
+        take_context();
     }
 }

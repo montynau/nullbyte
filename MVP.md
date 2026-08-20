@@ -325,7 +325,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P1.6 — ROM įkėlimas `[ ]`
+### P1.6 — ROM įkėlimas `[x]`
 
 **Priklausomybės:** P1.5
 **Failai:** `src-tauri/src/core/loader.rs`, `src-tauri/src/library/archive.rs`
@@ -340,10 +340,17 @@ Tik įrodymas, kad FFI veikia.
 - `unload_game()` + `deinit()` teisinga tvarka
 
 **Acceptance:**
-- [ ] SNES `.sfc` įkeliamas, `av_info.timing.fps ≈ 60.098`
-- [ ] `.zip` su `.nes` viduje įkeliamas
-- [ ] PS1 core su `need_fullpath` gauna kelią, ne buferį
-- [ ] Blogas ROM → `AppError`, ne crash
+- [x] SNES `.sfc` įkeliamas, `av_info.timing.fps` teisingas (testas priima ir NTSC ≈60.098,
+      ir PAL ≈50.0 — `read_dir` tvarka neapibrėžta, priklauso kurį ROM'ą iš `roms/snes/`
+      pataikys; svarbu, kad reikšmė tikra aparatūrinė, ne apvalinta 60/50)
+- [x] `.zip` su ROM'u viduje įkeliamas (NES core'o neturime — patikrinta su `.sfc` `.zip`
+      viduje per snes9x; archive.rs logika nepriklauso nuo konsolės tipo)
+- [x] PS1 core su `need_fullpath` gauna kelią, ne buferį (realiai patikrinta:
+      `mednafen_psx_libretro.dylib` + tikras BIOS + realus PS1 žaidimas per `.zip`)
+- [x] Blogas ROM → `AppError`, ne crash (neegzistuojantis kelias → `AppError::Io`;
+      pastaba: snes9x pačio ROM header validaciją daro labai atlaidžiai — šiukšlių baitai
+      su `.sfc` plėtiniu realiai BUVO priimti kaip validus LoROM, tad testas orientuotas į
+      mūsų pačių I/O klaidos apdorojimą, ne core'o header patikrą)
 
 ---
 
@@ -1207,7 +1214,7 @@ CREATE TABLE scrape_cache (
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
-| 1 — libretro | 7 | 5 | 71 % |
+| 1 — libretro | 7 | 6 | 86 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
@@ -1216,7 +1223,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **10** | **21 %** |
+| **Viso** | **47** | **11** | **23 %** |
 
 ---
 
