@@ -16,9 +16,12 @@
 //! `SincFixedIn` reikalauja FIKSUOTO įvesties kadrų kiekio (`chunk_size`) kiekvienam
 //! `process_into_buffer` kvietimui, o core'o `audio_sample_batch_cb` chunk'ų dydžiai
 //! nesutampa su juo.
+//!
+//! [`AudioResampler::adjust_ratio`] (P3.4) įgyvendina CLAUDE.md §8.6 dinaminį rate
+//! control'ą — nedidelė (±`MAX_DELTA`) resampling ratio korekcija pagal audio ring buferio
+//! occupancy, kad garso plokštė taptų emuliavimo laikrodžiu (`core::runner`).
 
-// Pilnai išnaudos P3.4, kai sujungiama su runner.rs — P3.3 metu naudoja tik testai.
-#![allow(dead_code)]
+#![allow(dead_code)] // occupancy-pagrįstas pacing'as pilnai išnaudojamas tik core::runner (P3.4).
 
 use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType};
 
@@ -36,6 +39,9 @@ const CHUNK_SIZE: usize = 512;
 /// Kuklus rezervas dinaminiam rate control'ui (P3.4, CLAUDE.md §8.6 `MAX_DELTA = 0.005`) —
 /// leidžia vėliau kviesti `set_resample_ratio_relative` be resampler'io perkūrimo.
 const MAX_RELATIVE_RATIO: f64 = 1.1;
+/// Didžiausias leidžiamas ratio nuokrypis nuo bazinio (CLAUDE.md §8.6) — 0.5%, nepastebima
+/// ausiai, bet pakanka ilgainiui centruoti ring buferio occupancy apie 50%.
+const MAX_DELTA: f64 = 0.005;
 
 /// Vieno core'o sesijos resampler'is: core sample rate → įrenginio sample rate, interleaved
 /// `i16` į interleaved `i16`.
@@ -135,6 +141,17 @@ impl AudioResampler {
         }
 
         Ok(&self.output_i16)
+    }
+
+    /// Nedidelis (±`MAX_DELTA`) resampling ratio koregavimas pagal ring buferio occupancy
+    /// (CLAUDE.md §8.6, P3.4). `deviation` — `(occupancy - 0.5) * 2.0`, apytiksliai
+    /// `-1.0..=1.0`. Glotniai (`ramp = true`) pereina prie naujo ratio per kitą chunk'ą —
+    /// vengia staigių, girdimų dažnio šuolių.
+    pub fn adjust_ratio(&mut self, deviation: f64) -> Result<(), AppError> {
+        let relative = 1.0 + MAX_DELTA * deviation;
+        self.resampler
+            .set_resample_ratio_relative(relative, true)
+            .map_err(|e| AppError::Other(format!("nepavyko koreguoti resampling ratio: {e}")))
     }
 }
 
@@ -304,6 +321,21 @@ mod tests {
         assert!(AudioResampler::new(0.0, 48000.0, 2).is_err());
         assert!(AudioResampler::new(32040.0, 0.0, 2).is_err());
         assert!(AudioResampler::new(32040.0, 48000.0, 0).is_err());
+    }
+
+    /// P3.4: occupancy-pagrįsta ratio korekcija (CLAUDE.md §8.6) turėtų priimti visą
+    /// realistinį `deviation` diapazoną (`-1.0..=1.0`) be klaidos — patvirtina, kad
+    /// `MAX_DELTA=0.005` visada telpa į `MAX_RELATIVE_RATIO=1.1` ribas.
+    #[test]
+    fn adjust_ratio_accepts_full_deviation_range() {
+        let mut resampler =
+            AudioResampler::new(32040.0, 48000.0, CHANNELS).expect("turėtų sukurti");
+        for deviation in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+            assert!(
+                resampler.adjust_ratio(deviation).is_ok(),
+                "deviation={deviation} turėtų būti priimtas"
+            );
+        }
     }
 
     #[test]

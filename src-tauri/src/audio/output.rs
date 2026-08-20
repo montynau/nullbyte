@@ -21,8 +21,11 @@ use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
 
 use crate::error::AppError;
 
-/// Tikslinis buferio latency (P3.1 „Ką daryti": ~40–60 ms).
-const TARGET_LATENCY_MS: u32 = 50;
+/// Tikslinis buferio latency (P3.1 „Ką daryti": ~40–60 ms). `pub(crate)`, kad
+/// `audio::ring`'o talpa (P3.2/P3.4, `recommended_capacity`) būtų skaičiuojama nuo TO PATIES
+/// dydžio, kurį realiai naudoja cpal srautas — kitaip „~4x buferio dydžio" reikštų du
+/// skirtingus, nesuderintus dydžius.
+pub(crate) const TARGET_LATENCY_MS: u32 = 50;
 
 /// Veikiantis garso išvesties srautas. `Drop` (per vidinį `cpal::Stream`) sustabdo srautą
 /// automatiškai.

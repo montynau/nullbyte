@@ -3,6 +3,8 @@
 
 use tauri::{AppHandle, Manager};
 
+use crate::audio::output::AudioOutput;
+use crate::audio::ring::AudioConsumer;
 use crate::error::AppError;
 use crate::state::AppState;
 use crate::video::frame_buffer::{FrameConsumer, VideoFrameData};
@@ -144,4 +146,45 @@ pub fn start_frame_pump(app: AppHandle, mut consumer: FrameConsumer) {
             });
         })
         .expect("nepavyko sukurti frame pump gijos");
+}
+
+/// Atidaro realų cpal audio srautą, kurio šaltinis — `AudioConsumer` (P3.2/P3.4).
+///
+/// **Kodėl dedikuota gija, ne `AppState`:** `cpal::Stream` (macOS CoreAudio backend'e)
+/// NĖRA `Send` (viduje laiko `Box<dyn FnMut()>` property listener'į) — jo negalima laikyti
+/// `Mutex<Option<AudioOutput>>` lauke, nes Tauri managed state reikalauja `Send + Sync`
+/// (kompiliavimo klaida patikrinta P3.4 metu). Sprendimas — ta pati technika kaip
+/// `core::runner::EmuThread`: dedikuota gija sukuria IR laiko `AudioOutput` savo pačios
+/// stack'e visą gyvavimo trukmę, niekada neperduodama jo per gijos ribą.
+#[allow(dead_code)]
+pub fn start_audio_pump(mut consumer: AudioConsumer) -> Result<(), AppError> {
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+
+    std::thread::Builder::new()
+        .name("nullbyte-audio-pump".to_string())
+        .spawn(move || {
+            let output = AudioOutput::open(move |buf: &mut [f32], _channels: u16| {
+                consumer.fill(buf);
+            });
+            match output {
+                Ok(_output) => {
+                    let _ = ready_tx.send(Ok(()));
+                    // `output` (taigi ir `cpal::Stream`) gyvena čia amžinai — gija tiesiog
+                    // "parkuojasi", kol procesas veikia. Švaraus sustabdymo mechanizmas
+                    // (analogiškas EmuThread Drop+join) — post-MVP, kai turėsime realų
+                    // žaidimo pabaigos srautą (P9.1).
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(3600));
+                    }
+                }
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                }
+            }
+        })
+        .expect("nepavyko sukurti audio pump gijos");
+
+    ready_rx
+        .recv()
+        .map_err(|_| AppError::Other("audio pump gija nutrūko be atsakymo".to_string()))?
 }

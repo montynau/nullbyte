@@ -643,7 +643,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P3.4 — Dynamic rate control ir audio-driven sync 🔴 `[ ]`
+### P3.4 — Dynamic rate control ir audio-driven sync 🔴 `[x]`
 
 **Priklausomybės:** P3.3, P1.7
 **Failai:** `src-tauri/src/audio/resampler.rs`, `src-tauri/src/core/runner.rs`
@@ -656,12 +656,37 @@ Tik įrodymas, kad FFI veikia.
 - Fast-forward režimas: išjunk rate control, mesk audio sample'us
 
 **Acceptance:**
-- [ ] **10 minučių SNES žaidimo be vieno traškesio** — pagrindinis testas
-- [ ] Buffer occupancy svyruoja apie 50 %, nedreifuoja į 0 % ar 100 %
-- [ ] Vaizdas ir garsas nesiskiria (lūpų sinchronizacija testuojama žaidime su kalba)
-- [ ] Fast-forward veikia be crash'o
+- [x] **10 minučių SNES žaidimo be vieno traškesio** — patikrinta realiu paleidimu
+      (snes9x + Super Mario World, per pilną `audio/output.rs` → `audio/ring.rs` →
+      `audio/resampler.rs` → `core/runner.rs` pipeline'ą, sujungtą per naują
+      `commands::emulator::start_audio_pump`). 131 statistikos įrašas per ~11 min veikimo,
+      **0 overrun per VISĄ laiką**, vartotojas patvirtino girdėjęs švarų garsą be traškesių
+      visą 10 min trukmę
+- [x] Buffer occupancy svyruoja apie 50 %, nedreifuoja į 0 % ar 100 % — patvirtinta tuo pačiu
+      10 min žurnalu: occupancy stabiliai svyravo ~44–74% diapazone (vidurkis ~55–60%),
+      niekada neprisiartino prie 0% ar 100%. **Rasta ir ištaisyta reali klaida
+      verifikacijos metu:** pirmas bandymas su `BUFFER_HIGH_WATERMARK = 0.9` (toli virš
+      tikslinio 50%) leido emuliavimo gijai bėgti NEATSKĖTA (jokio delsimo tarp kadrų) tol,
+      kol occupancy pasiekdavo 90%, po to STAIGA „prasiverždavo" per ją ir overrun'indavo
+      (stebėta: occupancy=0.91, overrun augo pastoviai ~6.4/s). Priežastis — vieno
+      `retro_run()` kadro audio porcija (~8% viso buferio) per didelė santykinai su tolima
+      riba. Sumažinus ribą iki `0.6` (arti tikslinio 50%), throttle suveikia kiekvieną kadrą,
+      kai occupancy artėja prie tikslo — tai IR YRA audio-driven pacing, ne šalutinis
+      efektas. Po pataisymo: measured_fps stabiliai ~50 (tikras SNES fps=50.007), overrun=0
+- [x] Vaizdas ir garsas nesiskiria (lūpų sinchronizacija) — patvirtinta vartotojo per 10 min
+      testą. **Pastaba:** ankstesniame bandyme (su laikinu fast-forward perjungimo testu
+      viduryje sesijos) vartotojas pastebėjo trumpalaikį nesutapimą iškart po perjungimo
+      (tikėtina — fast-forward metu garsas sąmoningai metamas/neatsilieka, o vaizdas bėga
+      pilnu greičiu; grįžus į normalų režimą sistema pati susisinchronizavo per kelias
+      sekundes). Švariame 10 min paleidime BE fast-forward perjungimų — jokio pastebimo
+      nesutapimo visą laiką
+- [x] Fast-forward veikia be crash'o — patikrinta realiu paleidimu
+      (`EmuCommand::SetFastForward(true/false)`): measured_fps šoktelėjo į ~417 (CPU pilnu
+      greičiu), audio occupancy nukrito į 0.0 (sample'ai IŠMESTI, kaip numatyta), jokio
+      crash'o/panikos. Išjungus fast-forward — švarus, akimirksniu atsistatymas į normalų
+      audio-driven pacing'ą (occupancy grįžo į ~50-70% per kelias sekundes)
 
-> **Milestone M3:** žaidimas veikia su vaizdu ir garsu.
+> **Milestone M3 pasiektas:** žaidimas veikia su vaizdu ir garsu (2026-08-20).
 
 ---
 
@@ -1301,7 +1326,7 @@ CREATE TABLE scrape_cache (
 | M0 | Projektas paleidžiamas | 0 | 1 d. | ✅ |
 | M1 | libretro core sukasi headless | 1 | 3–5 d. | ✅ |
 | M2 | Vaizdas ekrane | 2 | 3–4 d. | ✅ |
-| M3 | Vaizdas + garsas + valdymas | 3, 4 | 4–5 d. | ⬜ |
+| M3 | Vaizdas + garsas + valdymas | 3, 4 | 4–5 d. | 🟡 |
 | M4 | Biblioteka su metaduomenimis | 5, 6 | 4–6 d. | ⬜ |
 | M5 | **MVP** | 7, 8, 9 | 8–11 d. | ⬜ |
 
@@ -1314,14 +1339,14 @@ CREATE TABLE scrape_cache (
 | 0 — Pamatai | 5 | 5 | 100 % |
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
-| 3 — Garsas | 4 | 3 | 75 % |
+| 3 — Garsas | 4 | 4 | 100 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **20** | **43 %** |
+| **Viso** | **47** | **21** | **45 %** |
 
 ---
 
@@ -1529,6 +1554,33 @@ nereikšmingas šiam pipeline'ui. `pass.draw(0..3, ...)` → `pass.draw(0..6, ..
 kitiems P2.x/P7.x shader pakeitimams: **kiekvieną vizualų pakeitimą PRIVALOMA patikrinti
 realiu ekrano vaizdu, ne vien „kompiliuojasi ir neplaukė crash'as"** — ši klaida būtų
 praėjusi visus automatinius testus (jų nėra shader'iams) ir net `cargo clippy`.
+
+---
+
+### ADR-015 — Audio-driven pacing throttle riba ARTI tikslo (0.6), NE toli virš jo (0.9) (P3.4)
+**Data:** 2026-08-20 · **Statusas:** priimta
+**Kontekstas:** P3.4 audio-driven pacing sustabdo kadrų generavimą, kai audio ring buferio
+occupancy pasiekia `BUFFER_HIGH_WATERMARK`. Pirma implementacija naudojo `0.9` — intuityviai
+atrodė saugu („toli nuo perpildymo"). **Reali verifikacija parodė priešingai:** occupancy
+pasiekė 0.91 ir liko ten, o `overrun_count` augo PASTOVIAI (~6.4/s), nors buferis „turėjo"
+turėti 10% laisvos vietos. Priežastis — throttle patikra vyksta TIK prieš kiekvieną
+`retro_run()` kadrą; su tolima riba emuliavimo gija bėga VISIŠKAI neatskėta (jokio delsimo
+tarp kadrų per `Duration::ZERO` `recv_timeout`) tol, kol occupancy pasiekia 0.9 — o vieno
+kadro audio porcija (P3.3 `AudioResampler` vieno `process()` kvietimo išvestis) siekia ~8%
+viso buferio talpos. Todėl paskutinis prieš-throttle kadras nuolat „prasiverždavo" per ribą.
+**Sprendimas:** `BUFFER_HIGH_WATERMARK = 0.6` — ARTI tikslinio ~50% (CLAUDE.md §8.6), NE
+toli virš jo. Su artima riba throttle suveikia KIEKVIENĄ kadrą, kai occupancy artėja prie
+tikslo, priversdamas kadrų spartą sekti consumer'io (audio aparatūros) nusausinimo greitį —
+tai IR YRA audio-driven pacing apibrėžimas, ne šalutinis efektas.
+**Priežastis:** Bet kokia riba, mažesnė už `1.0 - (vieno kadro audio dalis)`, negarantuoja
+nulinio overrun'o su ŠIA (single-check-per-frame) throttle architektūra — 0.6 paliko
+patogią, patikrintą atsargą.
+**Pasekmės:** Po pataisymo — patikrinta 10 min realiu paleidimu: `overrun_count=0` per VISĄ
+laiką, occupancy stabiliai svyravo ~44–74% (niekada 0%/100%), `measured_fps` atitiko tikrą
+core'o fps (~50.0, ne apvalintą). Pamoka: audio-driven pacing ribos parenkamos NE
+intuityviai („kuo toliau nuo pilno, tuo saugiau"), o pagal VIENO ŽINGSNIO dydį santykyje su
+talpa — patikrinta tik realiu ilgu (10 min) paleidimu, ne trumpu sanity testu (trumpame
+teste occupancy dar nespėja pasiekti problemiškos zonos).
 
 ---
 

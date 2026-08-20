@@ -5,11 +5,12 @@
 //! Visi `retro_*` kvietimai vyksta iš vienos (emuliavimo) gijos, tad `thread_local` yra saugus
 //! ir be sinchronizacijos kaštų (CLAUDE.md §3.2 taisyklė #1, ADR-007).
 //!
-//! **Pastaba dėl placeholder laukų:** `video_frame` ir `audio_samples_written` čia yra
-//! minimalūs — realų lock-free triple buffer'į video kadrams prijungs P2.2, o realų rtrb ring
-//! buffer'į garsui — P3.2. Kol jų nėra, `video_frame` laiko tik PASKUTINĮ kadrą (fiksuoto
-//! dydžio, ne augantis), o garsui laikomas tik skaitliukas — taip išvengiama neribotai
-//! augančio buferio, kol niekas jo nenuleidžia (drain).
+//! **Pastaba dėl `audio_buffer`:** čia kaupiami ŽALI (core sample rate'u, interleaved
+//! stereo `i16`) sample'ai iš `audio_sample_batch_cb`/`audio_sample_cb`. `core::runner`
+//! (P3.4) juos ištraukia po kiekvieno `retro_run()` (`std::mem::take`-like `clear()` po
+//! nuskaitymo) ir perleidžia per `audio::resampler::AudioResampler` → `audio::ring`. Kol
+//! niekas jo nenuleidžia (pvz. core'as niekada nepaleistas), buferis lieka tuščias — auga
+//! tik tarp dviejų `retro_run()` kvietimų, ne neribotai.
 
 // Naudos runner.rs (P1.7) ir environment.rs (P1.5) — kol jie neparašyti, callback'ai ir
 // EmuContext laukai pilnai išnaudojami tik testuose.
@@ -36,8 +37,12 @@ pub struct EmuContext {
     pub pixel_format: u32,
     pub video_frame: VideoFrame,
     pub video_frame_count: u64,
-    /// Placeholder P3.2 ring buffer producer'iui — kol kas tik skaitliukas.
+    /// Bendras kada nors gautų audio sample'ų (kadrų, ne atskirų i16 reikšmių) skaičius —
+    /// tik statistikai (žr. `core::runner` periodinį log'ą).
     pub audio_samples_written: u64,
+    /// Žali (core sample rate'u, interleaved stereo `i16`) sample'ai nuo paskutinio
+    /// ištraukimo (žr. modulio doc). `core::runner` juos ištraukia po kiekvieno `retro_run()`.
+    pub audio_buffer: Vec<i16>,
     /// Mygtukų bitmask kiekvienam iš 4 portų (bitas N = `RETRO_DEVICE_ID_JOYPAD_N`).
     pub input_state: [u16; 4],
     /// Užpildoma `RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY` apdorojime (P1.5).
@@ -61,6 +66,7 @@ impl Default for EmuContext {
             video_frame: VideoFrame::default(),
             video_frame_count: 0,
             audio_samples_written: 0,
+            audio_buffer: Vec::new(),
             input_state: [0; 4],
             system_dir: None,
             save_dir: None,
@@ -145,10 +151,12 @@ pub unsafe extern "C" fn video_refresh_cb(
 /// # Safety
 /// Neliečia jokių žaliavinių (raw) rodyklių — `left`/`right` yra paprastos reikšmės.
 /// Funkcija pažymėta `unsafe extern "C"`, nes ją tiesiogiai kviečia core per FFI ribą.
-pub unsafe extern "C" fn audio_sample_cb(_left: i16, _right: i16) {
+pub unsafe extern "C" fn audio_sample_cb(left: i16, right: i16) {
     CTX.with_borrow_mut(|slot| {
         if let Some(ctx) = slot.as_mut() {
             ctx.audio_samples_written += 1;
+            ctx.audio_buffer.push(left);
+            ctx.audio_buffer.push(right);
         }
     });
 }
@@ -163,9 +171,14 @@ pub unsafe extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) 
         return 0;
     }
 
+    // SAFETY: žr. funkcijos SAFETY komentarą — core garantuoja `frames * 2` (L/R,
+    // interleaved) galiojančių i16 reikšmių šio iškvietimo metu.
+    let samples = unsafe { std::slice::from_raw_parts(data, frames * 2) };
+
     CTX.with_borrow_mut(|slot| {
         if let Some(ctx) = slot.as_mut() {
             ctx.audio_samples_written += frames as u64;
+            ctx.audio_buffer.extend_from_slice(samples);
         }
     });
 

@@ -1,7 +1,10 @@
 //! Emuliavimo gija: dedikuota gija su komandų kanalu, `retro_run()` loop, kadrų pacing
-//! (CLAUDE.md §3.2, §8.2, P1.7). Nuo P2.4 kiekvieno kadro pabaigoje konvertuoja
-//! `EmuContext.video_frame` į RGBA8 ([`pixel_format`]) ir publikuoja per
+//! (CLAUDE.md §3.2, §8.2, §8.5–§8.6, P1.7/P3.4). Nuo P2.4 kiekvieno kadro pabaigoje
+//! konvertuoja `EmuContext.video_frame` į RGBA8 ([`pixel_format`]) ir publikuoja per
 //! [`frame_buffer::FrameProducer`] — UI/render gija skaito per grąžintą `FrameConsumer`.
+//! Nuo P3.4 taip pat perleidžia `EmuContext.audio_buffer` per [`AudioResampler`] į
+//! [`audio_ring::AudioProducer`] IR naudoja jo occupancy kaip pagrindinį kadrų pacing
+//! mechanizmą (audio-driven sync, CLAUDE.md §8.5) — garso plokštė tampa laikrodžiu.
 //!
 //! **Milestone M1:** jei ši gija patikimai suka realų ROM'ą be crash'o — libretro
 //! integracija veikia ir galima eiti į Fazę 2.
@@ -15,6 +18,8 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use crate::audio::resampler::AudioResampler;
+use crate::audio::ring::{self as audio_ring, AudioConsumer, AudioProducer};
 use crate::core::callbacks::{self, EmuContext};
 use crate::core::ffi::{
     RETRO_PIXEL_FORMAT_0RGB1555, RETRO_PIXEL_FORMAT_RGB565, RETRO_PIXEL_FORMAT_XRGB8888,
@@ -23,6 +28,22 @@ use crate::core::loader::{CoreHandle, LoadedGameInfo, RetroCallbacks};
 use crate::error::AppError;
 use crate::video::frame_buffer::{self, FrameConsumer, FrameProducer};
 use crate::video::pixel_format::{self, PixelFormat};
+
+/// Kai audio ring buferis pasiekia šią occupancy dalį — sustabdome kadrų generavimą ir
+/// laukiame, kol consumer'is (audio aparatūra) jį nusausins (CLAUDE.md §8.5 audio-driven
+/// sync). SĄMONINGAI arti tikslinio ~50% (P3.4 dinaminio rate control tikslas), NE toli virš
+/// jo — kiekvienas `retro_run()` kadras įrašo apytiksliai vieną „chunk'ą" (P3.3
+/// `AudioResampler` per vieną `process()` kvietimą sugeneruoja ~1 kadro audio, kuris gali
+/// siekti ~8% viso ring buferio talpos). Su TOLIMA riba (pvz. 0.9) emuliavimo gija bėga
+/// NEATSKĖTA (jokio delsimo tarp kadrų) tol, kol occupancy pasieks ribą, po to STAIGA
+/// „prasiveržia" per ją ir overrun'ina — patikrinta empiriškai P3.4 verifikacijos metu
+/// (occupancy pasiekė 0.91, overrun augo pastoviai). Artima riba priverčia throttle'ą
+/// suveikti KIEKVIENĄ kadrą, kai occupancy artėja prie tikslo — tai IR YRA audio-driven
+/// pacing (kadrų sparta pritaikoma prie consumer'io nusausinimo greičio), ne šalutinis efektas.
+const BUFFER_HIGH_WATERMARK: f64 = 0.6;
+/// Kiek laukti, kol vėl patikrinti, ar audio ring buferyje atsirado vietos (throttled
+/// pacing) — pakankamai trumpai, kad nebūtų girdimo delsimo, bet ne busy-spin.
+const THROTTLE_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
 /// Vieno porto įvestis (`RETRO_DEVICE_JOYPAD` bitmask). Kol P4.x mapping'as neparašytas,
 /// tai minimali reprezentacija tiesiogiai atitinkanti `EmuContext.input_state`.
@@ -48,6 +69,9 @@ pub enum EmuCommand {
     /// Dar neimplementuota — P8.1. Kol kas logina ir ignoruoja.
     LoadState(u8),
     SetInput(InputState),
+    /// Fast-forward (P3.4): `true` — bėga CPU pilnu greičiu, be audio-driven pacing'o, ir
+    /// meta (nepublikuoja) audio sample'us, kaip nurodyta MVP.md P3.4 „Ką daryti".
+    SetFastForward(bool),
 }
 
 /// Rankena į veikiančią emuliavimo giją. `Drop` siunčia `Stop` ir laukia, kol gija baigs
@@ -58,14 +82,38 @@ pub struct EmuThread {
 }
 
 impl EmuThread {
-    /// Paleidžia naują dedikuotą emuliavimo giją. Grąžina ir [`FrameConsumer`] — UI/render
-    /// gija per jį gauna kiekvieną naują nupieštą kadrą (P2.4).
-    pub fn spawn() -> (Self, FrameConsumer) {
+    /// Paleidžia naują dedikuotą emuliavimo giją. Grąžina [`FrameConsumer`] (UI/render gija
+    /// per jį gauna kiekvieną naują nupieštą kadrą, P2.4) ir [`AudioConsumer`] (audio
+    /// callback per jį gauna resample'intus sample'us, P3.4).
+    ///
+    /// `device_sample_rate`/`device_channels` — REALAUS garso išvesties įrenginio
+    /// konfigūracija (žr. `audio::output::default_config()`) — reikalinga iš anksto, kad
+    /// ring buferis būtų teisingo dydžio ir kad `handle_load` žinotų, į kokį rate
+    /// resample'inti kiekvieno naujo core'o garsą.
+    pub fn spawn(
+        device_sample_rate: u32,
+        device_channels: u16,
+    ) -> (Self, FrameConsumer, AudioConsumer) {
         let (sender, receiver) = mpsc::channel();
         let (video_producer, video_consumer) = frame_buffer::new();
+        let ring_capacity = audio_ring::recommended_capacity(
+            device_sample_rate,
+            device_channels,
+            crate::audio::output::TARGET_LATENCY_MS,
+        );
+        let (audio_producer, audio_consumer) = audio_ring::new(ring_capacity);
+
         let handle = std::thread::Builder::new()
             .name("nullbyte-emu".to_string())
-            .spawn(move || run_loop(receiver, video_producer))
+            .spawn(move || {
+                run_loop(
+                    receiver,
+                    video_producer,
+                    audio_producer,
+                    device_sample_rate,
+                    device_channels,
+                )
+            })
             .expect("nepavyko sukurti emuliavimo gijos");
 
         (
@@ -74,6 +122,7 @@ impl EmuThread {
                 handle: Some(handle),
             },
             video_consumer,
+            audio_consumer,
         )
     }
 
@@ -102,14 +151,29 @@ struct RunnerState {
     core: Option<CoreHandle>,
     game_info: Option<LoadedGameInfo>,
     running: bool,
+    /// P3.4: `true` kai fast-forward įjungtas — jokio audio-driven throttle'o, audio
+    /// sample'ai meta (nepublikuojami).
+    fast_forward: bool,
+    /// Kiekvieno naujo core'o garso resampler'is — perkuriamas `handle_load`, nes core rate
+    /// (`info.sample_rate`) gali skirtis tarp ROM'ų. `None`, kol nieko neįkelta arba
+    /// resampler'io kūrimas nepavyko (žr. `handle_load`).
+    resampler: Option<AudioResampler>,
+    /// Realaus garso įrenginio konfigūracija — konstanta visai gijos gyvavimo trukmei
+    /// (nustatoma `EmuThread::spawn()` metu).
+    device_sample_rate: u32,
+    device_channels: u16,
 }
 
 impl RunnerState {
-    fn new() -> Self {
+    fn new(device_sample_rate: u32, device_channels: u16) -> Self {
         Self {
             core: None,
             game_info: None,
             running: false,
+            fast_forward: false,
+            resampler: None,
+            device_sample_rate,
+            device_channels,
         }
     }
 }
@@ -148,6 +212,26 @@ fn handle_load(state: &mut RunnerState, core_path: &std::path::Path, rom_path: &
                 sample_rate = info.sample_rate,
                 "core ir ROM'as įkelti"
             );
+
+            // P3.4: kiekvienas core'as/ROM'as gali turėti skirtingą sample rate (žr.
+            // CLAUDE.md §8.5 SNES/Genesis/GBA pavyzdžius) — resampler'is kuriamas iš naujo.
+            state.resampler = match AudioResampler::new(
+                info.sample_rate,
+                f64::from(state.device_sample_rate),
+                state.device_channels as usize,
+            ) {
+                Ok(resampler) => Some(resampler),
+                Err(error) => {
+                    tracing::error!(
+                        %error,
+                        core_sample_rate = info.sample_rate,
+                        device_sample_rate = state.device_sample_rate,
+                        "nepavyko sukurti audio resampler'io — garso nebus šiai sesijai"
+                    );
+                    None
+                }
+            };
+
             state.core = Some(core);
             state.game_info = Some(info);
         }
@@ -169,6 +253,7 @@ fn cleanup(state: &mut RunnerState) {
     }
     state.game_info = None;
     state.running = false;
+    state.resampler = None;
 }
 
 /// `RETRO_PIXEL_FORMAT_*` (ffi.rs, žalia `u32`) → [`PixelFormat`] (video/pixel_format.rs).
@@ -205,17 +290,65 @@ fn publish_video_frame(producer: &mut FrameProducer, aspect_ratio: f32) {
     });
 }
 
+/// Ištraukia šio kadro žalius (core sample rate'u) audio sample'us iš `EmuContext`,
+/// perleidžia per resampler'į ir publikuoja į `producer` (P3.4). Fast-forward metu (arba
+/// jei resampler'io nėra) sample'ai tik ištraukiami (drain'inami) ir IŠMETAMI — CLAUDE.md
+/// §8.6/MVP.md P3.4 „Ką daryti": „Fast-forward režimas: išjunk rate control, mesk audio
+/// sample'us". Po sėkmingo publikavimo koreguoja resampling ratio pagal ring occupancy.
+fn process_audio_frame(
+    state: &mut RunnerState,
+    producer: &mut AudioProducer,
+    scratch: &mut Vec<i16>,
+) {
+    callbacks::with_context(|ctx| {
+        scratch.clear();
+        scratch.extend_from_slice(&ctx.audio_buffer);
+        ctx.audio_buffer.clear();
+    });
+
+    if state.fast_forward || scratch.is_empty() {
+        return;
+    }
+
+    let Some(resampler) = &mut state.resampler else {
+        return;
+    };
+
+    let push_result = resampler
+        .process(scratch)
+        .map(|resampled| producer.push_samples(resampled));
+    if let Err(error) = push_result {
+        tracing::error!(%error, "audio resampling nepavyko");
+        return;
+    }
+
+    // Dinaminis rate control (CLAUDE.md §8.6): centruoja occupancy apie ~50%, kad ring
+    // buferis niekada nedreiftų į 0% (traškesiai) ar 100% (overrun).
+    let occupancy = producer.occupancy();
+    let deviation = (occupancy - 0.5) * 2.0;
+    if let Err(error) = resampler.adjust_ratio(deviation) {
+        tracing::debug!(%error, occupancy, "nepavyko koreguoti resampling ratio");
+    }
+}
+
 /// Emuliavimo gijos pagrindinis loop'as. `thread_local` `EmuContext` (CLAUDE.md §3.3)
 /// įdiegiama vieną kartą šios gijos pradžioje ir gyvena visą jos gyvavimo trukmę.
-fn run_loop(receiver: Receiver<EmuCommand>, mut video_producer: FrameProducer) {
+fn run_loop(
+    receiver: Receiver<EmuCommand>,
+    mut video_producer: FrameProducer,
+    mut audio_producer: AudioProducer,
+    device_sample_rate: u32,
+    device_channels: u16,
+) {
     callbacks::install_context(EmuContext::default());
 
-    let mut state = RunnerState::new();
+    let mut state = RunnerState::new(device_sample_rate, device_channels);
     let mut frame_count: u64 = 0;
     let mut last_video_frames: u64 = 0;
     let mut last_audio_samples: u64 = 0;
     let mut last_stats_log = Instant::now();
     let mut next_frame_deadline = Instant::now();
+    let mut audio_scratch: Vec<i16> = Vec::new();
 
     'outer: loop {
         // Kai bėgame — netrukdome frame pacing'ui, tik trumpai pažiūrime, ar yra komanda.
@@ -270,6 +403,10 @@ fn run_loop(receiver: Receiver<EmuCommand>, mut video_producer: FrameProducer) {
                     }
                 });
             }
+            Ok(EmuCommand::SetFastForward(enabled)) => {
+                state.fast_forward = enabled;
+                tracing::debug!(enabled, "fast-forward režimas pakeistas");
+            }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 cleanup(&mut state);
@@ -286,18 +423,42 @@ fn run_loop(receiver: Receiver<EmuCommand>, mut video_producer: FrameProducer) {
                 state.running = false;
                 continue;
             };
+            // Kopijuojame reikšmes ANKSTI — `info` skolinys iš `state.game_info` turi
+            // pasibaigti prieš `process_audio_frame(&mut state, ...)` žemiau.
+            let aspect_ratio = info.aspect_ratio;
+            let fps = info.fps;
+
+            // Audio-driven pacing (P3.4, CLAUDE.md §8.5): kai NE fast-forward ir yra veikiantis
+            // audio pipeline'as, nebėginėjame naujo kadro, kol ring buferis beveik pilnas —
+            // laukiame, kol consumer'is (real-time audio aparatūra) jį nusausins. Tai IR yra
+            // laikrodis — jokio fiksuoto sleep'o nebereikia šiuo atveju.
+            if !state.fast_forward
+                && state.resampler.is_some()
+                && audio_producer.occupancy() >= BUFFER_HIGH_WATERMARK
+            {
+                std::thread::sleep(THROTTLE_POLL_INTERVAL);
+                continue;
+            }
 
             // SAFETY: emuliavimo gija, core įkeltas su sėkmingu load_game() (state.game_info
             // yra Some tik po to).
             unsafe { core.run() };
             frame_count += 1;
-            publish_video_frame(&mut video_producer, info.aspect_ratio);
+            publish_video_frame(&mut video_producer, aspect_ratio);
+            process_audio_frame(&mut state, &mut audio_producer, &mut audio_scratch);
 
-            // MVP kadrų pacing: laukiam iki kito kadro momento pagal core'o TIKRĄ fps
-            // (ne apvalintą 60) — pakeis audio-driven sinchronizacija P3.4 (ADR-012).
-            let fps = if info.fps > 0.0 { info.fps } else { 60.0 };
-            next_frame_deadline += Duration::from_secs_f64(1.0 / fps);
-            spin_sleep::sleep_until(next_frame_deadline);
+            if state.fast_forward {
+                // Fast-forward: jokio laukimo — bėgam CPU pilnu greičiu (P3.4 „Ką daryti").
+            } else if state.resampler.is_none() {
+                // Atsarginis fiksuotas P1.7 pacing'as — tik jei audio pipeline'as neveikia
+                // (pvz. resampler'io kūrimas nepavyko). Apsauga nuo nekontroliuojamo CPU
+                // spin'o, jei dėl kokios nors priežasties audio-driven pacing negalimas.
+                let fps = if fps > 0.0 { fps } else { 60.0 };
+                next_frame_deadline += Duration::from_secs_f64(1.0 / fps);
+                spin_sleep::sleep_until(next_frame_deadline);
+            }
+            // else: audio-driven pacing jau atliktas aukščiau (occupancy patikra prieš
+            // bėgant šį kadrą) — jokio papildomo laukimo nereikia.
 
             if last_stats_log.elapsed() >= Duration::from_secs(5) {
                 let elapsed = last_stats_log.elapsed().as_secs_f64();
@@ -314,6 +475,8 @@ fn run_loop(receiver: Receiver<EmuCommand>, mut video_producer: FrameProducer) {
                     measured_fps,
                     video_fps,
                     audio_samples_per_sec = audio_rate,
+                    audio_occupancy = audio_producer.occupancy(),
+                    audio_overrun_count = audio_producer.overrun_count(),
                     "emuliavimo statistika"
                 );
 
@@ -364,7 +527,7 @@ mod tests {
         };
 
         let _core_lock = crate::core::test_support::lock_core_load();
-        let (emu, _video) = EmuThread::spawn();
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2);
         emu.send(EmuCommand::Load { core, rom }).unwrap();
         emu.send(EmuCommand::Run).unwrap();
 
@@ -383,7 +546,7 @@ mod tests {
 
     #[test]
     fn stop_without_load_does_not_hang_or_panic() {
-        let (emu, _video) = EmuThread::spawn();
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2);
         emu.send(EmuCommand::Pause).unwrap(); // komanda be įkelto core'o — turėtų būti no-op
         drop(emu);
     }
@@ -405,7 +568,7 @@ mod tests {
         };
 
         let _core_lock = crate::core::test_support::lock_core_load();
-        let (emu, _video) = EmuThread::spawn();
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2);
         emu.send(EmuCommand::Load { core, rom }).unwrap();
         emu.send(EmuCommand::Run).unwrap();
 
@@ -426,7 +589,7 @@ mod tests {
             return;
         };
 
-        let (emu, _video) = EmuThread::spawn();
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2);
         emu.send(EmuCommand::Load {
             core: bad_core.to_path_buf(),
             rom: PathBuf::from("/nonexistent.sfc"),
