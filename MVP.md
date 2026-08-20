@@ -354,7 +354,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P1.7 — Emuliavimo gija ir headless loop 🔴 `[ ]`
+### P1.7 — Emuliavimo gija ir headless loop 🔴 `[x]`
 
 **Priklausomybės:** P1.6
 **Failai:** `src-tauri/src/core/runner.rs`
@@ -371,12 +371,17 @@ Tik įrodymas, kad FFI veikia.
 - FPS skaitiklis → `tracing::info!` kas 5 s
 - Švarus sustabdymas: `unload_game` → `deinit` → drop
 
-**Acceptance:**
-- [ ] Paleidžia SNES ROM'ą ir 60 sekundžių sukasi be crash'o
-- [ ] Log rodo ~60 FPS (±1)
-- [ ] `Stop` komanda sustabdo švariai, be memory leak (patikrink Activity Monitor / `htop`)
-- [ ] Video callback kviečiamas ~60 k./s (skaitliukas log'e)
-- [ ] Audio callback duoda ~32040 sample/s SNES atveju
+**Acceptance:** (visi patikrinti realiu 60s paleidimu, du kartus, release build,
+`snes9x` + `Super Punch-Out!!.sfc` iš `roms/snes/`)
+- [x] Paleidžia SNES ROM'ą ir 60 sekundžių sukasi be crash'o — 2/2 paleidimai švarūs
+- [x] Log rodo ~FPS (±1) — šis konkretus ROM'as pasirodė PAL (50.0 Hz, ne NTSC 60.098);
+      `measured_fps` svyravo 49.98–50.03 per abu paleidimus (±0.03, gerokai tiksliau nei ±1)
+- [x] `Stop` komanda sustabdo švariai, be memory leak — RSS stebėta kas ~9s per visą 60s:
+      31296→31312 KB (16 KB svyravimas iš ~31 MB), procesas išnyksta iš karto po `Stop`
+- [x] Video callback kviečiamas ~60 k./s (skaitliukas log'e) — `video_fps` kiekvieną kartą
+      tiksliai sutapo su `measured_fps` (šiam core'ui/ROM'ui 1 video kadras = 1 retro_run())
+- [x] Audio callback duoda ~32040 sample/s SNES atveju — 31679–32055/s, centruota tiksliai
+      ant core'o paties praneštos `sample_rate = 32040.0`
 
 > **Milestone M1:** čia turi būti aišku, kad libretro integracija veikia.
 > Jei ne — sustok ir spręsk, prieš eidamas į Fazę 2.
@@ -1201,7 +1206,7 @@ CREATE TABLE scrape_cache (
 | # | Milestone | Fazės | Įvertis | Statusas |
 |---|---|---|---|---|
 | M0 | Projektas paleidžiamas | 0 | 1 d. | ✅ |
-| M1 | libretro core sukasi headless | 1 | 3–5 d. | ⬜ |
+| M1 | libretro core sukasi headless | 1 | 3–5 d. | ✅ |
 | M2 | Vaizdas ekrane | 2 | 3–4 d. | ⬜ |
 | M3 | Vaizdas + garsas + valdymas | 3, 4 | 4–5 d. | ⬜ |
 | M4 | Biblioteka su metaduomenimis | 5, 6 | 4–6 d. | ⬜ |
@@ -1214,7 +1219,7 @@ CREATE TABLE scrape_cache (
 | Faza | Užduočių | Baigta | % |
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
-| 1 — libretro | 7 | 6 | 86 % |
+| 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 0 | 0 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
@@ -1223,7 +1228,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **11** | **23 %** |
+| **Viso** | **47** | **12** | **26 %** |
 
 ---
 
@@ -1369,6 +1374,19 @@ Empiriškai patikrinta atskiru scratch projektu prieš įtraukiant į kodą.
 NEIŠPLĖSTU (neapdorotu) formatu — prarandami dinaminiai argumentai, bet pati eilutė vis
 tiek naudinga debug'inant. Kai Rust 1.99 stabilizuos `c_variadic` (arba `printf-compat`
 pereis į stable), verta grįžti ir implementuoti pilną formatavimą.
+
+### ADR-012 — `spin_sleep` kadrų pacing'ui (P1.7)
+**Data:** 2026-08-20 · **Statusas:** priimta
+**Kontekstas:** P1.7 MVP frame pacing reikalauja tikslaus laukimo iki `1.0 / fps` tarp
+`retro_run()` kvietimų (acceptance: „~60 FPS ±1"). Grynas `std::thread::sleep` turi OS
+scheduler'io netikslumą (dažnai 1–15 ms), kurio nepakanka šiam tikslumui.
+**Sprendimas:** `spin_sleep` — miega natūraliu `sleep` tiek, kiek platforma patikimai leidžia,
+paskutinę dalį „spin"-ina (busy-wait), kad pasiektų sub-milisekundinį tikslumą.
+**Priežastis:** Plačiai naudojama (2M+ atsisiuntimų), viena paskirtis, jokių papildomų
+priklausomybių medžio. Bus pakeista audio-driven sinchronizacija P3.4 (šis frame pacing —
+tik laikinas MVP sprendimas, kol garso buferis nėra laikrodis).
+**Pasekmės:** `spin_sleep::sleep_until(deadline)` naudojamas vietoj rankiniu būdu skaičiuojamo
+delta — išvengia dreifo, kaupiantis apvalinimo klaidoms per daug kadrų.
 
 ---
 

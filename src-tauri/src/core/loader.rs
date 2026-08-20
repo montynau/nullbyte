@@ -311,6 +311,23 @@ impl CoreHandle {
     pub unsafe fn deinit(&self) {
         unsafe { (self.symbols.retro_deinit)() };
     }
+
+    /// `retro_run()` — vykdo vieną kadrą. Naudos P1.7 `runner.rs` emuliavimo gijos loop'e.
+    ///
+    /// # Safety
+    /// Turi būti kviečiama tik iš emuliavimo gijos, po sėkmingo `load_game()`
+    /// (CLAUDE.md §3.2 taisyklė #1).
+    pub unsafe fn run(&self) {
+        unsafe { (self.symbols.retro_run)() };
+    }
+
+    /// `retro_reset()`.
+    ///
+    /// # Safety
+    /// Turi būti kviečiama tik iš emuliavimo gijos, po sėkmingo `load_game()`.
+    pub unsafe fn reset(&self) {
+        unsafe { (self.symbols.retro_reset)() };
+    }
 }
 
 fn path_to_cstring(path: &Path) -> Result<CString, AppError> {

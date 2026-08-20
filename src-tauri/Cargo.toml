@@ -43,4 +43,5 @@ crc32fast = "1"
 walkdir = "2"
 zip = "2"
 sevenz-rust = "0.6"
+spin_sleep = "1.3"
 
