@@ -1,4 +1,4 @@
-//! Emuliatoriaus langas ir wgpu Surface (CLAUDE.md §10, P2.3).
+//! Emuliatoriaus langas, wgpu Surface ir blit pipeline (CLAUDE.md §10, P2.3–P2.4).
 //!
 //! Emuliatoriaus vaizdas piešiamas atskirame Tauri `Window` BE webview
 //! (`tauri::window::WindowBuilder`, ne `WebviewWindowBuilder`) — leidžia tiesiogiai valdyti
@@ -11,14 +11,28 @@
 //! `tauri::async_runtime::block_on`, kad sinchroniai palauktų `request_adapter`/
 //! `request_device` — natūviose (ne-web) platformose šie iš tiesų užbaigiami iškart,
 //! `Future` apvalkalas daugiausia web suderinamumui.
+//!
+//! Blit pipeline (P2.4): kadras iš [`super::frame_buffer`] įkeliamas į `Rgba8Unorm` tekstūrą
+//! (`queue.write_texture`), tada nupiešiamas per pilno ekrano trikampį (be vertex buffer'io)
+//! ir sample'inamas fragment shader'yje — žr. `shaders/blit.wgsl`.
 
-// device()/queue() accessor'ius pilnai naudos P2.4 blit pipeline.
+// device()/queue() accessor'ius naudoja tik testai/ateities kodas.
 #![allow(dead_code)]
 
 use tauri::window::Window;
 use tauri::Runtime;
 
+use super::frame_buffer::VideoFrameData;
 use crate::error::AppError;
+
+/// Tekstūros filtravimo režimas. `Nearest` — numatytasis (pixel-perfect, CLAUDE.md §7.5),
+/// `Linear` — pasirenkamas nustatymuose (post-MVP UI).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FilterMode {
+    #[default]
+    Nearest,
+    Linear,
+}
 
 /// wgpu būvis, susietas su vienu emuliatoriaus langu.
 pub struct Renderer {
@@ -26,11 +40,21 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+
+    pipeline: wgpu::RenderPipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
+    nearest_sampler: wgpu::Sampler,
+    linear_sampler: wgpu::Sampler,
+    filter: FilterMode,
+
+    frame_texture: Option<wgpu::Texture>,
+    frame_size: (u32, u32),
+    bind_group: Option<wgpu::BindGroup>,
 }
 
 impl Renderer {
-    /// Sukuria wgpu `Instance`/`Surface`/`Adapter`/`Device` duotam langui ir sukonfigūruoja
-    /// `Surface` jo dabartiniam dydžiui.
+    /// Sukuria wgpu `Instance`/`Surface`/`Adapter`/`Device` duotam langui, sukonfigūruoja
+    /// `Surface` jo dabartiniam dydžiui ir paruošia blit pipeline (shader'iai, samplerai).
     ///
     /// # Panic
     /// wgpu panikuoja, jei kviečiama ne pagrindinėje gijoje macOS/Metal atveju — šis metodas
@@ -97,11 +121,23 @@ impl Renderer {
             "wgpu Surface sukonfigūruotas"
         );
 
+        let (pipeline, bind_group_layout) = create_blit_pipeline(&device, format);
+        let nearest_sampler = create_sampler(&device, wgpu::FilterMode::Nearest);
+        let linear_sampler = create_sampler(&device, wgpu::FilterMode::Linear);
+
         Ok(Self {
             surface,
             device,
             queue,
             config,
+            pipeline,
+            bind_group_layout,
+            nearest_sampler,
+            linear_sampler,
+            filter: FilterMode::default(),
+            frame_texture: None,
+            frame_size: (0, 0),
+            bind_group: None,
         })
     }
 
@@ -120,18 +156,244 @@ impl Renderer {
         tracing::debug!(width, height, "wgpu Surface rekonfigūruotas (resize)");
     }
 
-    /// GPU device — naudos P2.4 blit pipeline.
+    /// Nustato tekstūros filtravimo režimą (post-MVP nustatymų ekranui). Įsigalioja nuo
+    /// kito [`Renderer::upload_frame`] kvietimo (bind group'as perkuriamas).
+    pub fn set_filter(&mut self, filter: FilterMode) {
+        if self.filter == filter {
+            return;
+        }
+        self.filter = filter;
+        self.bind_group = None; // priverčia ensure_texture perkurti su nauju sampler'iu
+    }
+
+    /// Įkelia naują kadrą į GPU tekstūrą (`queue.write_texture`). Tekstūra perkuriama tik
+    /// kai pasikeičia dydis (P2.1 nulinio-alokavimo principo tąsa GPU pusėje).
+    pub fn upload_frame(&mut self, frame: &VideoFrameData) {
+        if frame.width == 0 || frame.height == 0 {
+            return;
+        }
+        self.ensure_texture(frame.width, frame.height);
+        let Some(texture) = &self.frame_texture else {
+            return;
+        };
+
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &frame.data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(frame.width * 4),
+                rows_per_image: Some(frame.height),
+            },
+            wgpu::Extent3d {
+                width: frame.width,
+                height: frame.height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    fn ensure_texture(&mut self, width: u32, height: u32) {
+        if self.frame_size == (width, height)
+            && self.frame_texture.is_some()
+            && self.bind_group.is_some()
+        {
+            return;
+        }
+
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("nullbyte-frame-texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let sampler = match self.filter {
+            FilterMode::Nearest => &self.nearest_sampler,
+            FilterMode::Linear => &self.linear_sampler,
+        };
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("nullbyte-blit-bind-group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
+
+        self.frame_texture = Some(texture);
+        self.frame_size = (width, height);
+        self.bind_group = Some(bind_group);
+    }
+
+    /// Nupiešia dabartinę tekstūrą (paskutinį `upload_frame` kadrą) į `Surface` ir
+    /// pateikia (`present`). Jei dar nebuvo nė vieno `upload_frame` — nupiešia tuščią
+    /// (juodą) langą.
+    ///
+    /// `PresentMode::AutoVsync` (nustatyta `new()`) užtikrina, kad `present()` sinchronizuotųsi
+    /// su ekrano atnaujinimu — be tearing'o (P2.4 acceptance).
+    pub fn render(&mut self) -> Result<(), AppError> {
+        let output = match self.surface.get_current_texture() {
+            Ok(frame) => frame,
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                self.surface.configure(&self.device, &self.config);
+                return Ok(());
+            }
+            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
+            Err(e) => {
+                return Err(AppError::Other(format!(
+                    "nepavyko gauti Surface texture: {e}"
+                )))
+            }
+        };
+
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("nullbyte-blit-encoder"),
+            });
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("nullbyte-blit-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            if let Some(bind_group) = &self.bind_group {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, bind_group, &[]);
+                pass.draw(0..3, 0..1);
+            }
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+
+        Ok(())
+    }
+
+    /// GPU device — naudos garso/kitų posistemių integracijos, jei kada reikės bendro Device.
     pub fn device(&self) -> &wgpu::Device {
         &self.device
     }
 
-    /// GPU komandų eilė — naudos P2.4 blit pipeline.
+    /// GPU komandų eilė.
     pub fn queue(&self) -> &wgpu::Queue {
         &self.queue
     }
 
-    /// Dabartinė Surface konfigūracija (formatas, dydis) — naudos P2.4 blit pipeline.
+    /// Dabartinė Surface konfigūracija (formatas, dydis).
     pub fn config(&self) -> &wgpu::SurfaceConfiguration {
         &self.config
     }
+}
+
+fn create_sampler(device: &wgpu::Device, filter: wgpu::FilterMode) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some(match filter {
+            wgpu::FilterMode::Nearest => "nullbyte-nearest-sampler",
+            wgpu::FilterMode::Linear => "nullbyte-linear-sampler",
+        }),
+        mag_filter: filter,
+        min_filter: filter,
+        ..Default::default()
+    })
+}
+
+fn create_blit_pipeline(
+    device: &wgpu::Device,
+    surface_format: wgpu::TextureFormat,
+) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/blit.wgsl"));
+
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("nullbyte-blit-bind-group-layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("nullbyte-blit-pipeline-layout"),
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("nullbyte-blit-pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: surface_format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+
+    (pipeline, bind_group_layout)
 }

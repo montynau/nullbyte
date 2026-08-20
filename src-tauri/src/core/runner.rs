@@ -1,5 +1,7 @@
 //! Emuliavimo gija: dedikuota gija su komandų kanalu, `retro_run()` loop, kadrų pacing
-//! (CLAUDE.md §3.2, §8.2, P1.7).
+//! (CLAUDE.md §3.2, §8.2, P1.7). Nuo P2.4 kiekvieno kadro pabaigoje konvertuoja
+//! `EmuContext.video_frame` į RGBA8 ([`pixel_format`]) ir publikuoja per
+//! [`frame_buffer::FrameProducer`] — UI/render gija skaito per grąžintą `FrameConsumer`.
 //!
 //! **Milestone M1:** jei ši gija patikimai suka realų ROM'ą be crash'o — libretro
 //! integracija veikia ir galima eiti į Fazę 2.
@@ -14,8 +16,13 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::core::callbacks::{self, EmuContext};
+use crate::core::ffi::{
+    RETRO_PIXEL_FORMAT_0RGB1555, RETRO_PIXEL_FORMAT_RGB565, RETRO_PIXEL_FORMAT_XRGB8888,
+};
 use crate::core::loader::{CoreHandle, LoadedGameInfo, RetroCallbacks};
 use crate::error::AppError;
+use crate::video::frame_buffer::{self, FrameConsumer, FrameProducer};
+use crate::video::pixel_format::{self, PixelFormat};
 
 /// Vieno porto įvestis (`RETRO_DEVICE_JOYPAD` bitmask). Kol P4.x mapping'as neparašytas,
 /// tai minimali reprezentacija tiesiogiai atitinkanti `EmuContext.input_state`.
@@ -51,18 +58,23 @@ pub struct EmuThread {
 }
 
 impl EmuThread {
-    /// Paleidžia naują dedikuotą emuliavimo giją.
-    pub fn spawn() -> Self {
+    /// Paleidžia naują dedikuotą emuliavimo giją. Grąžina ir [`FrameConsumer`] — UI/render
+    /// gija per jį gauna kiekvieną naują nupieštą kadrą (P2.4).
+    pub fn spawn() -> (Self, FrameConsumer) {
         let (sender, receiver) = mpsc::channel();
+        let (video_producer, video_consumer) = frame_buffer::new();
         let handle = std::thread::Builder::new()
             .name("nullbyte-emu".to_string())
-            .spawn(move || run_loop(receiver))
+            .spawn(move || run_loop(receiver, video_producer))
             .expect("nepavyko sukurti emuliavimo gijos");
 
-        Self {
-            sender,
-            handle: Some(handle),
-        }
+        (
+            Self {
+                sender,
+                handle: Some(handle),
+            },
+            video_consumer,
+        )
     }
 
     /// Siunčia komandą į emuliavimo giją. Klaida reiškia, kad gija jau baigė darbą.
@@ -159,9 +171,40 @@ fn cleanup(state: &mut RunnerState) {
     state.running = false;
 }
 
+/// `RETRO_PIXEL_FORMAT_*` (ffi.rs, žalia `u32`) → [`PixelFormat`] (video/pixel_format.rs).
+fn map_pixel_format(raw: u32) -> Option<PixelFormat> {
+    match raw {
+        RETRO_PIXEL_FORMAT_0RGB1555 => Some(PixelFormat::Rgb0555),
+        RETRO_PIXEL_FORMAT_XRGB8888 => Some(PixelFormat::Xrgb8888),
+        RETRO_PIXEL_FORMAT_RGB565 => Some(PixelFormat::Rgb565),
+        _ => None,
+    }
+}
+
+/// Konvertuoja `EmuContext.video_frame` (žalia core formatu) į RGBA8 ir publikuoja per
+/// `producer`. Tyliai praleidžia, jei dar nėra jokio kadro arba pixel format nepalaikomas —
+/// tai NĖRA klaida (pvz. prieš pirmą `video_refresh_cb` kvietimą).
+fn publish_video_frame(producer: &mut FrameProducer) {
+    callbacks::with_context(|ctx| {
+        let frame = &ctx.video_frame;
+        if frame.width == 0 || frame.height == 0 || frame.data.is_empty() {
+            return;
+        }
+        let Some(format) = map_pixel_format(ctx.pixel_format) else {
+            return;
+        };
+
+        let (width, height, pitch) = (frame.width, frame.height, frame.pitch);
+        let src = &frame.data;
+        producer.write_frame(width, height, |dst| {
+            pixel_format::convert_to_rgba8_into(src, format, width, height, pitch, dst);
+        });
+    });
+}
+
 /// Emuliavimo gijos pagrindinis loop'as. `thread_local` `EmuContext` (CLAUDE.md §3.3)
 /// įdiegiama vieną kartą šios gijos pradžioje ir gyvena visą jos gyvavimo trukmę.
-fn run_loop(receiver: Receiver<EmuCommand>) {
+fn run_loop(receiver: Receiver<EmuCommand>, mut video_producer: FrameProducer) {
     callbacks::install_context(EmuContext::default());
 
     let mut state = RunnerState::new();
@@ -245,6 +288,7 @@ fn run_loop(receiver: Receiver<EmuCommand>) {
             // yra Some tik po to).
             unsafe { core.run() };
             frame_count += 1;
+            publish_video_frame(&mut video_producer);
 
             // MVP kadrų pacing: laukiam iki kito kadro momento pagal core'o TIKRĄ fps
             // (ne apvalintą 60) — pakeis audio-driven sinchronizacija P3.4 (ADR-012).
@@ -316,7 +360,8 @@ mod tests {
             return;
         };
 
-        let emu = EmuThread::spawn();
+        let _core_lock = crate::core::test_support::lock_core_load();
+        let (emu, _video) = EmuThread::spawn();
         emu.send(EmuCommand::Load { core, rom }).unwrap();
         emu.send(EmuCommand::Run).unwrap();
 
@@ -335,7 +380,7 @@ mod tests {
 
     #[test]
     fn stop_without_load_does_not_hang_or_panic() {
-        let emu = EmuThread::spawn();
+        let (emu, _video) = EmuThread::spawn();
         emu.send(EmuCommand::Pause).unwrap(); // komanda be įkelto core'o — turėtų būti no-op
         drop(emu);
     }
@@ -356,7 +401,8 @@ mod tests {
             return;
         };
 
-        let emu = EmuThread::spawn();
+        let _core_lock = crate::core::test_support::lock_core_load();
+        let (emu, _video) = EmuThread::spawn();
         emu.send(EmuCommand::Load { core, rom }).unwrap();
         emu.send(EmuCommand::Run).unwrap();
 
@@ -377,7 +423,7 @@ mod tests {
             return;
         };
 
-        let emu = EmuThread::spawn();
+        let (emu, _video) = EmuThread::spawn();
         emu.send(EmuCommand::Load {
             core: bad_core.to_path_buf(),
             rom: PathBuf::from("/nonexistent.sfc"),

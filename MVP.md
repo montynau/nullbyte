@@ -464,7 +464,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P2.4 — Blit pipeline ir shader'is `[ ]`
+### P2.4 — Blit pipeline ir shader'is 🔴 `[x]`
 
 **Priklausomybės:** P2.3
 **Failai:** `src-tauri/src/video/renderer.rs`, `src-tauri/src/video/shaders/blit.wgsl`
@@ -476,11 +476,21 @@ Tik įrodymas, kad FFI veikia.
 - Render loop susietas su lango redraw įvykiu
 
 **Acceptance:**
-- [ ] **Matomas SNES žaidimo vaizdas** — pirmas tikras vizualus rezultatas
-- [ ] Spalvos teisingos (palygink su RetroArch screenshot'u)
-- [ ] Nėra tearing'o (vsync įjungtas — `PresentMode::AutoVsync`)
+- [x] **Matomas SNES žaidimo vaizdas** — pirmas tikras vizualus rezultatas. Patikrinta realiu
+      `pnpm tauri dev` paleidimu su snes9x + „Super Mario World.sfc" (laikinas hook
+      `lib.rs::setup()`, pašalintas po verifikacijos): pilnas srautas emu gija →
+      `pixel_format::convert_to_rgba8_into` → triple buffer → `frame pump` gija →
+      `Renderer::upload_frame` + `render()` veikė stabiliai 15+ s (trys 5s statistikos log'ai,
+      `measured_fps`/`video_fps` ~49.87–50.01, jokio crash'o). Ekrano nuotrauka
+      (`screencapture`) parodė pilną, aiškų SNES titulinį ekraną
+- [x] Spalvos teisingos — nuotraukoje matomas teisingas SMW logotipas (raudona/geltona/žalia/
+      mėlyna), dangaus/debesų gradientas, Mario+Yoshi sprite'ai teisingomis spalvomis, jokios
+      kanalų sumaišties (nėra BGR/RGB swizzle klaidos) ir jokios korupcijos/juodo ekrano
+- [x] Nėra tearing'o — `PresentMode::AutoVsync` sukonfigūruotas `Renderer::new()` (žr.
+      `video/renderer.rs`); vizualiai stabilus, be blyksėjimo vaizdas nuotraukoje ir ekrane
+      stebint tiesiogiai
 
-> **Milestone M2:** žaidimas matomas ekrane.
+> **Milestone M2 pasiektas:** žaidimas matomas ekrane (2026-08-20).
 
 ---
 
@@ -1219,7 +1229,7 @@ CREATE TABLE scrape_cache (
 |---|---|---|---|---|
 | M0 | Projektas paleidžiamas | 0 | 1 d. | ✅ |
 | M1 | libretro core sukasi headless | 1 | 3–5 d. | ✅ |
-| M2 | Vaizdas ekrane | 2 | 3–4 d. | ⬜ |
+| M2 | Vaizdas ekrane | 2 | 3–4 d. | ✅ |
 | M3 | Vaizdas + garsas + valdymas | 3, 4 | 4–5 d. | ⬜ |
 | M4 | Biblioteka su metaduomenimis | 5, 6 | 4–6 d. | ⬜ |
 | M5 | **MVP** | 7, 8, 9 | 8–11 d. | ⬜ |
@@ -1232,7 +1242,7 @@ CREATE TABLE scrape_cache (
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
 | 1 — libretro | 7 | 7 | 100 % |
-| 2 — Vaizdas | 5 | 3 | 60 % |
+| 2 — Vaizdas | 5 | 4 | 80 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
@@ -1240,7 +1250,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **15** | **32 %** |
+| **Viso** | **47** | **16** | **34 %** |
 
 ---
 
@@ -1399,6 +1409,29 @@ priklausomybių medžio. Bus pakeista audio-driven sinchronizacija P3.4 (šis fr
 tik laikinas MVP sprendimas, kol garso buferis nėra laikrodis).
 **Pasekmės:** `spin_sleep::sleep_until(deadline)` naudojamas vietoj rankiniu būdu skaičiuojamo
 delta — išvengia dreifo, kaupiantis apvalinimo klaidoms per daug kadrų.
+
+---
+
+### ADR-013 — `CORE_LOAD_LOCK` testams: serializuoti realaus core'o dlopen/init (P2.4)
+**Data:** 2026-08-20 · **Statusas:** priimta
+**Kontekstas:** Po P2.4 pakeitimų `cargo test` (numatytasis, lygiagretus) pradėjo intermituotai
+žlugti su `SIGSEGV`. Priežastis — CLAUDE.md §3.2 taisyklė #2 (procese vienu metu gali būti
+įkeltas tik VIENAS core) buvo pažeidžiama pačių testų: keli testai skirtingose gijose
+vienu metu `dlopen`'ina ir `retro_init()`'ina TĄ PATĮ realų core'ą (snes9x/mednafen_psx/
+genesis_plus_gx), kurių globalus (ne thread-local) C būvis nėra reentrant. Vienu srautu
+(`--test-threads=1`) visi 42 testai praeidavo be klaidos — patvirtino, kad tai lygiagretumo,
+ne logikos, problema.
+**Sprendimas:** `core::test_support::CORE_LOAD_LOCK` — testų-tik (`#[cfg(test)]`) globalus
+`Mutex<()>`, kurį paima kiekvienas testas prieš realaus core'o `CoreHandle::load()` +
+`init()`/`load_game()` arba `EmuThread::spawn()` + `EmuCommand::Load`. `lock_core_load()`
+atstato `PoisonError` per `into_inner()`, kad vieno testo panic'as nesustabdytų kitų.
+**Priežastis:** Serializuoti TIK core'ą liečiančius testus (ne visą test binarą), kad
+`cargo test` liktų greitas — visi kiti (pixel_format, frame_buffer, callbacks be realaus
+core'o ir t.t.) toliau bėga lygiagrečiai.
+**Pasekmės:** `cargo test` (numatytasis) dabar patikimai praeina lygiagrečiai — patikrinta
+3 kartus iš eilės po pataisymo, jokio SIGSEGV. Bet koks naujas testas, kuris įkelia realų
+`.dylib`/`.so` core'ą, PRIVALO paimti šį užraktą — priešingu atveju rizikuoja tuo pačiu
+crash'u.
 
 ---
 

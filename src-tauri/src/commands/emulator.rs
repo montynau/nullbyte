@@ -1,10 +1,11 @@
 //! Emuliatoriaus Tauri komandos (CLAUDE.md §6.3) — plonas sluoksnis, deleguoja į
-//! `video::renderer`.
+//! `video::renderer` / `core::runner`.
 
 use tauri::{AppHandle, Manager};
 
 use crate::error::AppError;
 use crate::state::AppState;
+use crate::video::frame_buffer::{FrameConsumer, VideoFrameData};
 use crate::video::renderer::Renderer;
 
 /// Atidaro atskirą langą (be webview) emuliatoriaus vaizdui ir inicializuoja wgpu Surface
@@ -72,4 +73,49 @@ fn create_window_and_renderer(app: &AppHandle) -> Result<(), AppError> {
 
     tracing::info!("emuliatoriaus langas + wgpu Renderer sėkmingai sukurti");
     Ok(())
+}
+
+/// Paleidžia foninę „frame pump" giją, kuri seka `FrameConsumer` (P2.2) ir kiekvieną naują
+/// emuliatoriaus kadrą nupiešia per `Renderer` (P2.4). Kadro duomenys kopijuojami (klonuojami)
+/// prieš perduodant į `run_on_main_thread`, nes `Surface`/`render()` operacijos PRIVALO vykti
+/// main gijoje (CLAUDE.md §10), o `FrameConsumer` skolinys negali kirsti gijos ribos.
+///
+/// Gija veikia tol, kol egzistuoja procesas — jei atitinkama `EmuThread` sustabdoma,
+/// `consumer.update()` tiesiog visada grąžina `false` ir gija tyliai laukia (1ms intervalais),
+/// beveik nenaudodama CPU. Švaraus gijos sustabdymo mechanizmas — post-MVP patobulinimas.
+// Kviesime iš `start_game` komandos P9.1 — kol žaidimo paleidimo srautas neapjungtas,
+// funkcija lieka nenaudota infrastruktūra (jau patikrinta P2.4 laikinu verifikacijos hook'u).
+#[allow(dead_code)]
+pub fn start_frame_pump(app: AppHandle, mut consumer: FrameConsumer) {
+    std::thread::Builder::new()
+        .name("nullbyte-frame-pump".to_string())
+        .spawn(move || loop {
+            if !consumer.update() {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                continue;
+            }
+
+            let frame = consumer.current();
+            let owned = VideoFrameData {
+                width: frame.width,
+                height: frame.height,
+                generation: frame.generation,
+                data: frame.data.clone(),
+            };
+
+            let app_for_render = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                let state = app_for_render.state::<AppState>();
+                let Ok(mut guard) = state.renderer.lock() else {
+                    return;
+                };
+                if let Some(renderer) = guard.as_mut() {
+                    renderer.upload_frame(&owned);
+                    if let Err(error) = renderer.render() {
+                        tracing::warn!(%error, "renderer.render() klaida");
+                    }
+                }
+            });
+        })
+        .expect("nepavyko sukurti frame pump gijos");
 }

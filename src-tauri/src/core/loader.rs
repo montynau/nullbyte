@@ -420,6 +420,7 @@ mod tests {
             return;
         };
 
+        let _core_lock = crate::core::test_support::lock_core_load();
         // CoreHandle::load() viduje jau atmeta core'ą, jei api_version != 1 — sėkmingas
         // grąžinimas ir yra įrodymas, kad api_version == 1.
         let handle = CoreHandle::load(&path).expect("core'as turėtų sėkmingai įsikelti");
@@ -517,6 +518,7 @@ mod tests {
             return;
         };
 
+        let _core_lock = crate::core::test_support::lock_core_load();
         install_context(EmuContext::default());
         let handle = CoreHandle::load(&core_path).expect("core'as turėtų įsikelti");
         unsafe { handle.init(stub_callbacks()) };
@@ -567,6 +569,7 @@ mod tests {
             writer.finish().unwrap();
         }
 
+        let _core_lock = crate::core::test_support::lock_core_load();
         install_context(EmuContext::default());
         let handle = CoreHandle::load(&core_path).expect("core'as turėtų įsikelti");
         unsafe { handle.init(stub_callbacks()) };
@@ -601,6 +604,7 @@ mod tests {
             return;
         };
 
+        let _core_lock = crate::core::test_support::lock_core_load();
         install_context(EmuContext {
             system_dir: Some(path_to_cstring(&bios).expect("bios kelias turėtų būti UTF-8")),
             ..EmuContext::default()
@@ -642,6 +646,7 @@ mod tests {
         let missing_rom = std::env::temp_dir().join("nullbyte_test_definitely_missing.sfc");
         std::fs::remove_file(&missing_rom).ok();
 
+        let _core_lock = crate::core::test_support::lock_core_load();
         install_context(EmuContext::default());
         let handle = CoreHandle::load(&core_path).expect("core'as turėtų įsikelti");
         unsafe { handle.init(stub_callbacks()) };

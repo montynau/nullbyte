@@ -1,11 +1,13 @@
 //! Aplikacijos globalus būvis, laikomas kaip Tauri managed state.
 //!
-//! Laiko išspręstus duomenų katalogus ir (nuo P2.3) emuliatoriaus lango `Renderer`.
+//! Laiko išspręstus duomenų katalogus, emuliatoriaus lango `Renderer` (P2.3) ir veikiančią
+//! `EmuThread` (P2.4) — jei jos nelaikytume čia, `Drop` iškart sustabdytų emuliaciją.
 //! DB pool'as prisijungs P5.1.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use crate::core::runner::EmuThread;
 use crate::error::AppError;
 use crate::paths;
 use crate::video::renderer::Renderer;
@@ -21,6 +23,9 @@ pub struct AppState {
     /// Emuliatoriaus lango wgpu būvis — `None`, kol `open_emulator_window` komanda
     /// dar nebuvo kviesta (P2.3).
     pub renderer: Mutex<Option<Renderer>>,
+    /// Veikianti emuliavimo gija — `None`, kol joks žaidimas neįkeltas (P2.4/P9.1).
+    #[allow(dead_code)]
+    pub emu_thread: Mutex<Option<EmuThread>>,
 }
 
 impl AppState {
@@ -34,6 +39,7 @@ impl AppState {
             media_dir: paths::media_dir()?,
             db_path: paths::db_path()?,
             renderer: Mutex::new(None),
+            emu_thread: Mutex::new(None),
         })
     }
 }

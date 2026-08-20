@@ -497,6 +497,7 @@ mod tests {
             return;
         };
 
+        let _core_lock = crate::core::test_support::lock_core_load();
         with_fresh_context(|| {
             let handle_core = CoreHandle::load(&path).expect("core'as turėtų įsikelti");
             unsafe {
