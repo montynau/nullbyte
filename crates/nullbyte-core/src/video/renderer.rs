@@ -1,16 +1,17 @@
 //! Emuliatoriaus langas, wgpu Surface ir blit pipeline (CLAUDE.md §10, P2.3–P2.4).
 //!
-//! Emuliatoriaus vaizdas piešiamas atskirame Tauri `Window` BE webview
-//! (`tauri::window::WindowBuilder`, ne `WebviewWindowBuilder`) — leidžia tiesiogiai valdyti
-//! wgpu Surface be permatomumo/click-through problemų, kylančių bandant piešti „po" webview
-//! (CLAUDE.md §10 „wgpu / Tauri" spąstai).
+//! `Renderer` yra lango bibliotekos NEŽINANTIS — `new()` priima bet kokį tipą, kuris
+//! implementuoja `raw_window_handle::{HasWindowHandle, HasDisplayHandle}` (tą implementuoja
+//! IR `tauri::window::Window<R>`, IR `winit::window::Window`), plius jo dabartinį pikselių
+//! dydį. Nuo ADR-016 realų langą kuria `nullbyte-emu` (winit); anksčiau (P2.3/P2.4) jį kūrė
+//! Tauri `Window` BE webview — abu keliai suveikia be pakeitimų šiame faile.
 //!
 //! **Surface kūrimas, konfigūravimas ir `present()` — TIK main/UI gijoje.** macOS/Metal
 //! reikalauja, kad `NSView` (taigi ir su juo susietas Surface) būtų pasiekiamas tik main
 //! gijoje; wgpu tai atspindi panikuodamas, jei pažeidžiama. `Renderer::new` naudoja
-//! `tauri::async_runtime::block_on`, kad sinchroniai palauktų `request_adapter`/
-//! `request_device` — natūviose (ne-web) platformose šie iš tiesų užbaigiami iškart,
-//! `Future` apvalkalas daugiausia web suderinamumui.
+//! `pollster::block_on`, kad sinchroniai palauktų `request_adapter`/`request_device` —
+//! natūviose (ne-web) platformose šie iš tiesų užbaigiami iškart, `Future` apvalkalas
+//! daugiausia web suderinamumui.
 //!
 //! Blit pipeline (P2.4): kadras iš [`super::frame_buffer`] įkeliamas į `Rgba8Unorm` tekstūrą
 //! (`queue.write_texture`), tada nupiešiamas per centruotą quad'ą (be vertex buffer'io, 4
@@ -20,11 +21,10 @@
 // device()/queue() accessor'ius naudoja tik testai/ateities kodas.
 #![allow(dead_code)]
 
-use tauri::window::Window;
-use tauri::Runtime;
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use super::frame_buffer::VideoFrameData;
-use crate::error::AppError;
+use crate::error::CoreError;
 
 /// Tekstūros filtravimo režimas. `Nearest` — numatytasis (pixel-perfect, CLAUDE.md §7.5),
 /// `Linear` — pasirenkamas nustatymuose (post-MVP UI).
@@ -85,27 +85,25 @@ impl Renderer {
     /// # Panic
     /// wgpu panikuoja, jei kviečiama ne pagrindinėje gijoje macOS/Metal atveju — šis metodas
     /// PRIVALO būti kviečiamas iš UI gijos (žr. modulio doc).
-    pub fn new<R: Runtime>(window: Window<R>) -> Result<Self, AppError> {
-        let size = window
-            .inner_size()
-            .map_err(|e| AppError::Other(format!("nepavyko gauti lango dydžio: {e}")))?;
-
+    pub fn new<W>(window: W, size: (u32, u32)) -> Result<Self, CoreError>
+    where
+        W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static,
+    {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
-        // `Window<R>` implementuoja HasWindowHandle+HasDisplayHandle, tad create_surface()
-        // priima ją tiesiogiai — jokio rankinio unsafe raw handle darbo mūsų pusėje.
+        // `W: HasWindowHandle + HasDisplayHandle` — create_surface() priima ją tiesiogiai,
+        // jokio rankinio unsafe raw handle darbo mūsų pusėje. Veikia identiškai su
+        // `tauri::window::Window<R>` (P2.3–P2.4 metu) ir `winit::window::Window` (ADR-016).
         let surface = instance
             .create_surface(window)
-            .map_err(|e| AppError::Other(format!("nepavyko sukurti wgpu Surface: {e}")))?;
+            .map_err(|e| CoreError::Other(format!("nepavyko sukurti wgpu Surface: {e}")))?;
 
-        let adapter = tauri::async_runtime::block_on(instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            },
-        ))
-        .map_err(|e| AppError::Other(format!("nepavyko rasti tinkamo GPU adapterio: {e}")))?;
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        }))
+        .map_err(|e| CoreError::Other(format!("nepavyko rasti tinkamo GPU adapterio: {e}")))?;
 
         tracing::info!(
             adapter = adapter.get_info().name,
@@ -113,12 +111,11 @@ impl Renderer {
             "wgpu adapteris pasirinktas"
         );
 
-        let (device, queue) =
-            tauri::async_runtime::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                label: Some("nullbyte-device"),
-                ..Default::default()
-            }))
-            .map_err(|e| AppError::Other(format!("nepavyko gauti wgpu Device: {e}")))?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("nullbyte-device"),
+            ..Default::default()
+        }))
+        .map_err(|e| CoreError::Other(format!("nepavyko gauti wgpu Device: {e}")))?;
 
         let capabilities = surface.get_capabilities(&adapter);
         let format = capabilities
@@ -131,8 +128,8 @@ impl Renderer {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: size.width.max(1),
-            height: size.height.max(1),
+            width: size.0.max(1),
+            height: size.1.max(1),
             present_mode: wgpu::PresentMode::AutoVsync,
             desired_maximum_frame_latency: 2,
             alpha_mode: capabilities.alpha_modes[0],
@@ -349,7 +346,7 @@ impl Renderer {
     ///
     /// `PresentMode::AutoVsync` (nustatyta `new()`) užtikrina, kad `present()` sinchronizuotųsi
     /// su ekrano atnaujinimu — be tearing'o (P2.4 acceptance).
-    pub fn render(&mut self) -> Result<(), AppError> {
+    pub fn render(&mut self) -> Result<(), CoreError> {
         let scale = self.compute_scale();
         let mut uniform_bytes = [0u8; 16];
         uniform_bytes[0..4].copy_from_slice(&scale[0].to_le_bytes());
@@ -365,7 +362,7 @@ impl Renderer {
             }
             Err(wgpu::SurfaceError::Timeout) => return Ok(()),
             Err(e) => {
-                return Err(AppError::Other(format!(
+                return Err(CoreError::Other(format!(
                     "nepavyko gauti Surface texture: {e}"
                 )))
             }

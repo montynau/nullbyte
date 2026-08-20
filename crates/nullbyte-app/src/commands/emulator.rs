@@ -3,12 +3,13 @@
 
 use tauri::{AppHandle, Manager};
 
-use crate::audio::output::AudioOutput;
-use crate::audio::ring::AudioConsumer;
+use nullbyte_core::audio::output::AudioOutput;
+use nullbyte_core::audio::ring::AudioConsumer;
+use nullbyte_core::video::frame_buffer::{FrameConsumer, VideoFrameData};
+use nullbyte_core::video::renderer::Renderer;
+
 use crate::error::AppError;
 use crate::state::AppState;
-use crate::video::frame_buffer::{FrameConsumer, VideoFrameData};
-use crate::video::renderer::Renderer;
 
 /// Atidaro atskirą langą (be webview) emuliatoriaus vaizdui ir inicializuoja wgpu Surface
 /// (P2.3). Pilnas žaidimo paleidimo srautas (ROM parinkimas, core'o įkėlimas ir pan.) —
@@ -49,7 +50,10 @@ fn create_window_and_renderer(app: &AppHandle) -> Result<(), AppError> {
         .build()
         .map_err(|e| AppError::Other(format!("nepavyko sukurti emuliatoriaus lango: {e}")))?;
 
-    let renderer = Renderer::new(window.clone())?;
+    let size = window
+        .inner_size()
+        .map_err(|e| AppError::Other(format!("nepavyko gauti lango dydžio: {e}")))?;
+    let renderer = Renderer::new(window.clone(), (size.width, size.height))?;
 
     {
         let state = app.state::<AppState>();
@@ -187,4 +191,5 @@ pub fn start_audio_pump(mut consumer: AudioConsumer) -> Result<(), AppError> {
     ready_rx
         .recv()
         .map_err(|_| AppError::Other("audio pump gija nutrūko be atsakymo".to_string()))?
+        .map_err(AppError::from)
 }

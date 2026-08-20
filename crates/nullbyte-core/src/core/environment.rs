@@ -493,7 +493,9 @@ mod tests {
             .try_init();
 
         let Some(path) = test_core_path() else {
-            eprintln!("praleista: src-tauri/cores/genesis_plus_gx_libretro.dylib nerastas");
+            eprintln!(
+                "praleista: crates/nullbyte-core/cores/genesis_plus_gx_libretro.dylib nerastas"
+            );
             return;
         };
 

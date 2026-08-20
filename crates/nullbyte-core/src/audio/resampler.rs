@@ -25,7 +25,7 @@
 
 use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType};
 
-use crate::error::AppError;
+use crate::error::CoreError;
 
 /// Windowed-sinc filtro ilgis — kompromisas tarp kokybės (aukštesnė reikšmė = mažiau
 /// aliasing/aukšto dažnio roll-off) ir CPU kaštų. 128 — solidi kokybė, patikrinta
@@ -63,9 +63,9 @@ pub struct AudioResampler {
 impl AudioResampler {
     /// Sukuria naują resampler'į. `input_rate`/`output_rate` — Hz (core → įrenginys),
     /// `channels` — kanalų kiekis (visi šiuo metu palaikomi core'ai — stereo, 2).
-    pub fn new(input_rate: f64, output_rate: f64, channels: usize) -> Result<Self, AppError> {
+    pub fn new(input_rate: f64, output_rate: f64, channels: usize) -> Result<Self, CoreError> {
         if input_rate <= 0.0 || output_rate <= 0.0 || channels == 0 {
-            return Err(AppError::Other(format!(
+            return Err(CoreError::Other(format!(
                 "neteisingi resampler'io parametrai: input_rate={input_rate} output_rate={output_rate} channels={channels}"
             )));
         }
@@ -86,7 +86,7 @@ impl AudioResampler {
             CHUNK_SIZE,
             channels,
         )
-        .map_err(|e| AppError::Other(format!("nepavyko sukurti resampler'io: {e}")))?;
+        .map_err(|e| CoreError::Other(format!("nepavyko sukurti resampler'io: {e}")))?;
 
         let process_in = resampler.input_buffer_allocate(true);
         let process_out = resampler.output_buffer_allocate(true);
@@ -105,7 +105,7 @@ impl AudioResampler {
     /// Priima interleaved `i16` sample'us `input_rate` dažniu, grąžina interleaved `i16`
     /// sample'us `output_rate` dažniu. Rezultatas gali būti tuščias, jei dar nesukaupta
     /// pilno `chunk_size` kadrų — likutis saugomas vidiniame buferyje kitam kvietimui.
-    pub fn process(&mut self, interleaved_in: &[i16]) -> Result<&[i16], AppError> {
+    pub fn process(&mut self, interleaved_in: &[i16]) -> Result<&[i16], CoreError> {
         self.output_i16.clear();
 
         let frames_in = interleaved_in.len() / self.channels;
@@ -124,7 +124,7 @@ impl AudioResampler {
             let (_, out_frames) = self
                 .resampler
                 .process_into_buffer(&self.process_in, &mut self.process_out, None)
-                .map_err(|e| AppError::Other(format!("resampling nepavyko: {e}")))?;
+                .map_err(|e| CoreError::Other(format!("resampling nepavyko: {e}")))?;
 
             for frame in 0..out_frames {
                 for channel_out in &self.process_out[..self.channels] {
@@ -147,11 +147,11 @@ impl AudioResampler {
     /// (CLAUDE.md §8.6, P3.4). `deviation` — `(occupancy - 0.5) * 2.0`, apytiksliai
     /// `-1.0..=1.0`. Glotniai (`ramp = true`) pereina prie naujo ratio per kitą chunk'ą —
     /// vengia staigių, girdimų dažnio šuolių.
-    pub fn adjust_ratio(&mut self, deviation: f64) -> Result<(), AppError> {
+    pub fn adjust_ratio(&mut self, deviation: f64) -> Result<(), CoreError> {
         let relative = 1.0 + MAX_DELTA * deviation;
         self.resampler
             .set_resample_ratio_relative(relative, true)
-            .map_err(|e| AppError::Other(format!("nepavyko koreguoti resampling ratio: {e}")))
+            .map_err(|e| CoreError::Other(format!("nepavyko koreguoti resampling ratio: {e}")))
     }
 }
 

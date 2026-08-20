@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::error::AppError;
+use crate::error::CoreError;
 
 use super::loader::CoreHandle;
 
@@ -35,12 +35,12 @@ pub struct CoreInfo {
 ///
 /// Core'ai, kurių nepavyksta įkelti (bloga architektūra, sugadintas failas ir pan.), yra
 /// praleidžiami su `tracing::warn!`, o ne nutraukia visą skenavimą.
-pub fn scan_cores_dir(dir: impl AsRef<Path>) -> Result<Vec<CoreInfo>, AppError> {
+pub fn scan_cores_dir(dir: impl AsRef<Path>) -> Result<Vec<CoreInfo>, CoreError> {
     let dir = dir.as_ref();
     let mut cores = Vec::new();
 
     let entries = std::fs::read_dir(dir).map_err(|e| {
-        AppError::Other(format!(
+        CoreError::Other(format!(
             "nepavyko skaityti core'ų katalogo {}: {e}",
             dir.display()
         ))
@@ -48,7 +48,7 @@ pub fn scan_cores_dir(dir: impl AsRef<Path>) -> Result<Vec<CoreInfo>, AppError> 
 
     for entry in entries {
         let entry = entry
-            .map_err(|e| AppError::Other(format!("klaida skenuojant {}: {e}", dir.display())))?;
+            .map_err(|e| CoreError::Other(format!("klaida skenuojant {}: {e}", dir.display())))?;
         let path = entry.path();
 
         if !is_core_file(&path) {
@@ -73,7 +73,7 @@ fn is_core_file(path: &Path) -> bool {
     name.ends_with("_libretro.dylib") || name.ends_with("_libretro.so")
 }
 
-fn load_core_info(path: &Path) -> Result<CoreInfo, AppError> {
+fn load_core_info(path: &Path) -> Result<CoreInfo, CoreError> {
     let handle = CoreHandle::load(path)?;
     let raw = handle.system_info();
 
@@ -147,8 +147,8 @@ mod tests {
     use super::*;
 
     /// Fixture katalogas su 5 realiais (dubliuotais) core'ais + vienu `.info` failu —
-    /// paruoštas rankiniu būdu iš `src-tauri/cores/` (žr. sesijos pastabas). Visas
-    /// `src-tauri/cores/` yra `.gitignore`'intas (CLAUDE.md §11.2), tad CI aplinkoje šio
+    /// paruoštas rankiniu būdu iš `crates/nullbyte-core/cores/` (žr. sesijos pastabas). Visas
+    /// `crates/nullbyte-core/cores/` yra `.gitignore`'intas (CLAUDE.md §11.2), tad CI aplinkoje šio
     /// katalogo nėra — testas praleidžiamas švelniai, jei jo nerandama.
     fn fixture_dir() -> Option<PathBuf> {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("cores/scan_fixture");
@@ -158,7 +158,9 @@ mod tests {
     #[test]
     fn scans_directory_with_five_plus_cores() {
         let Some(dir) = fixture_dir() else {
-            eprintln!("praleista: src-tauri/cores/scan_fixture nerastas (lokalus fixture)");
+            eprintln!(
+                "praleista: crates/nullbyte-core/cores/scan_fixture nerastas (lokalus fixture)"
+            );
             return;
         };
 
@@ -185,7 +187,9 @@ mod tests {
     #[test]
     fn missing_info_file_does_not_break_scan() {
         let Some(dir) = fixture_dir() else {
-            eprintln!("praleista: src-tauri/cores/scan_fixture nerastas (lokalus fixture)");
+            eprintln!(
+                "praleista: crates/nullbyte-core/cores/scan_fixture nerastas (lokalus fixture)"
+            );
             return;
         };
 
@@ -201,7 +205,9 @@ mod tests {
     #[test]
     fn parses_info_file_fields() {
         let Some(dir) = fixture_dir() else {
-            eprintln!("praleista: src-tauri/cores/scan_fixture nerastas (lokalus fixture)");
+            eprintln!(
+                "praleista: crates/nullbyte-core/cores/scan_fixture nerastas (lokalus fixture)"
+            );
             return;
         };
 
@@ -216,7 +222,9 @@ mod tests {
     #[test]
     fn builds_extension_to_cores_mapping() {
         let Some(dir) = fixture_dir() else {
-            eprintln!("praleista: src-tauri/cores/scan_fixture nerastas (lokalus fixture)");
+            eprintln!(
+                "praleista: crates/nullbyte-core/cores/scan_fixture nerastas (lokalus fixture)"
+            );
             return;
         };
 

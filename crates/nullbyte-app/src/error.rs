@@ -1,4 +1,10 @@
 //! Bendras klaidų tipas, kertantis Tauri IPC ribą (žr. CLAUDE.md §6.1).
+//!
+//! `Core` variantas apgaubia `nullbyte_core::error::CoreError` — leidžia `?` operatoriui
+//! veikti skambinant iš `nullbyte-app` į `nullbyte-core` funkcijas (pvz. `Renderer::new`,
+//! `AudioOutput::open`), nekeičiant CLAUDE.md §6.1 „vieno klaidų tipo" taisyklės kiekvieno
+//! crate'o viduje (P4.0.1, ADR-016 — `nullbyte-core` negali priklausyti nuo `rusqlite`/
+//! `reqwest`, tad negali dalintis šiuo pačiu `AppError` tipu).
 
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
@@ -14,6 +20,9 @@ pub enum AppError {
     #[error("tinklo klaida: {0}")]
     Network(#[from] reqwest::Error),
 
+    #[error("branduolio klaida: {0}")]
+    Core(#[from] nullbyte_core::error::CoreError),
+
     #[error("{0}")]
     Other(String),
 }
@@ -24,6 +33,7 @@ impl AppError {
             AppError::Io(_) => "io",
             AppError::Database(_) => "database",
             AppError::Network(_) => "network",
+            AppError::Core(_) => "core",
             AppError::Other(_) => "other",
         }
     }

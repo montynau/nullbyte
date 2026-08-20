@@ -25,7 +25,7 @@ use crate::core::ffi::{
     RETRO_PIXEL_FORMAT_0RGB1555, RETRO_PIXEL_FORMAT_RGB565, RETRO_PIXEL_FORMAT_XRGB8888,
 };
 use crate::core::loader::{CoreHandle, LoadedGameInfo, RetroCallbacks};
-use crate::error::AppError;
+use crate::error::CoreError;
 use crate::video::frame_buffer::{self, FrameConsumer, FrameProducer};
 use crate::video::pixel_format::{self, PixelFormat};
 
@@ -127,10 +127,10 @@ impl EmuThread {
     }
 
     /// Siunčia komandą į emuliavimo giją. Klaida reiškia, kad gija jau baigė darbą.
-    pub fn send(&self, cmd: EmuCommand) -> Result<(), AppError> {
+    pub fn send(&self, cmd: EmuCommand) -> Result<(), CoreError> {
         self.sender
             .send(cmd)
-            .map_err(|_| AppError::Other("emuliavimo gija nebeveikia".to_string()))
+            .map_err(|_| CoreError::Other("emuliavimo gija nebeveikia".to_string()))
     }
 }
 
@@ -194,7 +194,7 @@ fn stub_callbacks() -> RetroCallbacks {
 fn handle_load(state: &mut RunnerState, core_path: &std::path::Path, rom_path: &std::path::Path) {
     cleanup(state);
 
-    let result = (|| -> Result<(CoreHandle, LoadedGameInfo), AppError> {
+    let result = (|| -> Result<(CoreHandle, LoadedGameInfo), CoreError> {
         let core = CoreHandle::load(core_path)?;
         // SAFETY: kviečiama iš emuliavimo gijos (run_loop), prieš bet kokį retro_run().
         unsafe { core.init(stub_callbacks()) };

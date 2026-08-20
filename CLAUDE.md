@@ -41,7 +41,8 @@ groja trumpas gameplay įrašas, kaip Steam / Epic Games Store).
 | `winit` | `0.30.x` (naujausia stabili — `0.31` dar beta) | `nullbyte-emu`: savo langas, event loop, klaviatūra (ADR-016) |
 | `libloading` | `0.8` | Dinaminis libretro core'ų įkėlimas (`dlopen`) |
 | `wgpu` | `26.x` | GPU vaizdo atvaizdavimas (Metal macOS / Vulkan Linux) |
-| `raw-window-handle` | `0.6` | Tauri lango handle → wgpu `Surface` |
+| `raw-window-handle` | `0.6` | Lango handle (Tauri IR winit) → wgpu `Surface`, `nullbyte-core` |
+| `pollster` | `1.x` | `nullbyte-core`: sinchroniškai palaukti `wgpu` `request_adapter`/`request_device` be `tauri::async_runtime` (P4.0.1 — `video::renderer` nebepriklauso nuo Tauri) |
 | `cpal` | `0.16` | Garso išvestis |
 | `rubato` | `0.16` | Garso resampling (core sample rate → device rate) |
 | `rtrb` | `0.3` | Lock-free ring buffer garsui |
@@ -386,11 +387,13 @@ nullbyte/
 
 > **Nuo P4.0.1/ADR-016 (2026-08-20):** repo tapo Cargo workspace'u (žr. §4) — `cargo`
 > komandos žemiau paleidžiamos IŠ REPO ŠAKNIES su `--workspace`, BE `--manifest-path`
-> (workspace root `Cargo.toml` automatiškai apima visus tris crate'us). `pnpm tauri dev`/
-> `build` komandų TIKSLUS iškvietimas (kaip nurodyti, kad `tauri.conf.json` dabar
-> `crates/nullbyte-app/`, ne `src-tauri/`) **DAR NEPATIKRINTAS realiu build'u** — tai
-> P4.0.1/P4.0.5 darbas. Žemiau — geriausia žinoma prielaida (Tauri CLI `--config`), pažymėta
-> aiškiai; nepasikliauk ja aklai, kol P4.0.5 acceptance to nepatvirtins.
+> (workspace root `Cargo.toml` automatiškai apima visus tris crate'us). `pnpm tauri dev`
+> **patikrinta realiai** P4.0.1 metu: Tauri CLI paleista iš repo šaknies BE jokio papildomo
+> flag'o teisingai suranda `crates/nullbyte-app/tauri.conf.json` (jos direktorijos paieška
+> ieško bet kurio katalogo su `tauri.conf.json` + `Cargo.toml` turinčiu `tauri` priklausomybę,
+> ne tik pavadinimu `src-tauri`) — abu crate'ai sukompiliuoja, langas paleidžiamas. `pnpm tauri
+> build` PATS `--config` flag'as NEBEREIKALINGAS; externalBin sidecar packaging (P4.0.5,
+> `nullbyte-emu`) dar nepatikrintas — tai atskiras, vėlesnis darbas.
 
 ```bash
 # Setup (vieną kartą)
@@ -398,9 +401,7 @@ pnpm install
 rustup target add aarch64-apple-darwin x86_64-apple-darwin   # tik macOS
 
 # Kūrimas
-pnpm tauri dev                     # TIKSLUS iškvietimas po workspace split'o — NEPATIKRINTA,
-                                    # žr. pastabą aukščiau (galimai reikės --config nuorodos į
-                                    # crates/nullbyte-app/tauri.conf.json — P4.0.1/P4.0.5)
+pnpm tauri dev                     # veikia nepakitusiai iš repo šaknies (patikrinta P4.0.1)
 pnpm dev                           # tik frontend (be Tauri — daugumai UI darbų greičiau,
                                     # nepaveikta workspace split'o, frontend'as lieka repo šaknyje)
 
@@ -413,7 +414,7 @@ pnpm lint                          # eslint + prettier --check
 pnpm format                        # prettier --write
 
 # Build
-pnpm tauri build                   # dabartinei platformai — ta pati NEPATIKRINTA pastaba
+pnpm tauri build                   # dabartinei platformai (externalBin/nullbyte-emu — P4.0.5)
 pnpm tauri build --target universal-apple-darwin   # macOS universal binary
 ```
 

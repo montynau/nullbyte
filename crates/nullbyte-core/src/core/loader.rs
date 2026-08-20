@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use libloading::Library;
 
-use crate::error::AppError;
-use crate::library::archive;
+use crate::archive;
+use crate::error::CoreError;
 
 use super::ffi::{
     retro_audio_sample_batch_t, retro_audio_sample_t, retro_environment_t, retro_game_info,
@@ -76,12 +76,13 @@ impl CoreSymbols {
     /// `lib` privalo gyventi bent tiek pat, kiek bus naudojami grąžinti simboliai
     /// (užtikrina `CoreHandle` laukų tvarka).
     #[allow(dead_code)] // kviečia tik CoreHandle::load ir testai — dar nenaudojama P1.7 runner.rs
-    unsafe fn load(lib: &Library) -> Result<Self, AppError> {
+    unsafe fn load(lib: &Library) -> Result<Self, CoreError> {
         macro_rules! sym {
             ($name:expr, $ty:ty) => {{
-                let raw: libloading::Symbol<'_, $ty> = lib
-                    .get(concat!($name, "\0").as_bytes())
-                    .map_err(|_| AppError::Other(format!("core'e trūksta simbolio `{}`", $name)))?;
+                let raw: libloading::Symbol<'_, $ty> =
+                    lib.get(concat!($name, "\0").as_bytes()).map_err(|_| {
+                        CoreError::Other(format!("core'e trūksta simbolio `{}`", $name))
+                    })?;
                 raw.into_raw()
             }};
         }
@@ -138,14 +139,14 @@ impl CoreHandle {
     /// # Safety motyvacija
     /// `Library::new` yra `unsafe`, nes bibliotekos įkėlimas gali vykdyti savavališką kodą
     /// per jos konstruktorius/inicializatorius — tai žinoma, priimta `libloading` rizika.
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, AppError> {
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, CoreError> {
         let path = path.as_ref().to_path_buf();
 
         // SAFETY: rizika, kad įkeliamas failas paleis savavališką kodą per savo
         // konstruktorius, yra būdinga bet kokiam dinaminiam bibliotekos įkėlimui.
         // Vartotojas pats renkasi, kokius core'us deda į cores_dir (CLAUDE.md §11.2).
         let lib = unsafe { Library::new(&path) }.map_err(|e| {
-            AppError::Other(format!("nepavyko įkelti core'o {}: {e}", path.display()))
+            CoreError::Other(format!("nepavyko įkelti core'o {}: {e}", path.display()))
         })?;
 
         // SAFETY: `lib` gyvuos bent tiek, kiek `symbols` — abu laikomi tame pačiame
@@ -156,7 +157,7 @@ impl CoreHandle {
         // core'o pačio klaidos; kviečiame ją tik patikrinti API suderinamumą.
         let api_version = unsafe { (symbols.retro_api_version)() };
         if api_version != RETRO_API_VERSION {
-            return Err(AppError::Other(format!(
+            return Err(CoreError::Other(format!(
                 "core'as {} turi nesuderinamą API versiją {api_version} (tikimasi {RETRO_API_VERSION})",
                 path.display()
             )));
@@ -217,7 +218,7 @@ impl CoreHandle {
     /// Turi būti kviečiama tik iš emuliavimo gijos, po `CoreHandle::init()` (CLAUDE.md §3.2
     /// taisyklė #1) — `retro_load_game` gali kviesti bet kurį iš anksčiau užregistruotų
     /// callback'ų core'o viduje.
-    pub unsafe fn load_game(&self, rom_path: &Path) -> Result<LoadedGameInfo, AppError> {
+    pub unsafe fn load_game(&self, rom_path: &Path) -> Result<LoadedGameInfo, CoreError> {
         let sysinfo = self.system_info();
         let valid_extensions: Vec<String> = sysinfo
             .valid_extensions
@@ -273,7 +274,7 @@ impl CoreHandle {
         // SAFETY: `game_info` laukai (path_cstring/data_owned) gyvena visą šio kvietimo metu.
         let loaded = unsafe { (self.symbols.retro_load_game)(&game_info) };
         if !loaded {
-            return Err(AppError::Other(format!(
+            return Err(CoreError::Other(format!(
                 "core'as atmetė ROM'ą: {}",
                 rom_path.display()
             )));
@@ -330,12 +331,12 @@ impl CoreHandle {
     }
 }
 
-fn path_to_cstring(path: &Path) -> Result<CString, AppError> {
+fn path_to_cstring(path: &Path) -> Result<CString, CoreError> {
     let s = path
         .to_str()
-        .ok_or_else(|| AppError::Other(format!("kelias nėra UTF-8: {}", path.display())))?;
+        .ok_or_else(|| CoreError::Other(format!("kelias nėra UTF-8: {}", path.display())))?;
     CString::new(s)
-        .map_err(|_| AppError::Other(format!("kelias turi nul baitą: {}", path.display())))
+        .map_err(|_| CoreError::Other(format!("kelias turi nul baitą: {}", path.display())))
 }
 
 /// Tikri `retro_get_system_av_info()` duomenys po `retro_load_game()` — fps/sample_rate/
@@ -402,7 +403,7 @@ impl Drop for CoreHandle {
 mod tests {
     use super::*;
 
-    /// `src-tauri/cores/` yra `.gitignore`'inta (CLAUDE.md §11.2) — vartotojas pats deda
+    /// `crates/nullbyte-core/cores/` yra `.gitignore`'inta (CLAUDE.md §11.2) — vartotojas pats deda
     /// realius core'us lokaliam testavimui. CI aplinkoje jo nėra, todėl testas praleidžiamas,
     /// jei failo nerandama, o ne suveikia klaidingai.
     fn test_core_path() -> Option<PathBuf> {
@@ -415,7 +416,7 @@ mod tests {
     fn loads_real_core_and_reports_api_version_1() {
         let Some(path) = test_core_path() else {
             eprintln!(
-                "praleista: src-tauri/cores/genesis_plus_gx_libretro.dylib nerastas (lokalus test fixture)"
+                "praleista: crates/nullbyte-core/cores/genesis_plus_gx_libretro.dylib nerastas (lokalus test fixture)"
             );
             return;
         };
@@ -430,7 +431,7 @@ mod tests {
     #[test]
     fn missing_file_returns_app_error_not_panic() {
         let result = CoreHandle::load("/no/such/path/definitely_missing_core.dylib");
-        assert!(matches!(result, Err(AppError::Other(_))));
+        assert!(matches!(result, Err(CoreError::Other(_))));
     }
 
     #[test]
@@ -480,7 +481,7 @@ mod tests {
     }
 
     /// Pirmas rastas failas kataloge su nurodytu plėtiniu — nepriklauso nuo konkretaus
-    /// failo pavadinimo, tik nuo to, kad `src-tauri/roms/<platforma>/` turi bent vieną.
+    /// failo pavadinimo, tik nuo to, kad `crates/nullbyte-core/roms/<platforma>/` turi bent vieną.
     fn first_file_with_ext(dir: &Path, ext: &str) -> Option<PathBuf> {
         std::fs::read_dir(dir)
             .ok()?
@@ -595,7 +596,7 @@ mod tests {
             return;
         };
         let Some(bios) = bios_dir() else {
-            eprintln!("praleista: src-tauri/bios/ nerastas");
+            eprintln!("praleista: crates/nullbyte-core/bios/ nerastas");
             return;
         };
         let roms_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("roms/psx");
@@ -641,7 +642,7 @@ mod tests {
         // atlaidžiai — bandymas paduoti šiukšlių baitus su .sfc plėtiniu realiai PAVYKO
         // (core'as juos interpretavo kaip validų LoROM). Todėl patikimam "blogo ROM'o"
         // scenarijui naudojame neegzistuojantį failą — tai testuoja mūsų PAČIŲ kelio
-        // skaitymo klaidos apdorojimą (std::fs::read → AppError::Io), nepriklausomai nuo
+        // skaitymo klaidos apdorojimą (std::fs::read → CoreError::Io), nepriklausomai nuo
         // konkretaus core'o header validacijos griežtumo.
         let missing_rom = std::env::temp_dir().join("nullbyte_test_definitely_missing.sfc");
         std::fs::remove_file(&missing_rom).ok();
@@ -653,8 +654,8 @@ mod tests {
 
         let result = unsafe { handle.load_game(&missing_rom) };
         assert!(
-            matches!(result, Err(AppError::Io(_))),
-            "neegzistuojantis ROM'as turėtų grąžinti AppError::Io, gauta {result:?}"
+            matches!(result, Err(CoreError::Io(_))),
+            "neegzistuojantis ROM'as turėtų grąžinti CoreError::Io, gauta {result:?}"
         );
 
         take_context();

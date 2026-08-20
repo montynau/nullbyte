@@ -9,7 +9,7 @@ use std::path::Path;
 use sevenz_rust::{Password, SevenZReader};
 use zip::ZipArchive;
 
-use crate::error::AppError;
+use crate::error::CoreError;
 
 /// Randa pirmą archyvo viduje esantį failą, kurio plėtinys yra tarp `valid_extensions`
 /// (be taško, nepriklausomai nuo registro, pvz. `["sfc", "smc"]`), ir grąžina jo bazinį
@@ -17,7 +17,7 @@ use crate::error::AppError;
 pub fn extract_first_match(
     archive_path: &Path,
     valid_extensions: &[String],
-) -> Result<(String, Vec<u8>), AppError> {
+) -> Result<(String, Vec<u8>), CoreError> {
     let ext = archive_path
         .extension()
         .and_then(|e| e.to_str())
@@ -26,7 +26,7 @@ pub fn extract_first_match(
     match ext.as_deref() {
         Some("zip") => extract_from_zip(archive_path, valid_extensions),
         Some("7z") => extract_from_7z(archive_path, valid_extensions),
-        _ => Err(AppError::Other(format!(
+        _ => Err(CoreError::Other(format!(
             "nepalaikomas archyvo formatas: {}",
             archive_path.display()
         ))),
@@ -38,7 +38,7 @@ pub fn extract_first_match(
 pub fn extract_first_match_to_temp(
     archive_path: &Path,
     valid_extensions: &[String],
-) -> Result<std::path::PathBuf, AppError> {
+) -> Result<std::path::PathBuf, CoreError> {
     let (name, data) = extract_first_match(archive_path, valid_extensions)?;
     let temp_dir = std::env::temp_dir().join("nullbyte");
     std::fs::create_dir_all(&temp_dir)?;
@@ -63,8 +63,8 @@ fn base_name(name: &str) -> String {
         .to_string()
 }
 
-fn no_match_error(archive_path: &Path, valid_extensions: &[String]) -> AppError {
-    AppError::Other(format!(
+fn no_match_error(archive_path: &Path, valid_extensions: &[String]) -> CoreError {
+    CoreError::Other(format!(
         "archyve {} nerasta tinkamo failo (laukiami plėtiniai: {})",
         archive_path.display(),
         valid_extensions.join(", ")
@@ -74,15 +74,15 @@ fn no_match_error(archive_path: &Path, valid_extensions: &[String]) -> AppError 
 fn extract_from_zip(
     path: &Path,
     valid_extensions: &[String],
-) -> Result<(String, Vec<u8>), AppError> {
+) -> Result<(String, Vec<u8>), CoreError> {
     let file = std::fs::File::open(path)?;
     let mut archive = ZipArchive::new(file)
-        .map_err(|e| AppError::Other(format!("nepavyko atidaryti zip {}: {e}", path.display())))?;
+        .map_err(|e| CoreError::Other(format!("nepavyko atidaryti zip {}: {e}", path.display())))?;
 
     for i in 0..archive.len() {
         let mut entry = archive
             .by_index(i)
-            .map_err(|e| AppError::Other(format!("zip skaitymo klaida: {e}")))?;
+            .map_err(|e| CoreError::Other(format!("zip skaitymo klaida: {e}")))?;
 
         if entry.is_dir() || !has_valid_extension(entry.name(), valid_extensions) {
             continue;
@@ -99,9 +99,9 @@ fn extract_from_zip(
 fn extract_from_7z(
     path: &Path,
     valid_extensions: &[String],
-) -> Result<(String, Vec<u8>), AppError> {
+) -> Result<(String, Vec<u8>), CoreError> {
     let mut reader = SevenZReader::open(path, Password::empty())
-        .map_err(|e| AppError::Other(format!("nepavyko atidaryti 7z {}: {e}", path.display())))?;
+        .map_err(|e| CoreError::Other(format!("nepavyko atidaryti 7z {}: {e}", path.display())))?;
 
     let mut result: Option<(String, Vec<u8>)> = None;
     reader
@@ -117,7 +117,7 @@ fn extract_from_7z(
             result = Some((base_name(entry.name()), data));
             Ok(true)
         })
-        .map_err(|e| AppError::Other(format!("7z skaitymo klaida: {e}")))?;
+        .map_err(|e| CoreError::Other(format!("7z skaitymo klaida: {e}")))?;
 
     result.ok_or_else(|| no_match_error(path, valid_extensions))
 }

@@ -720,7 +720,7 @@ Tik įrodymas, kad FFI veikia.
 > struktūroje (`src-tauri/src/input/gamepad.rs`) — P4.0.1 metu jis tiesiog PERKELIAMAS į
 > `crates/nullbyte-core/src/input/gamepad.rs` (be logikos pakeitimų), ne perrašomas iš naujo.
 
-### P4.0.1 — Cargo workspace split `[ ]`
+### P4.0.1 — Cargo workspace split `[x]`
 
 **Priklausomybės:** —
 **Failai:** `Cargo.toml` (naujas, workspace root), `crates/nullbyte-core/Cargo.toml` (naujas),
@@ -749,11 +749,38 @@ error.rs) ir `crates/nullbyte-app/src/` (likusi dalis), `.gitignore`
 - Atnaujink `.gitignore` (žr. P0.4 pastabą aukščiau)
 - Ištrink tuščią `src-tauri/` katalogą, kai migracija baigta ir viskas veikia
 
+**Neplanuoti, bet būtini radiniai vykdymo metu (plano tekstas jų nenumatė):**
+- Senasis `error.rs` (`AppError`) turėjo `Database(rusqlite::Error)`/`Network(reqwest::Error)`
+  variantus — jų NEGALIMA palikti `nullbyte-core`'e (kertų „NE tauri/rusqlite/reqwest"
+  taisyklę aukščiau). Išspręsta: `nullbyte-core::error::CoreError` (tik `Io`/`Other`, naudoja
+  core/video/audio/input/archive.rs) + `nullbyte-app::error::AppError` (originalūs keturi
+  variantai + naujas `Core(#[from] CoreError)`, kad `?` veiktų skambinant iš `nullbyte-app` į
+  `nullbyte-core`)
+- `video::renderer::Renderer::new()` priiminėjo `tauri::window::Window<R>` TIESIOGIAI — realus
+  hard-dependency į `tauri` crate'ą `nullbyte-core`'e, ne vien plano tekste numatyta „NE tauri"
+  eilutė. Adaptuota DABAR (ne atidėta P4.0.2, nes P4.0.1's savo acceptance reikalauja
+  `cargo build --workspace` be `tauri` `nullbyte-core`'e): signatūra tapo
+  `new<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static>(window: W, size: (u32, u32))`,
+  `tauri::async_runtime::block_on` → `pollster::block_on` (nauja, maža, gerai žinoma
+  priklausomybė — tas pats sprendimas, kurį naudoja oficialūs wgpu pavyzdžiai). Veikia
+  identiškai su Tauri `Window` (dabar) IR winit `Window` (P4.0.2) be jokių tolimesnių pakeitimų
+- `audio/output.rs`/`core/environment.rs`/`core/runner.rs` testai naudojo `tracing_subscriber`
+  tik testų viduje — pridėta kaip `nullbyte-core`'o `[dev-dependencies]`, ne pagrindinė
+  priklausomybė
+- `tauri.conf.json`'o `frontendDist` ("../build") tapo "../../build" (dabar dvi katalogų gilumos
+  nuo repo šaknies, ne viena)
+- **`pnpm tauri dev` patikrinta REALIAI** iš repo šaknies BE jokio papildomo flag'o — Tauri CLI
+  automatiškai suranda `crates/nullbyte-app/tauri.conf.json` (jos paieška ieško bet kurio
+  katalogo su `tauri.conf.json` + tauri priklausomybe, ne tik pavadinimu `src-tauri`). CLAUDE.md
+  §5 „NEPATIKRINTA" pastaba pašalinta
+
 **Acceptance:**
-- [ ] `cargo build --workspace` be klaidų
-- [ ] `cargo test --workspace` — visi esami testai praeina, be regresijos (57+ testų)
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` švarus
-- [ ] `pnpm tauri dev` vis dar paleidžia Tauri langą (su atnaujintu keliu/config)
+- [x] `cargo build --workspace` be klaidų
+- [x] `cargo test --workspace` — visi esami testai praeina, be regresijos (63 nullbyte-core +
+      2 nullbyte-app testai, 4 ignoruoti — kaip prieš migraciją)
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` švarus
+- [x] `pnpm tauri dev` vis dar paleidžia Tauri langą (su atnaujintu keliu/config) — patikrinta
+      realiai, langas atsidaro, `nullbyte_lib` startup log'as pasirodo
 
 ---
 
@@ -1552,13 +1579,13 @@ CREATE TABLE scrape_cache (
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
-| 4 — Įvestis (+P4.0.x migracija) | 9 | 0 | 0 % |
+| 4 — Įvestis (+P4.0.x migracija) | 9 | 1 | 11 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **21** | **40 %** |
+| **Viso** | **52** | **22** | **42 %** |
 
 ---
 

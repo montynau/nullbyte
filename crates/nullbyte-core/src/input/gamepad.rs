@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use gilrs::{Axis, Button, EventType, Gilrs, GilrsBuilder};
 
-use crate::error::AppError;
+use crate::error::CoreError;
 
 /// Analoginių ašių deadzone (P4.1 „Ką daryti": numatytoji 0.2). `gilrs` turi savo įmontuotą
 /// deadzone filtrą (pagal kiekvieno valdiklio DB įrašą), bet MVP.md reikalauja FIKSUOTOS
@@ -62,11 +62,11 @@ pub struct GamepadThread {
 impl GamepadThread {
     /// Paleidžia naują dedikuotą gamepad giją. Grąžina `Receiver<GamepadEvent>` —
     /// kviečiantis kodas jais dalinasi toliau (UI pranešimams, įvesties mapping'ui).
-    pub fn spawn() -> Result<(Self, Receiver<GamepadEvent>), AppError> {
+    pub fn spawn() -> Result<(Self, Receiver<GamepadEvent>), CoreError> {
         let gilrs = GilrsBuilder::new()
             .with_default_filters(false)
             .build()
-            .map_err(|e| AppError::Other(format!("nepavyko inicializuoti gilrs: {e}")))?;
+            .map_err(|e| CoreError::Other(format!("nepavyko inicializuoti gilrs: {e}")))?;
 
         let (event_tx, event_rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel();
@@ -83,7 +83,7 @@ impl GamepadThread {
         let handle = std::thread::Builder::new()
             .name("nullbyte-gamepad".to_string())
             .spawn(move || run_loop(gilrs, event_tx, stop_rx))
-            .map_err(|e| AppError::Other(format!("nepavyko sukurti gamepad gijos: {e}")))?;
+            .map_err(|e| CoreError::Other(format!("nepavyko sukurti gamepad gijos: {e}")))?;
 
         Ok((
             Self {

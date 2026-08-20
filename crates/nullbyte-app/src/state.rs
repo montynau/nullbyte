@@ -7,10 +7,11 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::core::runner::EmuThread;
+use nullbyte_core::core::runner::EmuThread;
+use nullbyte_core::video::renderer::Renderer;
+
 use crate::error::AppError;
 use crate::paths;
-use crate::video::renderer::Renderer;
 
 pub struct AppState {
     pub data_dir: PathBuf,

@@ -1,14 +1,10 @@
-mod audio;
 mod commands;
-mod core;
 mod db;
 mod error;
-mod input;
 mod library;
 mod paths;
 mod scraper;
 mod state;
-mod video;
 
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;

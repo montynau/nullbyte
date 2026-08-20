@@ -2,7 +2,7 @@
 
 use tauri::{AppHandle, Emitter};
 
-use crate::input::gamepad::GamepadEvent;
+use nullbyte_core::input::gamepad::GamepadEvent;
 
 /// Prisijungimo/atsijungimo pranešimas UI — CLAUDE.md §7.3 (IPC struct'ai: camelCase).
 /// Mygtukų/ašių įvykiai (P4.2/P4.3 valdymo mapping'ui) NEsiunčiami UI — tik prisijungimo

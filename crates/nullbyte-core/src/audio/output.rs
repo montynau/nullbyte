@@ -19,7 +19,7 @@ use std::sync::Arc;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
 
-use crate::error::AppError;
+use crate::error::CoreError;
 
 /// Tikslinis buferio latency (P3.1 „Ką daryti": ~40–60 ms). `pub(crate)`, kad
 /// `audio::ring`'o talpa (P3.2/P3.4, `recommended_capacity`) būtų skaičiuojama nuo TO PATIES
@@ -39,13 +39,13 @@ pub struct AudioOutput {
 /// Numatytojo įrenginio derybų rezultatas — kviesk PRIEŠ [`AudioOutput::open`], kad
 /// `sample_source` closure'as žinotų tikrą sample rate/channels dar prieš srauto sukūrimą
 /// (pvz. testinės sinusoidės fazės žingsniui apskaičiuoti).
-pub fn default_config() -> Result<(u32, u16), AppError> {
+pub fn default_config() -> Result<(u32, u16), CoreError> {
     let host = cpal::default_host();
     let device = host.default_output_device().ok_or_else(|| {
-        AppError::Other("nerastas numatytasis garso išvesties įrenginys".to_string())
+        CoreError::Other("nerastas numatytasis garso išvesties įrenginys".to_string())
     })?;
     let config = device.default_output_config().map_err(|e| {
-        AppError::Other(format!(
+        CoreError::Other(format!(
             "nepavyko gauti garso įrenginio konfigūracijos: {e}"
         ))
     })?;
@@ -56,18 +56,18 @@ impl AudioOutput {
     /// Atidaro numatytąjį garso išvesties įrenginį ir paleidžia srautą su `sample_source`
     /// callback'u (kviečiamas real-time audio gijoje — žr. modulio doc apribojimus).
     /// `sample_source` gauna interleaved stereo/multi-channel `f32` buferį užpildymui.
-    pub fn open<F>(sample_source: F) -> Result<Self, AppError>
+    pub fn open<F>(sample_source: F) -> Result<Self, CoreError>
     where
         F: FnMut(&mut [f32], u16) + Send + 'static,
     {
         let host = cpal::default_host();
         let device = host.default_output_device().ok_or_else(|| {
-            AppError::Other("nerastas numatytasis garso išvesties įrenginys".to_string())
+            CoreError::Other("nerastas numatytasis garso išvesties įrenginys".to_string())
         })?;
         let device_name = device.name().unwrap_or_else(|_| "?".to_string());
 
         let supported_config = device.default_output_config().map_err(|e| {
-            AppError::Other(format!(
+            CoreError::Other(format!(
                 "nepavyko gauti garso įrenginio konfigūracijos: {e}"
             ))
         })?;
@@ -109,16 +109,16 @@ impl AudioOutput {
                 error_callback,
             ),
             other => {
-                return Err(AppError::Other(format!(
+                return Err(CoreError::Other(format!(
                     "nepalaikomas garso sample formatas: {other:?}"
                 )))
             }
         }
-        .map_err(|e| AppError::Other(format!("nepavyko sukurti audio srauto: {e}")))?;
+        .map_err(|e| CoreError::Other(format!("nepavyko sukurti audio srauto: {e}")))?;
 
         stream
             .play()
-            .map_err(|e| AppError::Other(format!("nepavyko paleisti audio srauto: {e}")))?;
+            .map_err(|e| CoreError::Other(format!("nepavyko paleisti audio srauto: {e}")))?;
 
         tracing::info!(
             device = %device_name,
