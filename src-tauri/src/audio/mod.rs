@@ -3,3 +3,4 @@
 //! Užpildoma Fazėje 3 (P3.1–P3.4): `output`, `ring`, `resampler`.
 
 pub mod output;
+pub mod ring;

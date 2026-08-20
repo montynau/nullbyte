@@ -571,7 +571,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P3.2 — Lock-free ring buffer `[ ]`
+### P3.2 — Lock-free ring buffer `[x]`
 
 **Priklausomybės:** P3.1
 **Failai:** `src-tauri/src/audio/ring.rs`
@@ -584,9 +584,29 @@ Tik įrodymas, kad FFI veikia.
 - `occupancy()` metodas rate control'ui
 
 **Acceptance:**
-- [ ] Jokio alokavimo cpal callback'e (patikrink kodą; `cargo` be `dhat` pakanka vizualiai)
-- [ ] Underrun/overrun nesulaužo srauto
-- [ ] Testas: producer/consumer skirtingais greičiais 60 s
+- [x] Jokio alokavimo cpal callback'e — patikrinta kodo peržiūra: `AudioConsumer::fill()`
+      (kviečiamas iš `audio/output.rs` `sample_source` callback'o) naudoja tik
+      `rtrb::Consumer::read_chunk` (grąžina jau egzistuojančias `&[i16]` slices per
+      `IntoIterator`) ir paprastą `for` ciklą — jokio `Vec`/`String`/`format!`. Throttled
+      logging PERKELTAS Į KITĄ (ne real-time) gijos kontekstą pagal projektavimą: callback'e
+      tik atomiškai didinamas skaitliukas (`AtomicU64`), `tracing::warn!` bus kviečiamas iš
+      `core::runner` periodinio 5s statistikos log'o (P1.7 šabloną pratęsiant), kai
+      `AudioConsumer`/`AudioProducer` bus sujungti į `runner.rs` (P3.4)
+- [x] Underrun/overrun nesulaužo srauto — patikrinta 60s soak testu (žr. žemiau):
+      `underrun=34616 overrun=220426` per 60s, nė vienas neužstrigo/nepanikavo
+- [x] Testas: producer/consumer skirtingais greičiais 60 s —
+      `producer_and_consumer_at_different_speeds_for_60_seconds` (`#[ignore]`, paleista
+      rankiniu būdu `--release`): producer'io greitis kas 1s persijungia greitas/lėtas
+      (sąmoningai sukelia ir overrun, ir underrun), consumer'is fiksuoto greičio — testas
+      PRAĖJO (assert'ai patvirtino, kad abu scenarijai realiai suveikė bent kartą). Greita
+      (2s) sanity versija `producer_and_consumer_at_different_speeds_short` įeina į įprastą
+      `cargo test`.
+
+> **Pastaba dėl overrun semantikos:** `rtrb::Producer` API neturi būdo pašalinti jau įrašytus
+> (dar neperskaitytus) sample'us — tik `Consumer` (kita gija) gali juos paimti. „Mesk
+> seniausius" realizuota PER ĮEINANTĮ chunk'ą (paliekamas tik naujausias segmentas, kuris
+> tilpsta laisvoje vietoje), ne per jau eilėje esančius duomenis — žr. detalų paaiškinimą
+> `audio/ring.rs` modulio doc komentare.
 
 ---
 
@@ -1278,14 +1298,14 @@ CREATE TABLE scrape_cache (
 | 0 — Pamatai | 5 | 5 | 100 % |
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
-| 3 — Garsas | 4 | 1 | 25 % |
+| 3 — Garsas | 4 | 2 | 50 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **18** | **38 %** |
+| **Viso** | **47** | **19** | **40 %** |
 
 ---
 
