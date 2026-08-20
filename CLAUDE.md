@@ -37,6 +37,8 @@ groja trumpas gameplay įrašas, kaip Steam / Epic Games Store).
 |---|---|---|
 | `tauri` | `2.11.x` | Aplikacijos apvalkalas, langai, IPC |
 | `tauri-build` | `2.x` | Build script |
+| `tauri-plugin-shell` | `2.3.x` | `nullbyte-app`: `nullbyte-emu` sidecar spawn'inimas ir IPC (ADR-016) |
+| `winit` | `0.30.x` (naujausia stabili — `0.31` dar beta) | `nullbyte-emu`: savo langas, event loop, klaviatūra (ADR-016) |
 | `libloading` | `0.8` | Dinaminis libretro core'ų įkėlimas (`dlopen`) |
 | `wgpu` | `26.x` | GPU vaizdo atvaizdavimas (Metal macOS / Vulkan Linux) |
 | `raw-window-handle` | `0.6` | Tauri lango handle → wgpu `Surface` |
@@ -278,8 +280,9 @@ nullbyte/
 │   │   ├── Cargo.toml              # priklauso nuo nullbyte-core
 │   │   └── src/
 │   │       ├── main.rs             # winit event loop, ActivationPolicy::Accessory (§10)
-│   │       ├── ipc.rs              # IPC serveris — priima EmuCommand iš tėvo, siunčia būvį
-│   │       └── orphan_guard.rs     # tėvo pipe stebėjimas — EOF → savaiminis išsijungimas
+│   │       └── ipc.rs              # IPC serveris (stdin/stdout NDJSON) — priima EmuCommand,
+│   │                                #   siunčia EmuStatus; stdin EOF → savaiminis išsijungimas
+│   │                                #   (ta pati gija, be atskiro orphan-guard pipe'o — ADR-016)
 │   │
 │   └── nullbyte-app/                # TĖVO procesas — Tauri, UI, DB, scraper, biblioteka
 │       ├── Cargo.toml               # priklauso nuo nullbyte-core (dalinasi IPC tipais)
@@ -780,13 +783,21 @@ DB laiko tik **santykinius kelius**, ne absoliučius — kad veiktų perkėlus p
 ### Proceso architektūra (`nullbyte-emu` ↔ `nullbyte-app`, ADR-016)
 - **Našlaičių (orphan) procesai:** jei `nullbyte-app` (tėvas) staiga krenta, `nullbyte-emu`
   (vaikas) Unix'e NEMIRŠTA automatiškai kartu — liktų veikiantis fone. **Nenaudok PID
-  pollinimo** (nepatikima, race'inama). Vietoj to: tėvas laiko atvirą pipe'ą į vaiką kaip
-  gyvumo signalą; vaikas jį skaito fone atskiroje gijoje — kai tėvas (net ir netikėtai)
-  baigiasi, OS uždaro pipe'ą ir vaikas gauna EOF → švariai išsijungia pats.
+  pollinimo** (nepatikima, race'inama). Vietoj to: **tas pats stdin IPC kanalas** (P4.0.3),
+  jokio atskiro pipe'o — kai tėvas (net ir netikėtai, `kill -9`) baigiasi, OS uždaro paskutinę
+  `stdin` write-end nuorodą, vaiko fono gija (`BufRead::lines()`) gauna `EOF` → švariai
+  išsijungia pati. Vienas kanalas, viena FD pora, ta pati Unix pipe EOF semantika abiem
+  paskirtims (IPC ir gyvumo signalui).
 - **IPC riba turi likti PLONA.** Per ją keliauja tik valdymo žinutės (`EmuCommand`-like) ir
   būvio pranešimai — NIEKADA vaizdo kadrai ar audio sample'ai (tam nėra reikalo, nes vaikas
   turi savo langą/garso įrenginį — žr. §3.4). Jei prireikia siųsti kadrą per IPC (pvz.
   bibliotekos preview'ui) — tai atskiras, retas, apgalvotas atvejis, ne bendra taisyklė.
+- **`nullbyte-emu` NIEKADA nerašo į `stdout`** — tas kanalas priklauso IPC protokolui
+  (NDJSON `EmuStatus` žinutės, žr. P4.0.3). Vienas pamirštas `println!`/`dbg!` arba
+  numatytasis `tracing_subscriber` writer'is (jis pagal nutylėjimą rašo į stdout!) sugadins
+  protokolą tyliai — simptomas atrodys kaip atsitiktinis JSON parse error tėvo pusėje, ne
+  kaip logging klaida. Konfigūruok `tracing_subscriber` su `.with_writer(std::io::stderr)`
+  arba failo appender'iu; logink tik į `stderr` arba failą, niekada į `stdout`.
 
 ### Tauri IPC
 - **Nesiųsk kadrų per `invoke`.** JSON serializacija 60 kartų per sekundę užmuš aplikaciją.

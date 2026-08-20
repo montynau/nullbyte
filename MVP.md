@@ -791,34 +791,60 @@ error.rs) ir `crates/nullbyte-app/src/` (likusi dalis), `.gitignore`
 **Ką daryti:**
 - `EmuCommand` (jau egzistuoja `core::runner`) gauna `serde::Serialize`/`Deserialize` —
   naujas `EmuStatus` enum būvio pranešimams atgal (Loaded/Error/Stats/Stopped)
-- Transportas: `std::process::Command` stdin/stdout pipe'ai (jokios naujos priklausomybės —
-  gaunami nemokamai su vaiko procesu). Length-prefixed žinutės (u32 LE dydis + JSON payload)
-- `nullbyte-emu`: fone atskira gija skaito stdin, siunčia `EmuCommand` į `EmuThread`; rašo
-  `EmuStatus` į stdout
-- `nullbyte-app`: paleidžia `nullbyte-emu` su piped stdin/stdout, siunčia/skaito per juos
+- Transportas: **`tauri-plugin-shell`** sidecar API (`ShellExt::shell().sidecar("nullbyte-emu")?.spawn()`
+  → grąžina `Receiver<CommandEvent>` + `CommandChild`), ne žalias `std::process::Command`.
+  **Nauja priklausomybė** — įrašyta CLAUDE.md §2 lentelėje. Pasirinkta vietoj žalio `Command`,
+  nes automatiškai sprendžia binaro kelią dev vs bundle (žr. P4.0.5), o `CommandChild::write()`/
+  `kill()`/`pid()` ir `CommandEvent::{Stdout,Stderr,Error,Terminated}` pilnai pakanka IPC + proceso
+  gyvavimo ciklo poreikiams (API patikrinta prieš docs.rs `tauri_plugin_shell::process` puslapį)
+- Žinučių formatas: **newline-delimited JSON (NDJSON)**, NE length-prefixed. `CommandEvent::Stdout`
+  pagal nutylėjimą skaido baitus per `\n`/`\r`, tad kiekviena `EmuCommand`/`EmuStatus` žinutė —
+  vienas kompaktiškas `serde_json` objektas per eilutę (be įterptų `\n`). Length-prefix framing
+  būtų reikalingas tik su žaliu `Command`, čia perteklinis
+- `nullbyte-emu`: fono gija skaito savo `stdin` per `BufRead::lines()`, parsina kiekvieną eilutę
+  kaip `EmuCommand`, siunčia į `EmuThread`; rašo `EmuStatus` į `stdout` (viena eilutė, `flush()`
+  iš karto)
+- `nullbyte-app`: paleidžia sidecar'ą, siunčia komandas per `CommandChild::write()`, skaito
+  `CommandEvent::Stdout` žinutes iš `Receiver`
+- **KRITIŠKAI SVARBU:** kadangi IPC eina per `stdout`, `nullbyte-emu` NIEKADA negali rašyti į
+  `stdout` nieko kito — nei `println!`/`dbg!`, nei numatytojo `tracing_subscriber` writer'io
+  (jis pagal nutylėjimą rašo į stdout!). Vienas pamirštas `println!` arba nenukreiptas
+  `tracing` subscriber sugadins protokolą, ir klaida atrodys kaip atsitiktinis JSON parse error,
+  ne kaip logging problema. `nullbyte-emu` logina **tik į `stderr`** (`.with_writer(std::io::stderr)`)
+  arba į failą — niekada į stdout. Žr. CLAUDE.md §10
 
 **Acceptance:**
 - [ ] `Load`/`Pause`/`Resume`/`Stop` komandos pasiekia vaiką ir sukelia teisingą elgesį
 - [ ] Būvio pranešimai (klaidos, statistika) pasiekia tėvą
 - [ ] Serializacijos klaida NESULAUŽO nei vieno proceso (`Result`, ne `panic!`/`unwrap()`)
+- [ ] `nullbyte-emu` paleidus be jokio ROM'o (vien init) — `stdout` NEturi nė vienos baitos,
+      kuri nėra validus NDJSON `EmuStatus` (patikrinta rankiniu būdu paleidus binarą tiesiogiai
+      terminale ir stebint `stdout` atskirai nuo `stderr`)
 
 ---
 
 ### P4.0.4 — Proceso gyvavimo ciklas, našlaičių apsauga `[ ]`
 
 **Priklausomybės:** P4.0.2, P4.0.3
-**Failai:** `crates/nullbyte-emu/src/orphan_guard.rs`, `crates/nullbyte-app/src/commands/emulator.rs`
+**Failai:** `crates/nullbyte-emu/src/ipc.rs` (EOF → shutdown šaka toje pačioje stdin-skaitymo
+gijoje, NE atskiras modulis — žr. pastabą žemiau), `crates/nullbyte-app/src/commands/emulator.rs`
+(timeout + `CommandChild::kill()`)
 
 **Ką daryti:**
-- Tėvas laiko papildomą pipe'ą (atskirą nuo IPC stdin/stdout) kaip gyvumo signalą vaikui
-- Vaikas: fono gija skaito tą pipe'ą; `EOF` → švarus išsijungimas (`Stop` → `EmuThread`, tada
-  `process::exit`). **NE PID pollinimas** (nepatikimas, race'inamas — žr. CLAUDE.md §10)
+- **Jokio atskiro pipe'o.** IPC `stdin` kanalas (P4.0.3) jau yra gyvumo signalas: kai tėvas
+  miršta (bet kokiu būdu, įskaitant `kill -9`), OS uždaro paskutinę `stdin` write-end nuorodą,
+  ir vaiko `BufRead::lines()` grąžina `None` (`EOF`) pati savaime — Unix pipe semantika, ne
+  papildomas mechanizmas
+- Vaikas: kai P4.0.3 stdin-skaitymo gija gauna `EOF` → švarus išsijungimas (`Stop` →
+  `EmuThread`, tada `process::exit`). **NE PID pollinimas** (nepatikimas, race'inamas —
+  žr. CLAUDE.md §10)
 - Tėvas: normaliu atveju (vartotojas uždaro žaidimą) siunčia `Stop` per IPC, laukia proceso
-  pabaigos su timeout'u, po to force-kill jei reikia
+  pabaigos (`CommandEvent::Terminated` iš `Receiver`) su timeout'u, po to `CommandChild::kill()`
+  jei reikia
 
 **Acceptance:**
 - [ ] Dirbtinai nutraukus tėvo procesą (`kill -9`), vaikas savaime išsijungia per kelias
-      sekundes (patikrinta realiai, ne vien skaitant kodą)
+      sekundes vien dėl `stdin` EOF (patikrinta realiai, ne vien skaitant kodą)
 - [ ] Normalus žaidimo uždarymas švariai sustabdo vaiką be „zombie" proceso
 - [ ] Vaiko crash'as (dirbtinis panic core'e) nenumuša tėvo proceso
 
@@ -1820,9 +1846,14 @@ sidecar procesą kiekvienam žaidimo paleidimui.
    Dock'e kaip antra programa). Naudojama
    `EventLoopBuilderExtMacOS::with_activation_policy(ActivationPolicy::Accessory)`.
 2. **Našlaičių procesų apsauga:** jei tėvas krenta, Unix'e vaikas savaime NEMIRŠTA. NE PID
-   pollinimas (nepatikimas, race'inamas) — tėvas laiko atvirą pipe'ą į vaiką; vaikas jį
-   skaito fone atskiroje gijoje; tėvo netikėtas baigimasis uždaro pipe'ą → vaikas gauna EOF
-   → švariai išsijungia pats.
+   pollinimas (nepatikimas, race'inamas) — **NE atskiras pipe'as** (pirminis planas), o tas
+   pats IPC `stdin` kanalas (P4.0.3, `tauri-plugin-shell` sidecar transportas): vaikas jį
+   skaito fone atskiroje gijoje; tėvo netikėtas baigimasis uždaro paskutinę `stdin` write-end
+   nuorodą → vaikas gauna `EOF` → švariai išsijungia pats. Vienas kanalas dviem paskirtims
+   — sprendimas priimtas P4.0.1 pradžioje, kai vartotojas pastebėjo, kad atskiras pipe'as
+   priverstų naudoti žalią `std::process::Command` (kuris pats turėtų spręsti binaro kelią
+   dev vs bundle), o `tauri-plugin-shell`'io sidecar API tą sprendžia automatiškai, bet
+   atskleidžia tik stdin/stdout.
 3. **Cargo workspace, trys crate'ai:** `nullbyte-core` (bendra: `core/`, `video/`, `audio/`,
    `input/` — naudoja IR vaikas vykdymui, IR tėvas IPC tipų bendrinimui),
    `nullbyte-app` (Tauri tėvas: `db/`, `scraper/`, `library/`, `commands/`),
@@ -1838,6 +1869,11 @@ sidecar procesą kiekvienam žaidimo paleidimui.
 Nei vaizdas, nei garsas, nei (dabar) klaviatūra/gamepad'as NIEKADA nekerta proceso ribos —
 `video::frame_buffer` triple buffer'is ir `audio::ring` SPSC ring buferis lieka algoritmiškai
 NEPAKITĘ, veikia tarp dviejų gijų VIENAME (`nullbyte-emu`) procese, kaip veikė P2.2–P3.4 metu.
+
+**Papildymas (P4.0.3, 2026-08-20):** kadangi IPC eina per `stdin`/`stdout` (o ne atskirą pipe'ą,
+žr. punktą #2), `nullbyte-emu` niekada negali rašyti į `stdout` nieko, kas nėra protokolo
+žinutė — nei `println!`, nei numatytojo `tracing_subscriber` writer'io (kuris pagal nutylėjimą
+rašo į stdout). Logink tik į `stderr` arba failą. Žr. CLAUDE.md §10.
 
 **Priežastis:** Sprendžia DVI problemas vienu architektūriniu žingsniu — klaviatūros
 įvestį IR R4 (Aukšta tikimybė, iki šiol be sprendimo, MVP.md §13). Pigiau daryti Fazėje 4
