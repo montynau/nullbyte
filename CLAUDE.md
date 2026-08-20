@@ -392,8 +392,24 @@ nullbyte/
 > flag'o teisingai suranda `crates/nullbyte-app/tauri.conf.json` (jos direktorijos paieška
 > ieško bet kurio katalogo su `tauri.conf.json` + `Cargo.toml` turinčiu `tauri` priklausomybę,
 > ne tik pavadinimu `src-tauri`) — abu crate'ai sukompiliuoja, langas paleidžiamas. `pnpm tauri
-> build` PATS `--config` flag'as NEBEREIKALINGAS; externalBin sidecar packaging (P4.0.5,
-> `nullbyte-emu`) dar nepatikrintas — tai atskiras, vėlesnis darbas.
+> build` PATS `--config` flag'as NEBEREIKALINGAS.
+>
+> **Nuo P4.0.3 prep (2026-08-20):** `tauri.conf.json` `bundle.externalBin` nurodo
+> `binaries/nullbyte-emu` — `tauri-plugin-shell` sidecar reikalauja, kad
+> `crates/nullbyte-app/binaries/nullbyte-emu-<target-triple>` JAU egzistuotų build.rs
+> paleidimo metu (patikrinta prieš `tauri-build` 2.6.3 šaltinį: priešingu atveju VISO
+> `nullbyte-app` build'as žlunga, ne tik sidecar spawn runtime). `nullbyte-app` NEPRIKLAUSO
+> nuo `nullbyte-emu` Cargo grafe, tad Cargo pats negarantuoja tvarkos — sprendžiama per
+> `beforeDevCommand`/`beforeBuildCommand` (`scripts/build-sidecar.sh` per `pnpm run
+> build:sidecar[:release]`) IR CI eksplicitinį žingsnį (`.github/workflows/ci.yml`).
+> `crates/nullbyte-app/build.rs` papildomai patikrina failo buvimą PRIEŠ
+> `tauri_build::build()` ir duoda aiškų pranešimą (ne tauri-build vidinį), jei kas nors
+> paleidžia žalią `cargo build/test/clippy --workspace` be išankstinio sidecar build'o.
+> **Patikrinta realiai nuo `cargo clean` + pašalinto binaro** — pilna seka (sidecar build →
+> fmt → clippy --workspace → test --workspace) praeina be klaidų. Multi-arch/universal build
+> (P4.0.5) — atskiras, dar nepatikrintas darbas; taip pat Linux CI runner'io winit
+> priklausomybės (X11/Wayland dev headers) NEPATIKRINTOS realiai (nėra Linux mašinos šioje
+> sesijoje, ta pati priežastis kaip P2.3/P2.5/P3.1/P4.1).
 
 ```bash
 # Setup (vieną kartą)
@@ -401,11 +417,14 @@ pnpm install
 rustup target add aarch64-apple-darwin x86_64-apple-darwin   # tik macOS
 
 # Kūrimas
-pnpm tauri dev                     # veikia nepakitusiai iš repo šaknies (patikrinta P4.0.1)
+pnpm tauri dev                     # veikia nepakitusiai iš repo šaknies (patikrinta P4.0.1);
+                                    # sidecar sukuriamas AUTOMATIŠKAI per beforeDevCommand
 pnpm dev                           # tik frontend (be Tauri — daugumai UI darbų greičiau,
                                     # nepaveikta workspace split'o, frontend'as lieka repo šaknyje)
 
 # Kokybė — PALEISK PRIEŠ KIEKVIENĄ COMMIT (iš repo šaknies)
+pnpm run build:sidecar             # BŪTINA prieš žemiau esančias cargo komandas (žr. pastabą
+                                    # aukščiau) — praleisk, jei ką tik paleidai `pnpm tauri dev`
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
@@ -414,8 +433,8 @@ pnpm lint                          # eslint + prettier --check
 pnpm format                        # prettier --write
 
 # Build
-pnpm tauri build                   # dabartinei platformai (externalBin/nullbyte-emu — P4.0.5)
-pnpm tauri build --target universal-apple-darwin   # macOS universal binary
+pnpm tauri build                   # dabartinei platformai; sidecar AUTOMATIŠKAI per beforeBuildCommand
+pnpm tauri build --target universal-apple-darwin   # macOS universal binary (P4.0.5 — nepatikrinta)
 ```
 
 ---

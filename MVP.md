@@ -797,15 +797,65 @@ error.rs) ir `crates/nullbyte-app/src/` (likusi dalis), `.gitignore`
 - Paleisk `core::runner::EmuThread` (iš `nullbyte-core`) — laikinai hardkodintu core/ROM keliu
   testams, kaip visų ankstesnių fazių verifikacijos hook'ai
 - `audio::output::AudioOutput` + audio pump logika (buvusi `start_audio_pump`) — čia
-- Resize/klaviatūros/gamepad įvykiai iš winit event loop'o (klaviatūra — NAUJIENA, anksčiau
-  negalima)
+- Resize/klaviatūra iš winit event loop'o (klaviatūra — NAUJIENA, anksčiau negalima)
+- Gamepad: paleisk `GamepadThread` (P4.1, jau egzistuoja, NEKEISTI architektūros — žr. P4.1
+  pastabą apie `gilrs-core` vidinę giją), neblokuojančiai (`try_recv()`) nuskaityk
+  `about_to_wait()` cikle
+
+**Įgyvendinta:** `App` implementuoja `winit::application::ApplicationHandler` — `resumed()` sukuria
+langą (`Arc<Window>`, kad jo kopiją galėtų laikyti IR `Renderer` per `Arc::clone`, IR pats `App`),
+`Renderer::new()` veikia BE pakeitimų (jau buvo generic per `HasWindowHandle`+`HasDisplayHandle`).
+`EmuThread::spawn()` + `AudioOutput::open()` paleidžiami tiesiai `resumed()` viduje — **P4.0.2
+architektūrinis supaprastinimas**: senasis `commands/emulator.rs::start_audio_pump` laikė
+`cpal::Stream` dedikuotoje gijoje TIK todėl, kad Tauri managed state reikalavo `Send + Sync`, o
+`cpal::Stream` (macOS CoreAudio) tokia nėra. `App` gyvena vien winit main gijoje ir niekada
+nekerta gijos ribos, tad `AudioOutput` dabar tiesiog laukas struct'e — dedikuota „parkuojanti"
+gija su `loop { sleep(3600s) }` nebereikalinga. Analogiškai frame pump: `about_to_wait()` seka
+`FrameConsumer` ir kviečia `renderer.upload_frame`/`render()` TIESIOGIAI (jau main gijoje) — nereikia
+senojo `run_on_main_thread` kanalo persiuntimo. Klaviatūra: `handle_keyboard()` atpažįsta
+`PhysicalKey::Code(KeyCode::Arrow*)` ir logina (pilnas mapping'as — P4.2). Gamepad:
+`resumed()` paleidžia `GamepadThread::spawn()` (P4.1 kodas, architektūra NEKEISTA — žr. P4.1
+pastabą), `drain_gamepad_events()` kviečiamas iš `about_to_wait()` kiekvieną ciklą,
+neblokuojančiai (`try_recv()`) nuskaito ir logina prisijungimą/atsijungimą bei mygtukų
+paspaudimus (ašys — praleidžiamos, per triukšmingos; pilnas mapping'as — P4.2). Core/ROM
+kelias hardkodintas per `test_core_and_rom()` (skenuoja `nullbyte-core/{cores,roms/snes}`, tas
+pats fixture principas kaip `core::loader` testuose).
 
 **Acceptance:**
-- [ ] Langas atsidaro, rodo SNES žaidimą (regresijos patikra prieš P2.4 rezultatą)
-- [ ] Garsas groja be traškesių (regresijos patikra prieš P3.4 rezultatą)
-- [ ] **Klaviatūra REALIAI valdo žaidimą** — patikrink paprastu test mapping'u (pvz. strėlė →
-      log'as), kad winit `KeyboardInput` tikrai ateina (tai buvo neįmanoma prieš ADR-016)
-- [ ] macOS Dock nerodo antros programos (`ActivationPolicy::Accessory` patikrinta)
+- [x] Langas atsidaro, rodo SNES žaidimą (regresijos patikra prieš P2.4 rezultatą) — patikrinta
+      realiai paleidus binarą (`cargo run --package nullbyte-emu`): wgpu Metal adapteris
+      pasirinktas, Surface sukonfigūruotas (1600×1200 @ Retina 2x), `snes9x_libretro.dylib` +
+      `Super Punch-Out!!.sfc` sėkmingai įkelti (`fps=50.006...`, PAL). Vizualiai pikselių
+      teisingumas atskirai nefotografuotas — piešimo pipeline (P2.4) NEPAKEISTA.
+- [!] Garsas groja be traškesių (regresijos patikra prieš P3.4 rezultatą) — **REALIAI paleista**
+      `cargo test --package nullbyte-core --release -- --ignored --nocapture --test-threads=1`,
+      visi 4 praėjo (157s):
+      - `core::runner::tests::runs_snes_rom_for_60_seconds_without_crash` — ok
+      - `audio::output::tests::plays_440hz_sine_for_30_seconds` — ok (`is_device_lost() == false`)
+      - `audio::ring::tests::producer_and_consumer_at_different_speeds_for_60_seconds` — ok
+        (underrun=34517, overrun=221779 — abi fazės suveikė kaip suprojektuota, be panikos)
+      - `audio::resampler::tests::plays_resampled_440hz_snes_tone` — ok (nėra skaitinio assert'o,
+        grynai klausomas)
+      **[!] LIEKA:** šie testai patvirtina, kad `nullbyte-core` audio primityvai (nepakitę)
+      neregresavo, IR kad `nullbyte-emu` realiai paleistas negriūna su realiu cpal srautu main
+      gijoje (žr. aukščiau — patikrinta atskirai, 6s paleidimu su realiu langu). Bet AR REALIAI
+      SKAMBA ŠVARIAI (be traškesių) — tai grynai klausomas sprendimas, kurio Claude negali
+      priimti (nėra ausų). Rekomenduoju pačiam paleisti `cargo run --package nullbyte-emu` ir
+      paklausyti bent 30s.
+- [x] **Klaviatūra REALIAI valdo žaidimą** — patikrinta realiai: paleistas `nullbyte-emu`,
+      `osascript`/System Events aktyvavo langą (`background only: true` patvirtina Accessory) ir
+      nusiuntė Up strėlės klavišą; `stderr` log parodė
+      `klaviatūros test mapping: strėlė paspausta button="UP"`. `winit::event::WindowEvent::
+      KeyboardInput` tikrai ateina — buvo neįmanoma prieš ADR-016.
+- [x] macOS Dock nerodo antros programos (`ActivationPolicy::Accessory` patikrinta) — patikrinta
+      realiai: `System Events` grąžino `background only: true` veikiančiam procesui.
+- [!] **Gamepad mygtuko paspaudimas duoda log eilutę** (simetriška klaviatūros kriterijui) —
+      `GamepadThread` sėkmingai paleistas realiame `nullbyte-emu` paleidime, be crash'o, be
+      jokio prijungto valdiklio (tas pats rezultatas kaip P4.1 `spawn_does_not_panic_without_
+      any_gamepad`). Kodo kelias identiškas klaviatūros: `drain_gamepad_events()` →
+      `tracing::info!("gamepad mygtukas paspaustas")`. **LAUKIA fizinio valdiklio** (ta pati
+      priežastis kaip P4.1 — nė vieno neturėjo po ranka šios sesijos metu) — mygtuko
+      paspaudimo įvykis pats savaime NEPATIKRINTAS, tik infrastruktūra iki jo.
 
 ---
 
@@ -815,9 +865,115 @@ error.rs) ir `crates/nullbyte-app/src/` (likusi dalis), `.gitignore`
 **Failai:** `crates/nullbyte-core/src/ipc.rs` (bendras protokolo tipas), `crates/nullbyte-emu/src/ipc.rs`
 (serveris), `crates/nullbyte-app/src/ipc.rs` (klientas)
 
+> **Priešdarbis atliktas PRIEŠ IPC kodą (2026-08-20)** — sidecar binaro vištos-kiaušinio
+> problema: `tauri-plugin-shell` sidecar (žemiau, „Transportas") reikalauja
+> `crates/nullbyte-app/binaries/nullbyte-emu-<target-triple>` egzistuojant JAU
+> `nullbyte-app`'o build.rs paleidimo metu — patikrinta tiesiogiai `tauri-build` 2.6.3
+> šaltinyje (`copy_binaries()`/`copy_file()`): jei failo nėra, VISAS `nullbyte-app` build'as
+> žlunga (`std::process::exit(1)`), ne tik runtime sidecar spawn. Kadangi `nullbyte-app`
+> Cargo priklausomybių grafe NEPRIKLAUSO nuo `nullbyte-emu` (sidecar'as reikalingas runtime,
+> ne kompiliavimo metu), Cargo pats negarantuoja teisingos statymo tvarkos — `cargo build
+> --workspace` gali statyti bet kokia tvarka, taigi ir lūžti nenuspėjamai priklausomai nuo
+> Cargo scheduler'io.
+>
+> Sprendimas — TRYS nepriklausomi automatiniai keliai, kad niekur nereikėtų RANKINIO
+> „prisimink paleisti X" žingsnio:
+> 1. `scripts/build-sidecar.sh` (`rustc --print host-tuple` nustato triple, `cargo build -p
+>    nullbyte-emu`, kopijuoja į `crates/nullbyte-app/binaries/nullbyte-emu-<triple>`) per
+>    `pnpm run build:sidecar[:release]`.
+> 2. `tauri.conf.json` `beforeDevCommand`/`beforeBuildCommand` grandina
+>    `pnpm run build:sidecar && pnpm dev` (atitinkamai `build`) — PATIKRINTA per tikrą
+>    `tauri-cli` šaltinį (`crates/tauri-cli/src/dev.rs`), kad `devUrl` polling (NE `wait`
+>    reikšmė) yra tikrasis vartų mechanizmas prieš `cargo run` paleidimą, tad grandininė
+>    komanda saugi be race'o.
+> 3. `.github/workflows/ci.yml` — atskiras eksplicitinis žingsnis `pnpm run build:sidecar`
+>    PRIEŠ `cargo fmt/clippy/test`. **Pastaba:** šis CI failas buvo PASENĘS nuo P4.0.1
+>    (vis dar nurodė `src-tauri`, kuris nebeegzistuoja) — pataisyta tuo pačiu metu (`crates/*`
+>    workspace struktūra, `--workspace` flag'ai visur).
+>
+> Papildomai `crates/nullbyte-app/build.rs` PATIKRINA failo buvimą PRIEŠ kviečiant
+> `tauri_build::build()` ir duoda aiškų, veiksmingą pranešimą (nurodo `pnpm run
+> build:sidecar`) vietoj tauri-build vidinio — gaudo LIKUSĮ atvejį (žalias `cargo
+> build/test/clippy --workspace` be išankstinio sidecar build'o, pvz. pirmas lokalus setup'as
+> be `pnpm tauri dev`).
+>
+> **Patikrinta realiai, ne vien skaitant kodą:** `rm -rf crates/nullbyte-app/binaries` +
+> `cargo clean` (6.5 GiB) → `pnpm run build:sidecar` → `cargo fmt --all --check` → `cargo
+> clippy --workspace --all-targets -- -D warnings` → `cargo test --workspace` — visa seka
+> praėjo be klaidų nuo absoliučiai švarios būsenos. **[!] Linux CI runner'io winit
+> priklausomybės (X11/Wayland dev headers) NEPATIKRINTOS** — esamas „Install Linux system
+> dependencies" žingsnis turi `libasound2-dev`/`libudev-dev` (audio/gamepad), bet ar
+> pakanka winit X11/Wayland compile-time linkinimui (galimai transityviai per
+> `libwebkit2gtk-4.1-dev`/`libgtk-3-dev`) — nežinoma be realaus Linux CI paleidimo.
+> Multi-arch/universal build (P4.0.5) — NEAPIMTA, atskiras darbas.
+
+> **Klaidų sklaidos per proceso ribą sprendimas, PRIEŠ rašant `EmuStatus` (2026-08-20)** —
+> jei `EmuStatus::Error` neštų klaidą kaip suplokštintą `{kind, message}` eilutę, P4.0.1 metu
+> pridėti konkretūs `CoreError` variantai (CoreLoad/ApiVersion/RomLoad/MissingBios/
+> UnsupportedPixelFormat, žr. tos fazės pastabą) taptų beverčiai TIESIOG ties šia IPC riba —
+> tėvas gautų tik eilutę, o P9.1/P9.3 reikalaujamas UI šakojimasis pagal konkretų klaidos tipą
+> būtų neįmanomas be string parsinimo (blogas sprendimas). Pasirinkta: `EmuStatus::Error`
+> neša `CoreError` STRUKTŪRIŠKAI (žr. `crate::ipc::EmuStatus`).
+>
+> Kliūtis: senasis `CoreError` turėjo RANKINĮ `impl Serialize` (suplokštino į `{kind,
+> message}` UI kontraktui) — tai UŽĖMĖ derive vietą, tad negalima buvo tiesiog pridėti
+> `Deserialize`. Sprendimas: `CoreError` dabar `#[derive(Serialize, Deserialize)]` (pilna,
+> apverčiama struktūra), o `{kind, message}` suplokštinimas PERKELTAS į
+> `nullbyte-app::error::AppError` serializerį — vienintelę vietą, kur jo iš tikrųjų reikia
+> (Tauri → frontend riba, žr. tos pastabos atnaujinimą `AppError::kind()`). Vienas likęs
+> laukas reikalavo specialaus sprendimo: `CoreError::Io` nešė TIKRĄ `std::io::Error`
+> (`#[from]`, kad `?` veiktų visuose esamuose `loader.rs`/`archive.rs` call site'uose) — o
+> `std::io::Error` PATI neturi `serde` impl'ų. Sprendimas — `#[serde(with = "io_error_wire")]`
+> shim TIK tam vienam laukui (round-trip'ina tik pranešimo tekstą per `io::Error::other()`,
+> lauko TIPAS lieka `std::io::Error`, `#[from]` nepaliestas). Patikrinta 4 round-trip testais
+> `error.rs` (`cargo test --package nullbyte-core error::`).
+>
+> **Protokolo versijos handshake** — pati pirma IPC eilutė ABIEM kryptimis yra [`IpcHello`]
+> (`crate::ipc`), NE `EmuCommand`/`EmuStatus` variantas (sąmoningai atskirtas protokolo
+> lygmuo nuo žaidimo valdymo/būvio lygmens). Apsauga nuo pasenusio sidecar binaro — build
+> grandinė (žr. aukščiau) jį paprastai perstato, bet rizika nenulinė (pvz. rankiniu būdu
+> paleistas senas `target/debug/nullbyte-emu`); be handshake'o toks neatitikimas atrodytų kaip
+> nesuprantama NDJSON parse klaida giliai protokolo viduryje.
+>
+> **Padaryta šioje sesijoje** (tipai + rašymo pusė, DAR NE skaitymo loop'as):
+> `crates/nullbyte-core/src/ipc.rs` (`IPC_PROTOCOL_VERSION`, `IpcHello`, `EmuStatus`),
+> `EmuCommand`/`InputState` (`core::runner`) ir `LoadedGameInfo` (`core::loader`) gavo
+> `Serialize`/`Deserialize` + `#[serde(rename_all = "camelCase")]` (CLAUDE.md §7.3). Visi
+> tipai kompiliuojasi, 3 nauji round-trip testai `ipc.rs` (nullbyte-core) praeina.
+>
+> **Backpressure — PRIEŠ rašant rašymo loop'ą (2026-08-20)** — OS pipe tarp vaiko `stdout`
+> ir tėvo turi RIBOTĄ buferį (macOS ~64 KB). Jei tėvas laikinai nustoja drenuoti (UI
+> užimtas, `CommandEvent` receiver'is nepollinamas), `write()` į pipe BLOKUOJA. Jei tas
+> `write()` vyktų tiesiogiai emuliavimo gijoje ar winit main gijoje, emuliatorius sustotų —
+> audio underrun'ai, kritę kadrai, simptomas „retkarčiais traška, bet negaliu pakartoti".
+> Sprendimas — `crates/nullbyte-emu/src/ipc.rs`: `StatusWriter` (dedikuota gija, VIENINTELĖ,
+> kuri liečia stdout) + `StatusSender` rankena (`Clone`, gaunama emu gijos ir winit main
+> gijos), maitinama RIBOTU (`mpsc::sync_channel`, talpa 32) kanalu. Du siuntimo keliai:
+> `send_important()` (Loaded/Error/Stopped — blokuojantis `send`, NIEKADA nemeta — praktiškai
+> saugu, nes šie įvykiai reti) ir `send_stats()` (Stats — neblokuojantis `try_send`, TYLIAI
+> numeta, jei kanalas pilnas, PLIUS throttle 300ms/~3.3Hz viduje, kad rodmuo, į kurį
+> dažniausiai niekas nežiūri, nesiųstų 60 eilučių/s). Patikrinta 3 testais su kontroliuojamu
+> „nedrenuojančiu" fake writer'iu (`GatedWriter`), imituojančiu pilną OS pipe — patvirtina,
+> kad Stats numetami esant backpressure'ui, o Stopped VISADA pasiekia writer'į nepriklausomai
+> nuo to. **Radinys testų metu:** pirmoji testo versija turėjo lenktynių sąlygą (griežta
+> `assert!(sent <= CAPACITY)` neatsižvelgė, kad writer gija gali suspėti nuskaityti (bet
+> ne parašyti, nes blokuoja ties pirmu `write()`) vieną eilutę dar besipildant kanalui) —
+> pasireiškė kaip nepakartojamas testo pakibimas (~60s+ be jokios išvesties). Ištaisyta
+> (silpnesnė, teisinga riba); patikrinta 18 pakartojimų iš eilės be klaidų.
+>
+> **NELIEKA** — `crates/nullbyte-emu/src/ipc.rs` stdin skaitymo pusė (`EmuCommand`
+> parsinimas) IR `StatusSender`/`StatusWriter` prijungimas prie `EmuThread`/winit `App`
+> (šiuo metu `#[allow(dead_code)]`, niekas dar nekonstruoja), IR
+> `crates/nullbyte-app/src/ipc.rs` (klientas, `CommandChild` rašymas/skaitymas, PRIVALO
+> drenuoti `CommandEvent` receiver'į VISADA, net kai UI nieko nedaro — žr. „Ką daryti" žemiau).
+
 **Ką daryti:**
-- `EmuCommand` (jau egzistuoja `core::runner`) gauna `serde::Serialize`/`Deserialize` —
-  naujas `EmuStatus` enum būvio pranešimams atgal (Loaded/Error/Stats/Stopped)
+- ~~`EmuCommand` (jau egzistuoja `core::runner`) gauna `serde::Serialize`/`Deserialize`~~ —
+  PADARYTA (žr. pastabą aukščiau). Liko: `EmuStatus` naudoja `IpcHello` handshake'ą ir
+  neša `CoreError` struktūriškai (irgi PADARYTA, tipas paruoštas)
+- ~~Rašymo pusės backpressure (`StatusWriter`/`StatusSender`, bounded kanalas, Stats
+  throttle+drop, Loaded/Error/Stopped garantuotas pristatymas)~~ — PADARYTA (žr. pastabą
+  aukščiau). Liko PRIJUNGTI prie `EmuThread`/winit `App` — kol kas `#[allow(dead_code)]`
 - Transportas: **`tauri-plugin-shell`** sidecar API (`ShellExt::shell().sidecar("nullbyte-emu")?.spawn()`
   → grąžina `Receiver<CommandEvent>` + `CommandChild`), ne žalias `std::process::Command`.
   **Nauja priklausomybė** — įrašyta CLAUDE.md §2 lentelėje. Pasirinkta vietoj žalio `Command`,
@@ -880,16 +1036,38 @@ gijoje, NE atskiras modulis — žr. pastabą žemiau), `crates/nullbyte-app/src
 ### P4.0.5 — `externalBin` packaging `[ ]`
 
 **Priklausomybės:** P4.0.2
-**Failai:** `crates/nullbyte-app/tauri.conf.json`
+
+> **Dalis atlikta anksčiau, P4.0.3 priešdarbio metu (2026-08-20)** — žr. P4.0.3 pastabą.
+> `bundle.externalBin: ["binaries/nullbyte-emu"]` jau `tauri.conf.json`, o `scripts/
+> build-sidecar.sh` (per `pnpm run build:sidecar[:release]`, sujungtas į
+> `beforeDevCommand`/`beforeBuildCommand`) jau automatiškai stato + pervadina binarą su
+> DABARTINIO HOSTO target-triple sufiksu. Tai reikėjo padaryti anksčiau, ne čia — priešingu
+> atveju `pnpm tauri dev` (P4.0.2/P4.0.3) ir net paprastas `cargo build --workspace` būtų
+> lūžę dar prieš pasiekiant šią užduotį (vištos-kiaušinio problema, žr. P4.0.3).
+>
+> **Šiai užduočiai LIEKA:** vienintelio-hosto-triple atvejis PATIKRINTAS
+> (`aarch64-apple-darwin`, per `cargo clean` + pilną seką), bet MULTI-ARCH/universal build
+> (`pnpm tauri build --target universal-apple-darwin`) NEPATIKRINTAS — jam reikės ABIEJŲ
+> triple'ų sufiksuotų binarų (`nullbyte-emu-x86_64-apple-darwin` IR
+> `nullbyte-emu-aarch64-apple-darwin`) vienu metu, o dabartinis `build-sidecar.sh` stato tik
+> hosto triple. Taip pat tikras `.app`/`.dmg` bundle'as (release profilis, ne debug) dar
+> nepaleistas nė karto.
+
+**Failai:** `scripts/build-sidecar.sh` (universal build atveju — praplėsti abiem triple'ais)
 
 **Ką daryti:**
-- `bundle.externalBin` nurodo `nullbyte-emu` binarą su target-triple sufiksu (pvz.
-  `binaries/nullbyte-emu-aarch64-apple-darwin`)
-- Dokumentuok/automatizuok binaro pervadinimą su target triple prieš bundle'inant
-  (`cargo build --bin nullbyte-emu` → nukopijuoti/pervadinti pagal Tauri konvenciją)
+- Universal build'ui: praplėsk `scripts/build-sidecar.sh`, kad statytų IR
+  `x86_64-apple-darwin`, IR `aarch64-apple-darwin` (du atskiri `cargo build --target ...`
+  kvietimai, du sufiksuoti binarai `crates/nullbyte-app/binaries/`) — Tauri universal build
+  pats `lipo`'ina GALUTINĮ `.app` binarą, bet KIEKVIENAS externalBin sidecar'as turi būti
+  paduotas atskirai per triple, ne kaip vienas universal failas
 
 **Acceptance:**
-- [ ] `pnpm tauri build` sėkmingai supakuoja abu binarus
+- [x] `pnpm tauri build` (vienam hostui, `aarch64-apple-darwin`) sėkmingai randa sidecar'ą
+      build.rs metu — netiesiogiai patikrinta per `cargo build --workspace` pilną seką
+      (P4.0.3 priešdarbis); PATS `pnpm tauri build` (release profilis, tikras bundle'as)
+      DAR NEPALEISTAS
+- [ ] `pnpm tauri build --target universal-apple-darwin` sėkmingai supakuoja abu triple'us
 - [ ] Supakuotas `.app`/`.dmg` paleidžia `nullbyte-emu` teisingai (iš bundle'o kelio, ne dev)
 
 ---
@@ -900,19 +1078,36 @@ gijoje, NE atskiras modulis — žr. pastabą žemiau), `crates/nullbyte-app/src
 **Failai:** `crates/nullbyte-core/src/input/gamepad.rs`
 
 **Ką daryti:**
-- `gilrs::Gilrs` event pump; polling emu gijoje arba atskiroje gijoje su kanalu
+- `gilrs::Gilrs` event pump dedikuotoje gijoje su kanalu (žr. pastabą žemiau — NE „emu gijoje
+  arba" pasirinkimas, tai buvo neišspręsta ambicija, dabar uždaryta faktais)
 - Prijungimo/atjungimo įvykiai → pranešk UI per Tauri event
 - Analoginių ašių deadzone (numatytoji 0.2)
+
+> **Placement patikrintas šaltinio kodu (2026-08-20, prieš P4.0.2 gamepad wiring'ą):**
+> `gilrs-core 0.6.8` macOS backend'as (`src/platform/macos/gamepad.rs::Gilrs::new()`) PATS
+> viduje `thread::Builder::new().spawn(...)` sukuria savo `"gilrs"` giją, kuri susikuria
+> `CFRunLoop::current()`, `schedule_with_run_loop` + `CFRunLoop::run()` — VISA IOKit HID
+> callback'ų pristatymo mašinerija gyvena TOJE gijoje, ne kviečiančiojoje. `next_event`/
+> `next_event_blocking` vieša API tik skaito iš `mpsc::Receiver`, į kurį ta vidinė gija rašo.
+> Išvada: kviečiančiosios pusės gija (`GamepadThread`'o dedikuota `nullbyte-gamepad`, ar bet
+> kuri kita, įskaitant winit main giją) NETURI JOKIOS ĮTAKOS HID įvykių pristatymui — nėra
+> jokio „reikia aktyvaus run loop'o kviečiančiojoje pusėje" reikalavimo. `GamepadThread`
+> dedikuotos gijos architektūra (žemiau) todėl PALIEKAMA nepakeista — jokio persirašymo ant
+> winit `about_to_wait()` nereikėjo.
 
 **Įgyvendinta:** `GamepadThread` — dedikuota gija (kaip `EmuThread`/`start_audio_pump`, nes
 `gilrs::Gilrs` nėra `Sync`), `next_event_blocking` event pump su 100ms timeout (leidžia
 švariai sustoti), `GamepadEvent` kanalu siunčiamas kviečiančiajai pusei. Deadzone (0.2)
 taikomas RANKINIU BŪDU (gilrs įmontuoti filtrai išjungti — jie naudoja kiekvieno valdiklio
 DB deadzone, ne fiksuotą 0.2 iš MVP.md), tolydžiu remap'u (ne atkirpimu), patikrinta 3
-testais (nulinimas, tolydumas ribose, monotoniškumas). Naujas
-`commands::input::start_gamepad_pump` persiunčia prisijungimo/atsijungimo įvykius kaip
-Tauri `"gamepad-connection"` event'ą UI (mygtukų/ašių įvykiai UI nesiunčiami — jiems
-klausytojo dar nėra, P4.2/P4.3).
+testais (nulinimas, tolydumas ribose, monotoniškumas). **P4.0.2 metu prijungta prie
+`nullbyte-emu`:** `resumed()` paleidžia `GamepadThread::spawn()`, `about_to_wait()`
+neblokuojančiai (`try_recv()`) nuskaito `GamepadEvent`'us ir loginą prisijungimą/atsijungimą
+bei mygtukų paspaudimus (ašių pokyčiai — per triukšmingi, praleidžiami; pilnas mapping'as —
+P4.2). Senasis `nullbyte-app`'o `commands::input::start_gamepad_pump` (Tauri
+`"gamepad-connection"` event'as UI prisijungimo būviui) LIEKA kaip atskira, `#[allow(dead_code)]`
+infrastruktūra nustatymų ekranui — tai UI pranešimo kelias, ne žaidimo valdymo kelias, ir
+neprieštarauja `nullbyte-emu` pusės wiring'ui.
 
 **Acceptance:**
 - [!] Aptinka Xbox, DualShock 4/5, 8BitDo valdiklius — **LAUKIA vartotojo fizinio
@@ -921,8 +1116,9 @@ klausytojo dar nėra, P4.2/P4.3).
 - [!] Prijungimas veikiant nesulaužo (hot-plug) — **LAUKIA** tos pačios fizinės patikros
 - [x] Veikia macOS — patikrinta: `GamepadThread::spawn()` sėkmingai inicializuoja `gilrs`
       ir švariai baigia darbą net be jokio prijungto valdiklio (`cargo test`,
-      `spawn_does_not_panic_without_any_gamepad`). [!] Linux — NEPATIKRINTA (nėra Linux
-      mašinos šioje sesijoje, ta pati priežastis kaip P2.3/P2.5/P3.1)
+      `spawn_does_not_panic_without_any_gamepad`; taip pat realiai paleidus `nullbyte-emu`
+      P4.0.2 metu — jokio crash'o be prijungto valdiklio). [!] Linux — NEPATIKRINTA (nėra
+      Linux mašinos šioje sesijoje, ta pati priežastis kaip P2.3/P2.5/P3.1)
 
 ---
 
