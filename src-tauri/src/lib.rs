@@ -92,7 +92,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
-        .invoke_handler(tauri::generate_handler![greet, get_app_info])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            get_app_info,
+            commands::emulator::open_emulator_window
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -1,12 +1,14 @@
 //! Aplikacijos globalus būvis, laikomas kaip Tauri managed state.
 //!
-//! Kol kas laiko tik išspręstus duomenų katalogus; DB pool'as ir emu handle prisijungs
-//! vėlesnėse fazėse (P5.1 DB, P1.7 emuliavimo gija).
+//! Laiko išspręstus duomenų katalogus ir (nuo P2.3) emuliatoriaus lango `Renderer`.
+//! DB pool'as prisijungs P5.1.
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use crate::error::AppError;
 use crate::paths;
+use crate::video::renderer::Renderer;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -16,6 +18,9 @@ pub struct AppState {
     pub states_dir: PathBuf,
     pub media_dir: PathBuf,
     pub db_path: PathBuf,
+    /// Emuliatoriaus lango wgpu būvis — `None`, kol `open_emulator_window` komanda
+    /// dar nebuvo kviesta (P2.3).
+    pub renderer: Mutex<Option<Renderer>>,
 }
 
 impl AppState {
@@ -28,6 +33,7 @@ impl AppState {
             states_dir: paths::states_dir()?,
             media_dir: paths::media_dir()?,
             db_path: paths::db_path()?,
+            renderer: Mutex::new(None),
         })
     }
 }

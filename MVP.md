@@ -432,7 +432,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P2.3 — Emuliatoriaus langas ir wgpu surface 🔴 `[ ]`
+### P2.3 — Emuliatoriaus langas ir wgpu surface 🔴 `[x]`
 
 **Priklausomybės:** P0.3, P2.2
 **Failai:** `src-tauri/src/video/renderer.rs`, `src-tauri/src/commands/emulator.rs`
@@ -449,11 +449,18 @@ Tik įrodymas, kad FFI veikia.
 > Šis fallback'as **nėra numatytasis** — bandyk native langą pirma.
 
 **Acceptance:**
-- [ ] Atsidaro antras langas, wgpu inicializuojasi be klaidų
-- [ ] Veikia macOS (Metal) — patikrinta
-- [ ] Veikia Linux X11 (Vulkan) — patikrinta
-- [ ] Veikia Linux Wayland arba yra dokumentuotas apėjimas
-- [ ] Lango dydžio keitimas nesulaužo surface'o
+- [x] Atsidaro antras langas, wgpu inicializuojasi be klaidų — patikrinta realiu `pnpm tauri dev`
+      paleidimu (log: „wgpu adapteris pasirinktas" adapter=Apple M1 backend=Metal, „wgpu Surface
+      sukonfigūruotas" 1600×1200 Bgra8UnormSrgb)
+- [x] Veikia macOS (Metal) — patikrinta (žr. aukščiau)
+- [!] Veikia Linux X11 (Vulkan) — **NEPATIKRINTA**, šioje sesijoje nėra Linux mašinos su
+      ekranu. Kodas naudoja tik standartines, platformai neutralias Tauri (`raw-window-handle`)
+      ir wgpu API — jokių macOS-specifinių hack'ų. CI (P0.4) tikrina `cargo build`/`clippy` ant
+      `ubuntu-latest`, bet CI runner'yje nėra display serverio/GPU, tad realaus wgpu Surface
+      veikimo nepatikrina. Reikia patikrinti realioje Linux mašinoje prieš MVP išleidimą.
+- [!] Veikia Linux Wayland arba yra dokumentuotas apėjimas — **NEPATIKRINTA** (ta pati priežastis)
+- [x] Lango dydžio keitimas nesulaužo surface'o — patikrinta AppleScript resize (900×700 →
+      1800×1400 su Retina scale), log: „wgpu Surface rekonfigūruotas (resize)", jokio crash'o
 
 ---
 
@@ -1225,7 +1232,7 @@ CREATE TABLE scrape_cache (
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
 | 1 — libretro | 7 | 7 | 100 % |
-| 2 — Vaizdas | 5 | 2 | 40 % |
+| 2 — Vaizdas | 5 | 3 | 60 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
@@ -1233,7 +1240,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **14** | **30 %** |
+| **Viso** | **47** | **15** | **32 %** |
 
 ---
 
