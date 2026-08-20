@@ -610,7 +610,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P3.3 — Resampling `[ ]`
+### P3.3 — Resampling `[x]`
 
 **Priklausomybės:** P3.2
 **Failai:** `src-tauri/src/audio/resampler.rs`
@@ -621,9 +621,25 @@ Tik įrodymas, kad FFI veikia.
 - Resampling vyksta **emu gijoje**, ne audio callback'e
 
 **Acceptance:**
-- [ ] SNES garsas skamba teisingu tonu (ne per aukštai/žemai)
-- [ ] Nėra aliasing artefaktų
-- [ ] Resampling < 1 ms per kadrą
+- [x] SNES garsas skamba teisingu tonu (ne per aukštai/žemai) — patikrinta DVIGUBAI: (1)
+      automatiniai testai `snes_rate_preserves_440hz_pitch`/`genesis_rate_preserves_440hz_pitch`/
+      `gba_rate_preserves_440hz_pitch` (Goertzel algoritmu, be FFT priklausomybės, patikrina,
+      kad 440Hz energija po resampling'o aiškiai dominuoja prieš klaidingo santykio dažnį —
+      pagautų apverstą ratio klaidą); (2) REALUS klausomas testas
+      (`plays_resampled_440hz_snes_tone`, 32040→realaus įrenginio rate, 7s per
+      `audio/output.rs`) — vartotojas patvirtino girdėjęs švarų, teisingą 440Hz toną
+- [x] Nėra aliasing artefaktų — testas `near_nyquist_tone_does_not_alias`: 0.45×32040Hz
+      (arti įvesties Nyquist) tonas po resampling'o į 48000Hz — signalo energija testo
+      dažnyje >10x viršija energiją klasikiniame alias veidrodyje (`input_rate - test_freq`)
+- [x] Resampling < 1 ms per kadrą — benchmark `resampling_under_1ms_per_frame` (~534 kadrų
+      batch'as, tipinis 60fps/32040Hz core'o dydis, release build'e) PRAĖJO su < 1ms limitu
+
+> **Pastaba dėl apimties:** šis modulis (`AudioResampler`) yra savarankiškas, pilnai
+> testuotas konverteris (interleaved i16 @ rate X → interleaved i16 @ rate Y). Sujungimas su
+> realiu žaidimo garso srautu (`core::runner`'io `audio_sample_batch_cb` duomenys →
+> resampler → `audio::ring::AudioProducer`) ir dinaminis rate control — P3.4 darbas (tas
+> pats šablonas kaip P1.1–P1.6 vs P1.7, arba P2.1–P2.3 vs P2.4: pirma paruošiami sluoksniai
+> atskirai, tada sujungiami vienoje užduotyje).
 
 ---
 
@@ -1298,14 +1314,14 @@ CREATE TABLE scrape_cache (
 | 0 — Pamatai | 5 | 5 | 100 % |
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
-| 3 — Garsas | 4 | 2 | 50 % |
+| 3 — Garsas | 4 | 3 | 75 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **19** | **40 %** |
+| **Viso** | **47** | **20** | **43 %** |
 
 ---
 
