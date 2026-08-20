@@ -84,29 +84,51 @@ groja trumpas gameplay įrašas, kaip Steam / Epic Games Store).
 
 ### 3.1 Sluoksniai
 
+> **Nuo ADR-016 (P4.0.x) tai DU procesai**, ne vienas — žr. §3.4 pilnam kontekstui.
+> Diagrama žemiau atnaujinta atitinkamai (2026-08-20).
+
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Svelte 5 UI (WebView)                                  │
-│  biblioteka · nustatymai · scraping · žaidimo meniu     │
-└───────────────────────┬─────────────────────────────────┘
-                        │  Tauri IPC (invoke / events / Channel)
-┌───────────────────────▼─────────────────────────────────┐
-│  Rust — commands sluoksnis (src-tauri/src/commands/)     │
-│  plonas: validacija → kviečia domeno modulius            │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-   ┌────────────┬───────┴───────┬──────────────┬──────────────┐
-   ▼            ▼               ▼              ▼              ▼
-┌────────┐ ┌─────────┐   ┌───────────┐  ┌──────────┐  ┌──────────┐
-│ core/  │ │ video/  │   │  audio/   │  │   db/    │  │ scraper/ │
-│libretro│ │  wgpu   │   │   cpal    │  │ rusqlite │  │ ScreenS. │
-│  FFI   │ │ render  │   │  + resamp │  │  SQLite  │  │   HTTP   │
-└───┬────┘ └────▲────┘   └─────▲─────┘  └──────────┘  └──────────┘
-    │           │              │
-    │  video    │  audio       │
-    └───────────┴──────────────┘
-       (lock-free buffers)
+┌───────────────────────────────────────────────────────────────────────────┐
+│  nullbyte-app (Tauri tėvo procesas)                                        │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────┐              │
+│  │  Svelte 5 UI (WebView)                                   │              │
+│  │  biblioteka · nustatymai · scraping · žaidimo meniu      │              │
+│  └───────────────────────┬─────────────────────────────────┘              │
+│                          │  Tauri IPC (invoke / events / Channel)          │
+│  ┌───────────────────────▼─────────────────────────────────┐              │
+│  │  Rust — commands sluoksnis (crates/nullbyte-app/src/commands/) │        │
+│  │  plonas: validacija → kviečia domeno modulius ARBA        │              │
+│  │  siunčia EmuCommand vaikui per proceso IPC (žr. žemiau)   │              │
+│  └───────┬───────────────────────────────────────┬──────────┘              │
+│          ▼                                       ▼                        │
+│  ┌───────────────┐  ┌──────────┐  ┌──────────┐   │                        │
+│  │      db/      │  │ scraper/ │  │ library/ │   │                        │
+│  │    rusqlite   │  │  ScreenS.│  │ skener.  │   │                        │
+│  │    SQLite     │  │   HTTP   │  │ + hash   │   │                        │
+│  └───────────────┘  └──────────┘  └──────────┘   │                        │
+└────────────────────────────────────────────────────┼──────────────────────┘
+                                                       │ IPC (plona riba — TIK
+                                                       │ EmuCommand/EmuStatus,
+                                                       │ NIEKADA vaizdas/garsas)
+┌──────────────────────────────────────────────────────▼──────────────────────┐
+│  nullbyte-emu (vaiko procesas, winit)                                       │
+│                                                                              │
+│  ┌────────┐ ┌─────────┐   ┌───────────┐   ┌──────────┐  ┌──────────┐       │
+│  │ core/  │ │ video/  │   │  audio/   │   │  input/  │  │  winit   │       │
+│  │libretro│ │  wgpu   │   │   cpal    │   │  gilrs + │  │  event   │       │
+│  │  FFI   │ │ render  │   │  + resamp │   │  klaviat.│  │  loop    │       │
+│  └───┬────┘ └────▲────┘   └─────▲─────┘   └────┬─────┘  └────┬─────┘       │
+│      │           │              │               │             │            │
+│      │  video    │  audio       │               │  input      │            │
+│      └───────────┴──────────────┘               └─────────────┘            │
+│         (lock-free buferiai — VISKAS ŠIAME procese, žr. §3.4)               │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
+
+> `crates/nullbyte-core` (bendra logika: `core/`, `video/`, `audio/`, `input/`, `error.rs`)
+> naudojama IR `nullbyte-emu` (vykdo), IR `nullbyte-app` (dalinasi `EmuCommand`/`EmuStatus`
+> tipais IPC'ui) — schemoje ji pavaizduota tik `nullbyte-emu` viduje, nes ten VYKDOMA.
 
 ### 3.2 Gijų (threads) modelis — KRITIŠKAI SVARBU
 
@@ -359,25 +381,36 @@ nullbyte/
 
 ## 5. Komandos
 
+> **Nuo P4.0.1/ADR-016 (2026-08-20):** repo tapo Cargo workspace'u (žr. §4) — `cargo`
+> komandos žemiau paleidžiamos IŠ REPO ŠAKNIES su `--workspace`, BE `--manifest-path`
+> (workspace root `Cargo.toml` automatiškai apima visus tris crate'us). `pnpm tauri dev`/
+> `build` komandų TIKSLUS iškvietimas (kaip nurodyti, kad `tauri.conf.json` dabar
+> `crates/nullbyte-app/`, ne `src-tauri/`) **DAR NEPATIKRINTAS realiu build'u** — tai
+> P4.0.1/P4.0.5 darbas. Žemiau — geriausia žinoma prielaida (Tauri CLI `--config`), pažymėta
+> aiškiai; nepasikliauk ja aklai, kol P4.0.5 acceptance to nepatvirtins.
+
 ```bash
 # Setup (vieną kartą)
 pnpm install
 rustup target add aarch64-apple-darwin x86_64-apple-darwin   # tik macOS
 
 # Kūrimas
-pnpm tauri dev                     # pilnas dev režimas (hot reload frontend + Rust rebuild)
-pnpm dev                           # tik frontend (be Tauri — daugumai UI darbų greičiau)
+pnpm tauri dev                     # TIKSLUS iškvietimas po workspace split'o — NEPATIKRINTA,
+                                    # žr. pastabą aukščiau (galimai reikės --config nuorodos į
+                                    # crates/nullbyte-app/tauri.conf.json — P4.0.1/P4.0.5)
+pnpm dev                           # tik frontend (be Tauri — daugumai UI darbų greičiau,
+                                    # nepaveikta workspace split'o, frontend'as lieka repo šaknyje)
 
-# Kokybė — PALEISK PRIEŠ KIEKVIENĄ COMMIT
-cargo fmt --manifest-path src-tauri/Cargo.toml
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-cargo test  --manifest-path src-tauri/Cargo.toml
+# Kokybė — PALEISK PRIEŠ KIEKVIENĄ COMMIT (iš repo šaknies)
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 pnpm check                         # svelte-check + tsc
 pnpm lint                          # eslint + prettier --check
 pnpm format                        # prettier --write
 
 # Build
-pnpm tauri build                   # dabartinei platformai
+pnpm tauri build                   # dabartinei platformai — ta pati NEPATIKRINTA pastaba
 pnpm tauri build --target universal-apple-darwin   # macOS universal binary
 ```
 
@@ -569,6 +602,7 @@ retro_get_region()                -> u32
 | `SET_PERFORMANCE_LEVEL` | 8 | Ignoruok, grąžink `true`. |
 | `GET_LANGUAGE` | 39 | Grąžink `RETRO_LANGUAGE_ENGLISH` (0). |
 | `GET_INPUT_BITMASKS` | 51 \| EXPERIMENTAL | Grąžink `true` — greitesnis input polling. |
+| `SET_HW_RENDER` | 14 | **SĄMONINGAI grąžink `false` MVP metu** (`environment.rs` `_ =>` numatytoji šaka — jokios atskiros logikos NEREIKIA rašyti). Core'ai, prašantys HW render (Mupen64Plus-Next, ParaLLEl N64, Dolphin, PPSSPP), arba nepasileis, arba kris į nenaudojamą fallback'ą — tai ŽINOMAS, dokumentuotas apribojimas (žr. MVP.md §15 v0.2 „Hardware-rendered core'ų palaikymas" ir README platformų lentelę), NE praleista klaida. |
 
 > `EXPERIMENTAL = 0x10000` (bitų žymė, pridedama prie bazinio ID). Visos ID reikšmės čia
 > patikrintos prieš tikrą `libretro.h` (RetroArch/master) — ankstesnė šios lentelės versija
@@ -780,7 +814,7 @@ DB laiko tik **santykinius kelius**, ne absoliučius — kad veiktų perkėlus p
 
 1. ❌ **Nerašyk savo emuliavimo kodo.** Jokių CPU emuliatorių, jokių PPU implementacijų.
    Nullbyte yra frontend'as. Visa emuliacija — libretro core'uose.
-2. ❌ **Neplatink libretro core'ų repozitorijoje.** `src-tauri/cores/` yra `.gitignore`.
+2. ❌ **Neplatink libretro core'ų repozitorijoje.** `crates/nullbyte-core/cores/` yra `.gitignore`.
    Vartotojas atsisiunčia core'us pats arba per built-in downloader'į (post-MVP).
 3. ❌ **Nepridėk ROM atsisiuntimo, torrent'ų, ROM nuorodų ar bet kokio ROM šaltinio.**
    Nullbyte niekada nedistribuoja žaidimų. README aiškiai tai sako.
@@ -800,12 +834,13 @@ DB laiko tik **santykinius kelius**, ne absoliučius — kad veiktų perkėlus p
 
 Užduotis laikoma baigta tik kai **visi** punktai įvykdyti:
 
-- [ ] Kodas kompiliuojasi be warning'ų (`cargo clippy -- -D warnings`, `pnpm check`)
-- [ ] `cargo fmt` ir `prettier` pritaikyti
-- [ ] Nauja logika turi bent vieną testą (`cargo test`) — išskyrus grynai UI komponentus
+- [ ] Kodas kompiliuojasi be warning'ų (`cargo clippy --workspace --all-targets -- -D warnings`,
+      `pnpm check`) — žr. §5 pastabą dėl workspace komandų nuo P4.0.1
+- [ ] `cargo fmt --all` ir `prettier` pritaikyti
+- [ ] Nauja logika turi bent vieną testą (`cargo test --workspace`) — išskyrus grynai UI komponentus
 - [ ] Jei keitei IPC struct'ą — TS tipas `src/lib/types/index.ts` atnaujintas
 - [ ] Jei pridėjai priklausomybę arba architektūrinį sprendimą — naujas ADR įrašas MVP.md §14
-- [ ] Jei keitei DB schemą — nauja migracija `src-tauri/migrations/`, ne senos redagavimas
+- [ ] Jei keitei DB schemą — nauja migracija `crates/nullbyte-app/migrations/`, ne senos redagavimas
 - [ ] Patikrinta rankiniu būdu (`pnpm tauri dev`) — bent viename iš macOS/Linux
 - [ ] MVP.md atitinkama užduotis pažymėta `[x]`
 

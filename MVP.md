@@ -25,7 +25,7 @@
 ```
 ### PX.Y — Užduoties pavadinimas          [ ]
 Priklausomybės: PX.(Y-1)
-Failai: src-tauri/src/kelias/i/faila.rs
+Failai: crates/<crate>/src/kelias/i/faila.rs  (crate = nullbyte-core | nullbyte-app | nullbyte-emu — žr. CLAUDE.md §4)
 Ką daryti:
   - konkretūs žingsniai
 Acceptance:
@@ -122,8 +122,8 @@ pnpm install
 ```
 - Patikrink, kad `@sveltejs/adapter-static` naudojamas `svelte.config.js`
 - `src/routes/+layout.ts`: `export const ssr = false; export const prerender = true;`
-- `src-tauri/tauri.conf.json`: `productName: "Nullbyte"`, `identifier: "fr.nullbyte.app"`,
-  `version: "0.1.0"`
+- `crates/nullbyte-app/tauri.conf.json`: `productName: "Nullbyte"`, `identifier: "fr.nullbyte.app"`,
+  `version: "0.1.0"` (kelias atnaujintas P4.0.1 workspace split'o — žr. ADR-016)
 
 **Acceptance:**
 - [x] `pnpm tauri dev` atidaro langą su Svelte puslapiu
@@ -156,16 +156,22 @@ pnpm dlx shadcn-svelte@latest add button card dialog input select tabs \
 ### P0.3 — Rust priklausomybės ir modulių griaučiai `[x]`
 
 **Priklausomybės:** P0.1
-**Failai:** `src-tauri/Cargo.toml`, `src-tauri/src/**/mod.rs`
+**Failai (originalūs, iki P4.0.1):** `src-tauri/Cargo.toml`, `src-tauri/src/**/mod.rs`
+**Failai (nuo P4.0.1, ADR-016):** `Cargo.toml` (workspace root), `crates/nullbyte-core/Cargo.toml`,
+`crates/nullbyte-core/src/**/mod.rs`, `crates/nullbyte-app/Cargo.toml`,
+`crates/nullbyte-app/src/**/mod.rs`
 
 **Ką daryti:**
 - Į `Cargo.toml` sudėk visas priklausomybes iš `CLAUDE.md` §2
 - Sukurk tuščius modulius pagal `CLAUDE.md` §4 struktūrą (kiekvienas `mod.rs` su `//!` doc)
-- `error.rs`: `AppError` enum su `thiserror`, `impl serde::Serialize` (kad kirstų IPC)
+- `error.rs`: `AppError` enum su `thiserror`, `impl serde::Serialize` (kad kirstų IPC) —
+  nuo P4.0.1 gyvena `crates/nullbyte-core/src/error.rs` (bendras visiems trims crate'ams)
 - `paths.rs`: funkcijos `data_dir()`, `cores_dir()`, `system_dir()`, `saves_dir()`,
   `states_dir()`, `media_dir()`, `db_path()` — su `directories` crate arba rankiniu būdu
-  pagal `CLAUDE.md` (macOS: `~/Library/Application Support/Nullbyte`, Linux: XDG)
-- `state.rs`: `AppState` struct (kol kas tuščias)
+  pagal `CLAUDE.md` (macOS: `~/Library/Application Support/Nullbyte`, Linux: XDG) —
+  nuo P4.0.1 gyvena `crates/nullbyte-app/src/paths.rs`
+- `state.rs`: `AppState` struct (kol kas tuščias) — nuo P4.0.1 gyvena
+  `crates/nullbyte-app/src/state.rs`
 
 **Acceptance:**
 - [x] `cargo build` be klaidų ir be warning'ų
@@ -181,7 +187,11 @@ pnpm dlx shadcn-svelte@latest add button card dialog input select tabs \
 
 **Ką daryti:**
 - `.gitignore`: `target/`, `node_modules/`, `build/`, `.svelte-kit/`, `.env`,
-  `src-tauri/cores/`, `src-tauri/gen/`, `*.srm`, `*.state`
+  `crates/nullbyte-core/cores/`, `crates/nullbyte-core/roms/`, `crates/nullbyte-core/bios/`,
+  `crates/nullbyte-app/gen/`, `*.srm`, `*.state` (keliai atnaujinti P4.0.1 — `cores/roms/bios`
+  testų fixture'ai gyvena `nullbyte-core` (`CARGO_MANIFEST_DIR`-pagrįsti testų keliai
+  `core/loader.rs`/`environment.rs`/`info.rs`/`runner.rs`), workspace `target/` vienas
+  bendras visiems trims crate'ams prie repo šaknies)
 - `.env.example` su `SCREENSCRAPER_DEV_ID=` ir `SCREENSCRAPER_DEV_PASSWORD=`
 - `package.json` skriptai: `check`, `lint`, `format`
 - GitHub Actions: matrix `[macos-latest, ubuntu-latest]` → clippy + test + svelte-check
@@ -196,7 +206,7 @@ pnpm dlx shadcn-svelte@latest add button card dialog input select tabs \
 ### P0.5 — Logging ir dev tooling `[x]`
 
 **Priklausomybės:** P0.3
-**Failai:** `src-tauri/src/lib.rs`
+**Failai:** `crates/nullbyte-app/src/lib.rs`
 
 **Ką daryti:**
 - `tracing-subscriber` inicializacija su `EnvFilter` (`RUST_LOG=nullbyte=debug`)
@@ -220,7 +230,7 @@ Tik įrodymas, kad FFI veikia.
 ### P1.1 — `libretro.h` FFI tipai `[x]`
 
 **Priklausomybės:** P0.3
-**Failai:** `src-tauri/src/core/ffi.rs`
+**Failai:** `crates/nullbyte-core/src/core/ffi.rs`
 
 **Ką daryti:**
 - Perrašyk į Rust `#[repr(C)]` struct'us:
@@ -243,7 +253,7 @@ Tik įrodymas, kad FFI veikia.
 ### P1.2 — Core įkėlimas per `libloading` `[x]`
 
 **Priklausomybės:** P1.1
-**Failai:** `src-tauri/src/core/loader.rs`
+**Failai:** `crates/nullbyte-core/src/core/loader.rs`
 
 **Ką daryti:**
 - `struct CoreHandle { lib: Library, symbols: CoreSymbols, path: PathBuf }`
@@ -265,7 +275,7 @@ Tik įrodymas, kad FFI veikia.
 ### P1.3 — Core metaduomenys ir `.info` parsinimas `[x]`
 
 **Priklausomybės:** P1.2
-**Failai:** `src-tauri/src/core/info.rs`
+**Failai:** `crates/nullbyte-core/src/core/info.rs`
 
 **Ką daryti:**
 - `retro_get_system_info()` → `CoreInfo { name, version, valid_extensions, need_fullpath, block_extract }`
@@ -284,7 +294,7 @@ Tik įrodymas, kad FFI veikia.
 ### P1.4 — Callback'ai ir `thread_local` kontekstas 🔴 `[x]`
 
 **Priklausomybės:** P1.2
-**Failai:** `src-tauri/src/core/callbacks.rs`
+**Failai:** `crates/nullbyte-core/src/core/callbacks.rs`
 
 **Ką daryti:**
 - `thread_local! { static CTX: RefCell<Option<EmuContext>> }`
@@ -306,7 +316,7 @@ Tik įrodymas, kad FFI veikia.
 ### P1.5 — `retro_environment` apdorojimas 🔴 `[x]`
 
 **Priklausomybės:** P1.4
-**Failai:** `src-tauri/src/core/environment.rs`
+**Failai:** `crates/nullbyte-core/src/core/environment.rs`
 
 **Ką daryti:**
 - Implementuok visas komandas iš `CLAUDE.md` §8.3 lentelės
@@ -328,7 +338,7 @@ Tik įrodymas, kad FFI veikia.
 ### P1.6 — ROM įkėlimas `[x]`
 
 **Priklausomybės:** P1.5
-**Failai:** `src-tauri/src/core/loader.rs`, `src-tauri/src/library/archive.rs`
+**Failai:** `crates/nullbyte-core/src/core/loader.rs`, `crates/nullbyte-core/src/archive.rs`
 
 **Ką daryti:**
 - `load_game(rom_path)`:
@@ -357,7 +367,7 @@ Tik įrodymas, kad FFI veikia.
 ### P1.7 — Emuliavimo gija ir headless loop 🔴 `[x]`
 
 **Priklausomybės:** P1.6
-**Failai:** `src-tauri/src/core/runner.rs`
+**Failai:** `crates/nullbyte-core/src/core/runner.rs`
 
 **Ką daryti:**
 - `EmuThread` — dedikuota gija su komandų kanalu (`crossbeam-channel` arba `std::sync::mpsc`):
@@ -396,7 +406,7 @@ Tik įrodymas, kad FFI veikia.
 ### P2.1 — Pikselių formatų konversija `[x]`
 
 **Priklausomybės:** P1.4
-**Failai:** `src-tauri/src/video/pixel_format.rs`
+**Failai:** `crates/nullbyte-core/src/video/pixel_format.rs`
 
 **Ką daryti:**
 - `convert_to_rgba8(src: &[u8], format: PixelFormat, width, height, pitch) -> Vec<u8>`
@@ -415,7 +425,7 @@ Tik įrodymas, kad FFI veikia.
 ### P2.2 — Triple buffer tarp gijų `[x]`
 
 **Priklausomybės:** P2.1
-**Failai:** `src-tauri/src/video/frame_buffer.rs`
+**Failai:** `crates/nullbyte-core/src/video/frame_buffer.rs`
 
 **Ką daryti:**
 - Trys buferiai + atominis indeksas: emu gija rašo į „write", UI gija skaito „read"
@@ -435,7 +445,7 @@ Tik įrodymas, kad FFI veikia.
 ### P2.3 — Emuliatoriaus langas ir wgpu surface 🔴 `[x]`
 
 **Priklausomybės:** P0.3, P2.2
-**Failai:** `src-tauri/src/video/renderer.rs`, `src-tauri/src/commands/emulator.rs`
+**Failai:** `crates/nullbyte-core/src/video/renderer.rs`, `crates/nullbyte-emu/src/main.rs`
 
 **Ką daryti:**
 - Sukurk **atskirą Tauri `Window` be webview** emuliatoriui
@@ -474,7 +484,7 @@ Tik įrodymas, kad FFI veikia.
 ### P2.4 — Blit pipeline ir shader'is 🔴 `[x]`
 
 **Priklausomybės:** P2.3
-**Failai:** `src-tauri/src/video/renderer.rs`, `src-tauri/src/video/shaders/blit.wgsl`
+**Failai:** `crates/nullbyte-core/src/video/renderer.rs`, `crates/nullbyte-core/src/video/shaders/blit.wgsl`
 
 **Ką daryti:**
 - `wgpu::Texture` (RGBA8) → `queue.write_texture()` iš triple buffer
@@ -504,7 +514,7 @@ Tik įrodymas, kad FFI veikia.
 ### P2.5 — Aspect ratio, scaling, fullscreen 🔴 `[x]`
 
 **Priklausomybės:** P2.4
-**Failai:** `src-tauri/src/video/renderer.rs`
+**Failai:** `crates/nullbyte-core/src/video/renderer.rs`
 
 **Ką daryti:**
 - Gerbk `av_info.geometry.aspect_ratio` (jei 0 → `base_width / base_height`)
@@ -553,7 +563,7 @@ Tik įrodymas, kad FFI veikia.
 ### P3.1 — cpal išvesties srautas `[x]`
 
 **Priklausomybės:** P0.3
-**Failai:** `src-tauri/src/audio/output.rs`
+**Failai:** `crates/nullbyte-core/src/audio/output.rs`
 
 **Ką daryti:**
 - Numatytasis įrenginys, `f32` arba `i16` formatas, stereo
@@ -581,7 +591,7 @@ Tik įrodymas, kad FFI veikia.
 ### P3.2 — Lock-free ring buffer `[x]`
 
 **Priklausomybės:** P3.1
-**Failai:** `src-tauri/src/audio/ring.rs`
+**Failai:** `crates/nullbyte-core/src/audio/ring.rs`
 
 **Ką daryti:**
 - `rtrb::RingBuffer<i16>` — producer emu gijoje, consumer cpal callback'e
@@ -620,7 +630,7 @@ Tik įrodymas, kad FFI veikia.
 ### P3.3 — Resampling `[x]`
 
 **Priklausomybės:** P3.2
-**Failai:** `src-tauri/src/audio/resampler.rs`
+**Failai:** `crates/nullbyte-core/src/audio/resampler.rs`
 
 **Ką daryti:**
 - `rubato::SincFixedIn` arba `FastFixedIn`: `av_info.timing.sample_rate` → įrenginio rate
@@ -653,7 +663,7 @@ Tik įrodymas, kad FFI veikia.
 ### P3.4 — Dynamic rate control ir audio-driven sync 🔴 `[x]`
 
 **Priklausomybės:** P3.3, P1.7
-**Failai:** `src-tauri/src/audio/resampler.rs`, `src-tauri/src/core/runner.rs`
+**Failai:** `crates/nullbyte-core/src/audio/resampler.rs`, `crates/nullbyte-core/src/core/runner.rs`
 
 **Ką daryti:**
 - Formulė iš `CLAUDE.md` §8.6: koreguok resampling ratio pagal buffer occupancy
@@ -700,12 +710,141 @@ Tik įrodymas, kad FFI veikia.
 ## 6. Faza 4 — Įvestis
 
 **Tikslas:** valdyti žaidimą gamepad'u ir klaviatūra.
-**Rizika:** 🟡 vidutinė. **Įvertis:** 2 dienos.
+**Rizika:** 🔴 didelė (P4.0.x — proceso architektūros migracija). **Įvertis:** 6–9 dienos
+(2 d. įvestis + 4–7 d. P4.0.x migracija, žr. ADR-016).
 
-### P4.1 — Gamepad aptikimas `[ ]` (kodas paruoštas, laukia fizinio valdiklio testo)
+> **P4.0.x — proceso architektūros migracija (ADR-016, 2026-08-20).** Prieš tęsiant P4.2
+> (mapping) reikia realiai įgyvendinti tai, kas šiuo metu užfiksuota TIK dokumentacijoje
+> (CLAUDE.md §3.4/§4/§10, MVP.md ADR-016): Cargo workspace split į tris crate'us ir
+> `nullbyte-emu` vaiko procesą. P4.1 (gamepad aptikimas) kodas jau parašytas SENOJE
+> struktūroje (`src-tauri/src/input/gamepad.rs`) — P4.0.1 metu jis tiesiog PERKELIAMAS į
+> `crates/nullbyte-core/src/input/gamepad.rs` (be logikos pakeitimų), ne perrašomas iš naujo.
 
-**Priklausomybės:** P0.3
-**Failai:** `src-tauri/src/input/gamepad.rs`
+### P4.0.1 — Cargo workspace split `[ ]`
+
+**Priklausomybės:** —
+**Failai:** `Cargo.toml` (naujas, workspace root), `crates/nullbyte-core/Cargo.toml` (naujas),
+`crates/nullbyte-app/Cargo.toml` (perkeltas iš `src-tauri/Cargo.toml`), visas esamas
+`src-tauri/src/` turinys perskirstytas į `crates/nullbyte-core/src/` (core/video/audio/input/
+error.rs) ir `crates/nullbyte-app/src/` (likusi dalis), `.gitignore`
+
+**Ką daryti:**
+- Sukurk root `Cargo.toml` su `[workspace]` `members = ["crates/*"]`, `resolver = "2"`
+- Sukurk `crates/nullbyte-core/` — perkelk `core/`, `video/`, `audio/`, `input/`, `error.rs`.
+  Priklausomybės iš senojo `Cargo.toml`, kurių šiems moduliams reikia (libloading, wgpu, cpal,
+  rubato, rtrb, gilrs, thiserror, tracing, md-5/sha1/crc32fast — NE tauri/rusqlite/reqwest)
+- Perkelk `archive.rs` (P1.6 naudojamas iš `core::loader`) TIESIOGIAI į
+  `crates/nullbyte-core/src/archive.rs` (NE po `library/` — `library/` kaip DB/skenavimo
+  konceptas lieka tik `nullbyte-app`, bet archyvo IŠPAKAVIMAS reikalingas core'o ROM
+  įkėlimui, taigi turi būti bendras)
+- Sukurk `crates/nullbyte-app/` — perkelk likusį `src-tauri/` turinį (`db/`, `library/`
+  [scanner.rs, hasher.rs — BE archive.rs], `scraper/`, `commands/`, `state.rs`, `paths.rs`,
+  `lib.rs`, `main.rs`, `migrations/`, `capabilities/`, `icons/`, `tauri.conf.json`,
+  `build.rs`). Prideda priklausomybę `nullbyte-core = { path = "../nullbyte-core" }`
+- Perkelk `cores/`, `roms/`, `bios/` testų fixture katalogus į
+  `crates/nullbyte-core/{cores,roms,bios}/` (jų reikia `CARGO_MANIFEST_DIR`-pagrįstiems
+  testams `core/loader.rs`/`environment.rs`/`info.rs`/`runner.rs`)
+- Atnaujink visus `use crate::...` kelius abiejuose crate'uose (dabar tarp-crate importai —
+  `use nullbyte_core::...` iš `nullbyte-app` pusės)
+- Atnaujink `.gitignore` (žr. P0.4 pastabą aukščiau)
+- Ištrink tuščią `src-tauri/` katalogą, kai migracija baigta ir viskas veikia
+
+**Acceptance:**
+- [ ] `cargo build --workspace` be klaidų
+- [ ] `cargo test --workspace` — visi esami testai praeina, be regresijos (57+ testų)
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` švarus
+- [ ] `pnpm tauri dev` vis dar paleidžia Tauri langą (su atnaujintu keliu/config)
+
+---
+
+### P4.0.2 — `nullbyte-emu` binaro griaučiai (winit) `[ ]`
+
+**Priklausomybės:** P4.0.1
+**Failai:** `crates/nullbyte-emu/Cargo.toml`, `crates/nullbyte-emu/src/main.rs`
+
+**Ką daryti:**
+- `winit` event loop; macOS: `EventLoopBuilderExtMacOS::with_activation_policy(ActivationPolicy::Accessory)`
+  (CLAUDE.md §10 — kitaip vaikas atsirastų Dock'e kaip antra programa)
+- Sukurk `winit::window::Window`, perduok į `video::renderer::Renderer::new()` (adaptuok —
+  ji ims `raw-window-handle` iš winit lango, ne Tauri)
+- Paleisk `core::runner::EmuThread` (iš `nullbyte-core`) — laikinai hardkodintu core/ROM keliu
+  testams, kaip visų ankstesnių fazių verifikacijos hook'ai
+- `audio::output::AudioOutput` + audio pump logika (buvusi `start_audio_pump`) — čia
+- Resize/klaviatūros/gamepad įvykiai iš winit event loop'o (klaviatūra — NAUJIENA, anksčiau
+  negalima)
+
+**Acceptance:**
+- [ ] Langas atsidaro, rodo SNES žaidimą (regresijos patikra prieš P2.4 rezultatą)
+- [ ] Garsas groja be traškesių (regresijos patikra prieš P3.4 rezultatą)
+- [ ] **Klaviatūra REALIAI valdo žaidimą** — patikrink paprastu test mapping'u (pvz. strėlė →
+      log'as), kad winit `KeyboardInput` tikrai ateina (tai buvo neįmanoma prieš ADR-016)
+- [ ] macOS Dock nerodo antros programos (`ActivationPolicy::Accessory` patikrinta)
+
+---
+
+### P4.0.3 — IPC protokolas (`nullbyte-app` ↔ `nullbyte-emu`) `[ ]`
+
+**Priklausomybės:** P4.0.1
+**Failai:** `crates/nullbyte-core/src/ipc.rs` (bendras protokolo tipas), `crates/nullbyte-emu/src/ipc.rs`
+(serveris), `crates/nullbyte-app/src/ipc.rs` (klientas)
+
+**Ką daryti:**
+- `EmuCommand` (jau egzistuoja `core::runner`) gauna `serde::Serialize`/`Deserialize` —
+  naujas `EmuStatus` enum būvio pranešimams atgal (Loaded/Error/Stats/Stopped)
+- Transportas: `std::process::Command` stdin/stdout pipe'ai (jokios naujos priklausomybės —
+  gaunami nemokamai su vaiko procesu). Length-prefixed žinutės (u32 LE dydis + JSON payload)
+- `nullbyte-emu`: fone atskira gija skaito stdin, siunčia `EmuCommand` į `EmuThread`; rašo
+  `EmuStatus` į stdout
+- `nullbyte-app`: paleidžia `nullbyte-emu` su piped stdin/stdout, siunčia/skaito per juos
+
+**Acceptance:**
+- [ ] `Load`/`Pause`/`Resume`/`Stop` komandos pasiekia vaiką ir sukelia teisingą elgesį
+- [ ] Būvio pranešimai (klaidos, statistika) pasiekia tėvą
+- [ ] Serializacijos klaida NESULAUŽO nei vieno proceso (`Result`, ne `panic!`/`unwrap()`)
+
+---
+
+### P4.0.4 — Proceso gyvavimo ciklas, našlaičių apsauga `[ ]`
+
+**Priklausomybės:** P4.0.2, P4.0.3
+**Failai:** `crates/nullbyte-emu/src/orphan_guard.rs`, `crates/nullbyte-app/src/commands/emulator.rs`
+
+**Ką daryti:**
+- Tėvas laiko papildomą pipe'ą (atskirą nuo IPC stdin/stdout) kaip gyvumo signalą vaikui
+- Vaikas: fono gija skaito tą pipe'ą; `EOF` → švarus išsijungimas (`Stop` → `EmuThread`, tada
+  `process::exit`). **NE PID pollinimas** (nepatikimas, race'inamas — žr. CLAUDE.md §10)
+- Tėvas: normaliu atveju (vartotojas uždaro žaidimą) siunčia `Stop` per IPC, laukia proceso
+  pabaigos su timeout'u, po to force-kill jei reikia
+
+**Acceptance:**
+- [ ] Dirbtinai nutraukus tėvo procesą (`kill -9`), vaikas savaime išsijungia per kelias
+      sekundes (patikrinta realiai, ne vien skaitant kodą)
+- [ ] Normalus žaidimo uždarymas švariai sustabdo vaiką be „zombie" proceso
+- [ ] Vaiko crash'as (dirbtinis panic core'e) nenumuša tėvo proceso
+
+---
+
+### P4.0.5 — `externalBin` packaging `[ ]`
+
+**Priklausomybės:** P4.0.2
+**Failai:** `crates/nullbyte-app/tauri.conf.json`
+
+**Ką daryti:**
+- `bundle.externalBin` nurodo `nullbyte-emu` binarą su target-triple sufiksu (pvz.
+  `binaries/nullbyte-emu-aarch64-apple-darwin`)
+- Dokumentuok/automatizuok binaro pervadinimą su target triple prieš bundle'inant
+  (`cargo build --bin nullbyte-emu` → nukopijuoti/pervadinti pagal Tauri konvenciją)
+
+**Acceptance:**
+- [ ] `pnpm tauri build` sėkmingai supakuoja abu binarus
+- [ ] Supakuotas `.app`/`.dmg` paleidžia `nullbyte-emu` teisingai (iš bundle'o kelio, ne dev)
+
+---
+
+### P4.1 — Gamepad aptikimas `[ ]` (kodas paruoštas SENOJE struktūroje, laukia P4.0.1 perkėlimo + fizinio valdiklio testo)
+
+**Priklausomybės:** P0.3 (originaliai), P4.0.1 (kodo perkėlimui į naują crate — žr. pastabą aukščiau)
+**Failai:** `crates/nullbyte-core/src/input/gamepad.rs`
 
 **Ką daryti:**
 - `gilrs::Gilrs` event pump; polling emu gijoje arba atskiroje gijoje su kanalu
@@ -736,8 +875,15 @@ klausytojo dar nėra, P4.2/P4.3).
 
 ### P4.2 — Įvesties mapping'as `[ ]`
 
-**Priklausomybės:** P4.1
-**Failai:** `src-tauri/src/input/mapping.rs`
+**Priklausomybės:** P4.1, P4.0.2 (klaviatūros mapping'ui reikia realių winit `KeyboardInput`
+įvykių iš `nullbyte-emu` — Tauri `Window` jų neturėjo, žr. ADR-016)
+**Failai:** `crates/nullbyte-core/src/input/mapping.rs`
+
+> **Pastaba (ADR-016, 2026-08-20):** šis task'as sustabdytas prieš pradedant kodą, kai
+> paaiškėjo, kad klaviatūros mapping'o įgyvendinti neįmanoma be proceso architektūros
+> pakeitimo (žr. Fazė 4a / P4.0.x aukščiau). Gamepad mapping'o pusė NEBLOKUOJAMA — galima
+> pradėti nuo jos, kol P4.0.x vyksta. „Mapping'as saugomas DB" priklauso nuo P5.1 (SQLite
+> schema dar neegzistuoja) — iki tada laikyk in-memory (žr. sesijos susitarimą 2026-08-20).
 
 **Ką daryti:**
 - Fizinis mygtukas → `RETRO_DEVICE_ID_JOYPAD_*` (B,Y,SELECT,START,UP,DOWN,LEFT,RIGHT,A,X,L,R,L2,R2,L3,R3)
@@ -757,7 +903,7 @@ klausytojo dar nėra, P4.2/P4.3).
 ### P4.3 — Įvesties polling ir input bitmask `[ ]`
 
 **Priklausomybės:** P4.2, P1.4
-**Failai:** `src-tauri/src/input/mod.rs`, `src-tauri/src/core/callbacks.rs`
+**Failai:** `crates/nullbyte-core/src/input/mod.rs`, `crates/nullbyte-core/src/core/callbacks.rs`
 
 > **Pastaba (2026-08-20):** dauguma šio task'o „Ką daryti" punktų jau įgyvendinti anksčiau —
 > `EmuContext.input_state: [u16; 4]` (4 portai), `input_state_cb` (P1.4) ir
@@ -783,7 +929,7 @@ klausytojo dar nėra, P4.2/P4.3).
 ### P4.4 — Hotkey'ai `[ ]`
 
 **Priklausomybės:** P4.3
-**Failai:** `src-tauri/src/input/mod.rs`
+**Failai:** `crates/nullbyte-core/src/input/mod.rs`
 
 **Ką daryti:**
 
@@ -813,7 +959,7 @@ klausytojo dar nėra, P4.2/P4.3).
 ### P5.1 — SQLite schema ir migracijos `[ ]`
 
 **Priklausomybės:** P0.3
-**Failai:** `src-tauri/migrations/001_initial.sql`, `src-tauri/src/db/migrations.rs`, `db/models.rs`
+**Failai:** `crates/nullbyte-app/migrations/001_initial.sql`, `crates/nullbyte-app/src/db/migrations.rs`, `db/models.rs`
 
 **Schema:**
 
@@ -933,7 +1079,7 @@ CREATE TABLE scrape_cache (
 ### P5.2 — ROM hash'avimas `[ ]`
 
 **Priklausomybės:** P5.1
-**Failai:** `src-tauri/src/library/hasher.rs`
+**Failai:** `crates/nullbyte-app/src/library/hasher.rs`
 
 **Ką daryti:**
 - CRC32 (`crc32fast`), MD5 (`md-5`), SHA1 (`sha1`) — vienu perėjimu per failą
@@ -952,7 +1098,7 @@ CREATE TABLE scrape_cache (
 ### P5.3 — ROM skeneris `[ ]`
 
 **Priklausomybės:** P5.2
-**Failai:** `src-tauri/src/library/scanner.rs`
+**Failai:** `crates/nullbyte-app/src/library/scanner.rs`
 
 **Ką daryti:**
 - `walkdir` per `rom_directories`
@@ -976,7 +1122,7 @@ CREATE TABLE scrape_cache (
 ### P5.4 — Bibliotekos užklausos `[ ]`
 
 **Priklausomybės:** P5.3
-**Failai:** `src-tauri/src/db/games.rs`, `src-tauri/src/commands/library.rs`
+**Failai:** `crates/nullbyte-app/src/db/games.rs`, `crates/nullbyte-app/src/commands/library.rs`
 
 **Ką daryti:**
 - `list_games(filter)` — filtras: platforma, paieška (FTS5), favorite, rūšiavimas, puslapiavimas
@@ -999,7 +1145,7 @@ CREATE TABLE scrape_cache (
 ### P6.1 — API klientas `[ ]`
 
 **Priklausomybės:** P5.1
-**Failai:** `src-tauri/src/scraper/screenscraper.rs`, `scraper/types.rs`
+**Failai:** `crates/nullbyte-app/src/scraper/screenscraper.rs`, `crates/nullbyte-app/src/scraper/types.rs`
 
 **Ką daryti:**
 - `reqwest` klientas į `https://www.screenscraper.fr/api2/jeuInfos.php`
@@ -1020,7 +1166,7 @@ CREATE TABLE scrape_cache (
 ### P6.2 — Rate limiting ir cache `[ ]`
 
 **Priklausomybės:** P6.1
-**Failai:** `src-tauri/src/scraper/rate_limit.rs`, `scrape_cache` lentelė
+**Failai:** `crates/nullbyte-app/src/scraper/rate_limit.rs`, `scrape_cache` lentelė
 
 **Ką daryti:**
 - Prieš užklausą — tikrink `scrape_cache`
@@ -1039,7 +1185,7 @@ CREATE TABLE scrape_cache (
 ### P6.3 — Media atsisiuntimas `[ ]`
 
 **Priklausomybės:** P6.2
-**Failai:** `src-tauri/src/scraper/media.rs`
+**Failai:** `crates/nullbyte-app/src/scraper/media.rs`
 
 **Ką daryti:**
 - Atsisiųsk `box-2D`, `ss`, `wheel`, `video-normalized` (fallback `video`)
@@ -1058,7 +1204,7 @@ CREATE TABLE scrape_cache (
 ### P6.4 — Scraping orkestracija `[ ]`
 
 **Priklausomybės:** P6.3
-**Failai:** `src-tauri/src/commands/scraper.rs`
+**Failai:** `crates/nullbyte-app/src/commands/scraper.rs`
 
 **Ką daryti:**
 - `scrape_game(id)` — vienas žaidimas
@@ -1204,7 +1350,7 @@ CREATE TABLE scrape_cache (
 ### P8.1 — Save states `[ ]`
 
 **Priklausomybės:** P1.7, P5.1
-**Failai:** `src-tauri/src/core/savestate.rs`
+**Failai:** `crates/nullbyte-core/src/core/savestate.rs`
 
 **Ką daryti:**
 - `retro_serialize_size()` **prieš kiekvieną** išsaugojimą
@@ -1233,7 +1379,7 @@ CREATE TABLE scrape_cache (
 ### P8.2 — SRAM `[ ]`
 
 **Priklausomybės:** P1.7
-**Failai:** `src-tauri/src/core/savestate.rs`
+**Failai:** `crates/nullbyte-core/src/core/savestate.rs`
 
 **Ką daryti:**
 - `retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)` + `retro_get_memory_size(...)`
@@ -1365,11 +1511,12 @@ CREATE TABLE scrape_cache (
 | M0 | Projektas paleidžiamas | 0 | 1 d. | ✅ |
 | M1 | libretro core sukasi headless | 1 | 3–5 d. | ✅ |
 | M2 | Vaizdas ekrane | 2 | 3–4 d. | ✅ |
-| M3 | Vaizdas + garsas + valdymas | 3, 4 | 4–5 d. | 🟡 |
+| M3 | Vaizdas + garsas + valdymas | 3, 4 | 10–12 d. (žr. ADR-016 — +4–7 d. P4.0.x migracijai) | 🟡 |
 | M4 | Biblioteka su metaduomenimis | 5, 6 | 4–6 d. | ⬜ |
 | M5 | **MVP** | 7, 8, 9 | 8–11 d. | ⬜ |
 
-**Bendras įvertis: 23–32 darbo dienos** (vienam žmogui su Claude Code).
+**Bendras įvertis: 27–39 darbo dienos** (vienam žmogui su Claude Code — padidėjo nuo
+23–32 d. po ADR-016 proceso architektūros migracijos įtraukimo, 2026-08-20).
 
 ### Progreso lentelė
 
@@ -1379,13 +1526,13 @@ CREATE TABLE scrape_cache (
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
-| 4 — Įvestis | 4 | 0 | 0 % |
+| 4 — Įvestis (+P4.0.x migracija) | 9 | 0 | 0 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **21** | **45 %** |
+| **Viso** | **52** | **21** | **40 %** |
 
 ---
 
