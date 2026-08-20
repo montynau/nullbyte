@@ -76,12 +76,14 @@ impl CoreSymbols {
     /// `lib` privalo gyventi bent tiek pat, kiek bus naudojami grąžinti simboliai
     /// (užtikrina `CoreHandle` laukų tvarka).
     #[allow(dead_code)] // kviečia tik CoreHandle::load ir testai — dar nenaudojama P1.7 runner.rs
-    unsafe fn load(lib: &Library) -> Result<Self, CoreError> {
+    unsafe fn load(lib: &Library, path: &Path) -> Result<Self, CoreError> {
         macro_rules! sym {
             ($name:expr, $ty:ty) => {{
-                let raw: libloading::Symbol<'_, $ty> =
-                    lib.get(concat!($name, "\0").as_bytes()).map_err(|_| {
-                        CoreError::Other(format!("core'e trūksta simbolio `{}`", $name))
+                let raw: libloading::Symbol<'_, $ty> = lib
+                    .get(concat!($name, "\0").as_bytes())
+                    .map_err(|_| CoreError::CoreLoad {
+                        path: path.to_path_buf(),
+                        reason: format!("trūksta simbolio `{}`", $name),
                     })?;
                 raw.into_raw()
             }};
@@ -145,22 +147,24 @@ impl CoreHandle {
         // SAFETY: rizika, kad įkeliamas failas paleis savavališką kodą per savo
         // konstruktorius, yra būdinga bet kokiam dinaminiam bibliotekos įkėlimui.
         // Vartotojas pats renkasi, kokius core'us deda į cores_dir (CLAUDE.md §11.2).
-        let lib = unsafe { Library::new(&path) }.map_err(|e| {
-            CoreError::Other(format!("nepavyko įkelti core'o {}: {e}", path.display()))
+        let lib = unsafe { Library::new(&path) }.map_err(|e| CoreError::CoreLoad {
+            path: path.clone(),
+            reason: e.to_string(),
         })?;
 
         // SAFETY: `lib` gyvuos bent tiek, kiek `symbols` — abu laikomi tame pačiame
         // `CoreHandle`, o laukų tvarka garantuoja teisingą Drop seką.
-        let symbols = unsafe { CoreSymbols::load(&lib) }?;
+        let symbols = unsafe { CoreSymbols::load(&lib, &path) }?;
 
         // SAFETY: `retro_api_version` neima jokių argumentų ir negali panikuoti be
         // core'o pačio klaidos; kviečiame ją tik patikrinti API suderinamumą.
         let api_version = unsafe { (symbols.retro_api_version)() };
         if api_version != RETRO_API_VERSION {
-            return Err(CoreError::Other(format!(
-                "core'as {} turi nesuderinamą API versiją {api_version} (tikimasi {RETRO_API_VERSION})",
-                path.display()
-            )));
+            return Err(CoreError::ApiVersion {
+                path: path.clone(),
+                expected: RETRO_API_VERSION,
+                actual: api_version,
+            });
         }
 
         Ok(Self { symbols, path, lib })
@@ -274,10 +278,9 @@ impl CoreHandle {
         // SAFETY: `game_info` laukai (path_cstring/data_owned) gyvena visą šio kvietimo metu.
         let loaded = unsafe { (self.symbols.retro_load_game)(&game_info) };
         if !loaded {
-            return Err(CoreError::Other(format!(
-                "core'as atmetė ROM'ą: {}",
-                rom_path.display()
-            )));
+            return Err(CoreError::RomLoad {
+                rom_path: rom_path.to_path_buf(),
+            });
         }
 
         let mut av_info: retro_system_av_info = unsafe { std::mem::zeroed() };
@@ -341,7 +344,10 @@ fn path_to_cstring(path: &Path) -> Result<CString, CoreError> {
 
 /// Tikri `retro_get_system_av_info()` duomenys po `retro_load_game()` — fps/sample_rate/
 /// geometry priklauso nuo konkretaus ROM'o, tad prieš load_game jie gali būti neteisingi.
-#[derive(Debug, Clone)]
+/// Nuo P4.0.3 — `EmuStatus::Loaded` naudingoji apkrova (žr. `crate::ipc`), tad turi
+/// `Serialize`/`Deserialize`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 #[allow(dead_code)] // skaitys P1.7 runner.rs (frame pacing, geometry)
 pub struct LoadedGameInfo {
     pub fps: f64,
@@ -431,7 +437,7 @@ mod tests {
     #[test]
     fn missing_file_returns_app_error_not_panic() {
         let result = CoreHandle::load("/no/such/path/definitely_missing_core.dylib");
-        assert!(matches!(result, Err(CoreError::Other(_))));
+        assert!(matches!(result, Err(CoreError::CoreLoad { .. })));
     }
 
     #[test]
