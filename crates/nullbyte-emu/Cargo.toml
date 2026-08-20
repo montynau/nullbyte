@@ -1,0 +1,10 @@
+[package]
+name = "nullbyte-emu"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+nullbyte-core = { path = "../nullbyte-core" }
+winit = "0.30"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

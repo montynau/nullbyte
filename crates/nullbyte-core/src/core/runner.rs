@@ -47,13 +47,20 @@ const THROTTLE_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
 /// Vieno porto įvestis (`RETRO_DEVICE_JOYPAD` bitmask). Kol P4.x mapping'as neparašytas,
 /// tai minimali reprezentacija tiesiogiai atitinkanti `EmuContext.input_state`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InputState {
     pub port: u32,
     pub buttons: u16,
 }
 
-/// Komandos, siunčiamos į emuliavimo giją per kanalą.
+/// Komandos, siunčiamos į emuliavimo giją per kanalą. Nuo P4.0.3 taip pat kerta
+/// `nullbyte-app` → `nullbyte-emu` IPC ribą (NDJSON per stdin, žr. `crate::ipc`) — TIK
+/// žaidimo valdymo komandos; protokolo versijos handshake yra ATSKIRAS, bendras
+/// `crate::ipc::IpcHello` tipas (siunčiamas kaip pati pirma eilutė abiem kryptimis), ne šio
+/// enum'o variantas — nemaišo protokolo lygmens su žaidimo valdymo lygmeniu.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum EmuCommand {
     Load {
         core: PathBuf,
