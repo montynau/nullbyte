@@ -26,6 +26,7 @@ use crate::core::ffi::{
 };
 use crate::core::loader::{CoreHandle, LoadedGameInfo, RetroCallbacks};
 use crate::error::CoreError;
+use crate::ipc::{EmuStatus, StatusSender};
 use crate::video::frame_buffer::{self, FrameConsumer, FrameProducer};
 use crate::video::pixel_format::{self, PixelFormat};
 
@@ -97,9 +98,16 @@ impl EmuThread {
     /// konfigūracija (žr. `audio::output::default_config()`) — reikalinga iš anksto, kad
     /// ring buferis būtų teisingo dydžio ir kad `handle_load` žinotų, į kokį rate
     /// resample'inti kiekvieno naujo core'o garsą.
+    ///
+    /// `status_sender` — `None` (dauguma testų, kuriems IPC nerūpi) reiškia „nesiųsk jokių
+    /// `EmuStatus` pranešimų"; `Some(...)` (realus `nullbyte-emu` paleidimas) — gija siųs
+    /// `Loaded`/`Error`/`Stats`/`Stopped` per jį (žr. `crate::ipc` modulio doc dėl
+    /// backpressure). `EmuThread` PATS nekuria `StatusWriter`/stdout ryšio — tik naudoja
+    /// jau paruoštą rankeną, kad `core::runner` liktų nepriklausomas nuo proceso/IPC detalių.
     pub fn spawn(
         device_sample_rate: u32,
         device_channels: u16,
+        status_sender: Option<StatusSender>,
     ) -> (Self, FrameConsumer, AudioConsumer) {
         let (sender, receiver) = mpsc::channel();
         let (video_producer, video_consumer) = frame_buffer::new();
@@ -119,6 +127,7 @@ impl EmuThread {
                     audio_producer,
                     device_sample_rate,
                     device_channels,
+                    status_sender,
                 )
             })
             .expect("nepavyko sukurti emuliavimo gijos");
@@ -131,6 +140,14 @@ impl EmuThread {
             video_consumer,
             audio_consumer,
         )
+    }
+
+    /// Klonuota vidinio komandų kanalo siuntėja — naudoja `nullbyte-emu`'s stdin skaitymo
+    /// gija (`ipc::run_command_reader`), kuri persiunčia `EmuCommand`'us iš tėvo be
+    /// poreikio laikyti `&'static EmuThread` nuorodą kitoje gijoje (`Sender` yra `Clone` +
+    /// `Send` + `'static` pats savaime).
+    pub fn command_sender(&self) -> Sender<EmuCommand> {
+        self.sender.clone()
     }
 
     /// Siunčia komandą į emuliavimo giją. Klaida reiškia, kad gija jau baigė darbą.
@@ -198,7 +215,12 @@ fn stub_callbacks() -> RetroCallbacks {
 
 /// Įkelia core'ą + ROM'ą į `state`. Jei jau buvo įkeltas kitas core'as — pirma jį švariai
 /// atlaisvina (CLAUDE.md §3.2 taisyklė #2: vienu metu procese tik vienas core'as).
-fn handle_load(state: &mut RunnerState, core_path: &std::path::Path, rom_path: &std::path::Path) {
+fn handle_load(
+    state: &mut RunnerState,
+    core_path: &std::path::Path,
+    rom_path: &std::path::Path,
+    status_sender: Option<&StatusSender>,
+) {
     cleanup(state);
 
     let result = (|| -> Result<(CoreHandle, LoadedGameInfo), CoreError> {
@@ -239,11 +261,17 @@ fn handle_load(state: &mut RunnerState, core_path: &std::path::Path, rom_path: &
                 }
             };
 
+            if let Some(sender) = status_sender {
+                sender.send_important(EmuStatus::Loaded(info.clone()));
+            }
             state.core = Some(core);
             state.game_info = Some(info);
         }
         Err(error) => {
             tracing::error!(%error, core = %core_path.display(), rom = %rom_path.display(), "nepavyko įkelti core'o/ROM'o");
+            if let Some(sender) = status_sender {
+                sender.send_important(EmuStatus::Error(error));
+            }
         }
     }
 }
@@ -346,6 +374,7 @@ fn run_loop(
     mut audio_producer: AudioProducer,
     device_sample_rate: u32,
     device_channels: u16,
+    status_sender: Option<StatusSender>,
 ) {
     callbacks::install_context(EmuContext::default());
 
@@ -368,7 +397,7 @@ fn run_loop(
 
         match receiver.recv_timeout(timeout) {
             Ok(EmuCommand::Load { core, rom }) => {
-                handle_load(&mut state, &core, &rom);
+                handle_load(&mut state, &core, &rom, status_sender.as_ref());
                 frame_count = 0;
                 next_frame_deadline = Instant::now();
             }
@@ -454,6 +483,12 @@ fn run_loop(
             publish_video_frame(&mut video_producer, aspect_ratio);
             process_audio_frame(&mut state, &mut audio_producer, &mut audio_scratch);
 
+            // `send_stats` throttle'ina viduje (žr. crate::ipc modulio doc) — saugu kviesti
+            // kas kadrą, realiai išeis ~2-4 Hz.
+            if let Some(sender) = &status_sender {
+                sender.send_stats(audio_producer.occupancy());
+            }
+
             if state.fast_forward {
                 // Fast-forward: jokio laukimo — bėgam CPU pilnu greičiu (P3.4 „Ką daryti").
             } else if state.resampler.is_none() {
@@ -495,6 +530,11 @@ fn run_loop(
         }
     }
 
+    // Abu `break 'outer` keliai (Stop, stdin/kanalo Disconnected) jau kvietė cleanup() —
+    // Stopped siunčiamas VIENĄ kartą čia, DRY vietoj dubliavimo abiejose šakose.
+    if let Some(sender) = &status_sender {
+        sender.send_important(EmuStatus::Stopped);
+    }
     callbacks::take_context();
 }
 
@@ -534,7 +574,7 @@ mod tests {
         };
 
         let _core_lock = crate::core::test_support::lock_core_load();
-        let (emu, _video, _audio) = EmuThread::spawn(48000, 2);
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, None);
         emu.send(EmuCommand::Load { core, rom }).unwrap();
         emu.send(EmuCommand::Run).unwrap();
 
@@ -553,7 +593,7 @@ mod tests {
 
     #[test]
     fn stop_without_load_does_not_hang_or_panic() {
-        let (emu, _video, _audio) = EmuThread::spawn(48000, 2);
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, None);
         emu.send(EmuCommand::Pause).unwrap(); // komanda be įkelto core'o — turėtų būti no-op
         drop(emu);
     }
@@ -575,7 +615,7 @@ mod tests {
         };
 
         let _core_lock = crate::core::test_support::lock_core_load();
-        let (emu, _video, _audio) = EmuThread::spawn(48000, 2);
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, None);
         emu.send(EmuCommand::Load { core, rom }).unwrap();
         emu.send(EmuCommand::Run).unwrap();
 
@@ -596,7 +636,7 @@ mod tests {
             return;
         };
 
-        let (emu, _video, _audio) = EmuThread::spawn(48000, 2);
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, None);
         emu.send(EmuCommand::Load {
             core: bad_core.to_path_buf(),
             rom: PathBuf::from("/nonexistent.sfc"),

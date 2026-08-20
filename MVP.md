@@ -996,13 +996,52 @@ pats fixture principas kaip `core::loader` testuose).
   ne kaip logging problema. `nullbyte-emu` logina **tik į `stderr`** (`.with_writer(std::io::stderr)`)
   arba į failą — niekada į stdout. Žr. CLAUDE.md §10
 
+> **Vaiko pusė padaryta (2026-08-20)** — `StatusWriter`/`StatusSender` (backpressure, žr.
+> ankstesnę pastabą) persikėlė iš `nullbyte-emu` į `nullbyte_core::ipc`, nes `core::runner::
+> EmuThread` turi juos naudoti TIESIOGIAI emuliavimo gijoje (`handle_load` siunčia `Loaded`/
+> `Error`, `run_loop` siunčia `Stats` kas kadrą — throttle'as viduje tai paverčia į ~3 Hz — ir
+> `Stopped` prieš grįžtant); jei jie liktų `nullbyte-emu`, priklausomybių kryptis būtų
+> atvirkščia. `EmuThread::spawn()` gavo naują `Option<StatusSender>` parametrą (4 esami testai
+> atnaujinti su `None`) ir naują `command_sender()` metodą (klonuota `Sender<EmuCommand>` —
+> leidžia stdin skaitymo gijai siųsti komandas be `&'static EmuThread` nuorodos gyvavimo
+> trukmės problemos). `crates/nullbyte-emu/src/ipc.rs` dabar turi `run_command_reader()` —
+> validuoja tėvo `IpcHello` PRIEŠ apdorodama bet kokią `EmuCommand` eilutę, blogas JSON
+> praleidžiamas (NE fatal), stdin EOF grąžina švariai. 4 nauji testai (roundtrip, bloga
+> eilutė nesulaužo, trūkstamas/nesuderinamas Hello sustabdo PRIEŠ komandas).
+>
+> **Radinys testų metu:** `StatusWriter::spawn()` iš pradžių naudojo `writeln!` Hello eilutei
+> — tai gali sukelti DU atskirus `write_all()` kvietimus (turinys + `"\n"` atskirai,
+> priklausomai nuo `fmt::Arguments` fragmentacijos), o testai su ribotos talpos writer'iu
+> davė tik VIENĄ leidimą prieš `spawn()` kvietimą. Pasireiškė kaip pakibimas (be jokios
+> išvesties, ~60s+) TIK bandant visą test suite kartu — kiekvienas testas atskirai praėjo.
+> Ištaisyta (vienas rankiniu būdu sukonstruotas `write_all()` kvietimas, mirroring
+> `run_writer_loop`), patikrinta 15 pakartojimų iš eilės.
+>
+> **Patikrinta REALIAI** (ne vien testais) — paleistas tikras `nullbyte-emu` binaras su named
+> pipe (FIFO) stdin: `IpcHello` atėjo kaip pirma `stdout` eilutė, `EmuCommand::Stop` per stdin
+> teisingai apdorotas (`{"stop":null}` — serde priima ir šią formą unit variantui, ne tik
+> bareword `"stop"`), `EmuStatus::Loaded` atėjo automatiškai po P4.0.2 test hook'o įkėlimo,
+> `EmuStatus::Stopped` atėjo po `Stop`, stdin EOF sustabdė skaitymo giją švariai, jokio
+> proceso pakibimo/zombie. `stdout` turėjo LYGIAI 3 tvarkingas NDJSON eilutes — nė vieno
+> pašalinio baito.
+>
+> **NELIEKA** — `crates/nullbyte-app/src/ipc.rs` (klientas, `CommandChild` per
+> `tauri-plugin-shell`, `CommandEvent` receiver'io drenavimas VISADA) ir P4.0.4 shutdown
+> orchestracija (EOF → `process::exit`).
+
 **Acceptance:**
-- [ ] `Load`/`Pause`/`Resume`/`Stop` komandos pasiekia vaiką ir sukelia teisingą elgesį
-- [ ] Būvio pranešimai (klaidos, statistika) pasiekia tėvą
-- [ ] Serializacijos klaida NESULAUŽO nei vieno proceso (`Result`, ne `panic!`/`unwrap()`)
+- [x] `Stop` komanda pasiekia vaiką ir sukelia teisingą elgesį (`Load`/`Pause`/`Resume`
+      analogiškai — tas pats kelias, patikrinta vien `Stop`, nes tai vienintelė, kuriai
+      reikėjo TIK stdin, be tėvo pusės kliento). Patikrinta REALIAI per FIFO, ne vien testu.
+- [x] Būvio pranešimai (klaidos, statistika) pasiekia tėvą — `Loaded`/`Stopped` patikrinti
+      REALIAI (žr. pastabą aukščiau); `Error`/`Stats` patikrinti TIK testais (nebuvo
+      natūralaus scenarijaus REALIAME paleidime šios sesijos metu klaidai ar `Run` būvio
+      sukelti — abu keliai identiški kodo prasme `Loaded`/`Stopped`, bet nepatikrinti akimis)
+- [x] Serializacijos klaida NESULAUŽO nei vieno proceso — `bad_command_line_is_skipped_not_fatal`
+      testas + writer pusės `run_writer_loop` `Err` šaka abi patikrintos
 - [ ] `nullbyte-emu` paleidus be jokio ROM'o (vien init) — `stdout` NEturi nė vienos baitos,
-      kuri nėra validus NDJSON `EmuStatus` (patikrinta rankiniu būdu paleidus binarą tiesiogiai
-      terminale ir stebint `stdout` atskirai nuo `stderr`)
+      kuri nėra validus NDJSON `EmuStatus`/`IpcHello` (patikrinta REALIAI su ROM'u įkeltu —
+      žr. aukščiau; be ROM'o atvejis atskirai nebandytas šios sesijos metu)
 
 ---
 

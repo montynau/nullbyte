@@ -27,6 +27,7 @@ use nullbyte_core::audio::ring::AudioConsumer;
 use nullbyte_core::core::runner::{EmuCommand, EmuThread};
 use nullbyte_core::error::CoreError;
 use nullbyte_core::input::gamepad::{GamepadEvent, GamepadThread};
+use nullbyte_core::ipc::StatusWriter;
 use nullbyte_core::video::frame_buffer::{FrameConsumer, VideoFrameData};
 use nullbyte_core::video::renderer::Renderer;
 
@@ -92,6 +93,9 @@ struct App {
     /// vartotoja (`about_to_wait`), lygiai taip pat, kaip būtų bet kurioje kitoje gijoje.
     gamepad_thread: Option<GamepadThread>,
     gamepad_rx: Option<std::sync::mpsc::Receiver<GamepadEvent>>,
+    /// Laikoma gyva TIK tam, kad rašymo gija nebūtų nutraukta (žr. `nullbyte_core::ipc`
+    /// modulio doc) — niekas tiesiogiai jos nekviečia po `resumed()`.
+    _status_writer: Option<StatusWriter>,
 }
 
 impl App {
@@ -104,6 +108,7 @@ impl App {
             _audio_output: None,
             gamepad_thread: None,
             gamepad_rx: None,
+            _status_writer: None,
         }
     }
 
@@ -177,6 +182,18 @@ impl ApplicationHandler for App {
         }
         event_loop.set_control_flow(ControlFlow::Poll);
 
+        // Kaip anksti, kaip įmanoma — StatusWriter::spawn() PATS sinchroniškai parašo
+        // IpcHello kaip pačią pirmą stdout eilutę (žr. nullbyte_core::ipc modulio doc).
+        // Nepavykus (pvz. pipe jau uždarytas) — tęsiame BE status reportavimo, lygiai taip
+        // pat, kaip audio nepavykimas žemiau netrukdo langui atsidaryti.
+        let (status_writer, status_sender) = match StatusWriter::spawn(std::io::stdout()) {
+            Ok((writer, sender)) => (Some(writer), Some(sender)),
+            Err(error) => {
+                tracing::warn!(%error, "IPC status writer nepavyko — tęsiame be status reportavimo");
+                (None, None)
+            }
+        };
+
         let attributes = Window::default_attributes()
             .with_title("Nullbyte — Emuliatorius")
             .with_inner_size(winit::dpi::LogicalSize::new(800.0, 600.0));
@@ -214,7 +231,18 @@ impl ApplicationHandler for App {
         };
 
         let (emu_thread, frame_consumer, audio_consumer) =
-            EmuThread::spawn(device_sample_rate, device_channels);
+            EmuThread::spawn(device_sample_rate, device_channels, status_sender);
+
+        // Fono gija skaito stdin per `BufRead::lines()` (MVP.md P4.0.3 „Ką daryti") — tik
+        // klonuota `Sender<EmuCommand>`, NE `&EmuThread`, kad nereikėtų 'static nuorodos
+        // (žr. `EmuThread::command_sender()` doc).
+        let command_sender = emu_thread.command_sender();
+        std::thread::Builder::new()
+            .name("nullbyte-emu-stdin".to_string())
+            .spawn(move || {
+                ipc::run_command_reader(std::io::stdin().lock(), command_sender);
+            })
+            .expect("nepavyko sukurti stdin skaitymo gijos");
 
         let audio_output = match open_audio(audio_consumer) {
             Ok(output) => Some(output),
@@ -255,6 +283,7 @@ impl ApplicationHandler for App {
         self._audio_output = audio_output;
         self.gamepad_thread = gamepad_thread;
         self.gamepad_rx = gamepad_rx;
+        self._status_writer = status_writer;
     }
 
     fn window_event(
