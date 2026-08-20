@@ -543,7 +543,7 @@ Tik įrodymas, kad FFI veikia.
 **Tikslas:** garsas be traškesių, sinchronizuotas su vaizdu.
 **Rizika:** 🔴 didelė (real-time constraints). **Įvertis:** 2–3 dienos.
 
-### P3.1 — cpal išvesties srautas `[ ]`
+### P3.1 — cpal išvesties srautas `[x]`
 
 **Priklausomybės:** P0.3
 **Failai:** `src-tauri/src/audio/output.rs`
@@ -555,9 +555,19 @@ Tik įrodymas, kad FFI veikia.
 - Įrenginio dingimas (ausinių atjungimas) → atkūrimas, ne crash
 
 **Acceptance:**
-- [ ] Sinusoidė 440 Hz groja švariai 30 s
-- [ ] Ausinių atjungimas/prijungimas neuždaro programos
-- [ ] Veikia macOS (CoreAudio) ir Linux (ALSA/PipeWire)
+- [x] Sinusoidė 440 Hz groja švariai 30 s — patikrinta 2x realiu paleidimu
+      (`cargo test --release plays_440hz_sine_for_30_seconds -- --ignored --nocapture`),
+      vartotojas patvirtino girdėjęs švarų toną abu kartus (MacBook Air Speakers,
+      48000 Hz, stereo, F32, 50ms tikslinis latency)
+- [x] Ausinių atjungimas/prijungimas neuždaro programos — patikrinta realiai: vartotojas
+      fiziškai atjungė/prijungė garso įrenginį per 30s testo langą, programa toliau veikė
+      be crash'o (`is_device_lost()` liko `false` visą laiką — CoreAudio šiuo atveju
+      persijungimą sutvarkė skaidriai, klaidos callback'as nesuveikė, bet svarbiausia: jokio
+      panic'o/crash'o). Klaidos callback'as (kai jis realiai suveikia) veikia NE real-time
+      audio gijoje — `tracing::error!` ten saugus (CLAUDE.md §3.2 taisyklė #3 galioja tik
+      duomenų callback'ui)
+- [x] Veikia macOS (CoreAudio) — patikrinta aukščiau. [!] Linux (ALSA/PipeWire) —
+      NEPATIKRINTA (nėra Linux mašinos šioje sesijoje, ta pati priežastis kaip P2.3/P2.5)
 
 ---
 
@@ -1268,14 +1278,14 @@ CREATE TABLE scrape_cache (
 | 0 — Pamatai | 5 | 5 | 100 % |
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
-| 3 — Garsas | 4 | 0 | 0 % |
+| 3 — Garsas | 4 | 1 | 25 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **17** | **36 %** |
+| **Viso** | **47** | **18** | **38 %** |
 
 ---
 
