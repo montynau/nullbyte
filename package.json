@@ -11,7 +11,9 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:sidecar": "bash scripts/build-sidecar.sh debug",
+    "build:sidecar:release": "bash scripts/build-sidecar.sh release"
   },
   "license": "MIT",
   "dependencies": {

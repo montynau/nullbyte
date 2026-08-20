@@ -47,23 +47,21 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri -> target
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build nullbyte-emu sidecar (required before any cargo build touching nullbyte-app — ADR-016/P4.0.3)
+        run: pnpm run build:sidecar
+
       - name: cargo fmt --check
-        working-directory: src-tauri
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
       - name: cargo clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: cargo test
-        working-directory: src-tauri
-        run: cargo test
+        run: cargo test --workspace
 
       - name: svelte-check
         run: pnpm check

@@ -5,6 +5,7 @@ node_modules
 /crates/nullbyte-core/roms
 /crates/nullbyte-core/bios
 /crates/nullbyte-app/gen
+/crates/nullbyte-app/binaries
 /build
 /.svelte-kit
 /package
