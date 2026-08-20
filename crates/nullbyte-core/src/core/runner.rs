@@ -532,8 +532,13 @@ fn run_loop(
 
     // Abu `break 'outer` keliai (Stop, stdin/kanalo Disconnected) jau kvietė cleanup() —
     // Stopped siunčiamas VIENĄ kartą čia, DRY vietoj dubliavimo abiejose šakose.
+    //
+    // `send_best_effort()`, NE `send_important()`: šis kodas vykdomas TEARDOWN metu — jei
+    // tėvas jau nutrūkęs (pvz. `kill -9`) ir stdout nebedrenuojamas, blokuojantis `send()`
+    // čia pakabintų VAIKĄ vietoj to, kad jis švariai išeitų (žr. `StatusSender::
+    // send_best_effort` doc, P4.0.4).
     if let Some(sender) = &status_sender {
-        sender.send_important(EmuStatus::Stopped);
+        sender.send_best_effort(EmuStatus::Stopped);
     }
     callbacks::take_context();
 }

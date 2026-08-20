@@ -155,6 +155,19 @@ impl StatusSender {
         let _ = self.tx.send(status);
     }
 
+    /// Best-effort variantas `send_important()` — TIK teardown keliams (šiuo metu vienintelis
+    /// naudotojas: `core::runner::run_loop` siunčia `EmuStatus::Stopped` PER ŠITĄ metodą, ne
+    /// `send_important()`). Skirtumas nuo `send_important()` yra kritiškas P4.0.4 orphan
+    /// apsaugai: jei tėvas nutrūksta netikėtai (pvz. `kill -9`) ir stdout laikinai/visam nebe
+    /// drenuojamas, blokuojantis `send()` teardown metu reikštų, kad VAIKAS PATS pakimba
+    /// vietoj to, kad išeitų — tiksliai priešingai P4.0.4 tikslui („vaiko fono gija gauna EOF
+    /// → švariai išsijungia pati"). `Loaded`/`Error` per `send_important()` LIEKA blokuojantys
+    /// sąmoningai — jie siunčiami normalaus veikimo metu, kai tėvas AKTYVIAI drenuoja, tad
+    /// blokavimas ten realiai nekyla (žr. modulio doc).
+    pub fn send_best_effort(&self, status: EmuStatus) {
+        let _ = self.tx.try_send(status);
+    }
+
     /// Telemetrija — throttled iki [`STATS_MIN_INTERVAL`], TYLIAI numetama, jei kanalas
     /// pilnas. NIEKADA neblokuoja siuntėjo (žr. modulio doc).
     pub fn send_stats(&self, audio_buffer_occupancy: f64) {
@@ -410,6 +423,47 @@ mod tests {
             "Stopped turėjo pasiekti writer'į NEPRIKLAUSOMAI nuo numestų Stats, gauta: {:?}",
             messages.last()
         );
+    }
+
+    /// P4.0.4 orphan apsaugos scenarijus: tėvas nutrūksta netikėtai (`kill -9`), stdout
+    /// NIEKADA daugiau nebedrenuojamas. `send_best_effort(Stopped)` teardown metu PRIVALO
+    /// grąžinti valdymą IŠKART, ne blokuoti — kitaip vaikas pats pakibtų vietoj to, kad
+    /// švariai išeitų. Writer'iui SĄMONINGAI neduodama NĖ VIENO leidimo (net Hello rašymui
+    /// per `spawn()`, kuris irgi vyksta per tą patį `GatedWriter` — permits kanalas lieka
+    /// TUŠČIAS visą testą), imituojant „niekas niekada daugiau neskaitys" scenarijų.
+    #[test]
+    fn stopped_via_best_effort_never_blocks_even_when_writer_never_drains() {
+        // Konstruojame kanalą TIESIOGIAI, apeidami `StatusWriter::spawn()` — jis PATS
+        // blokuotų amžinai savo sinchroniniame Hello write'e, jei writer niekada nedrenuotų
+        // (žr. modulio doc). Testuojame TIK `send_best_effort()` elgesį: `rx` čia niekada
+        // nekviečiamas `.recv()`/`.try_recv()`, imituojant „niekas niekada nebeskaitys".
+        let (tx, _rx_kept_alive_but_never_drained) = mpsc::sync_channel(STATUS_CHANNEL_CAPACITY);
+        let sender = StatusSender {
+            tx,
+            last_stats_sent: Cell::new(Instant::now() - STATS_MIN_INTERVAL),
+        };
+        // Užpildome kanalą IKI PAT viršaus — jokios vietos, jokio writer'io kita galą
+        // nuskaitančio (rx niekada nekviečiamas .recv()/.try_recv()).
+        for i in 0..STATUS_CHANNEL_CAPACITY {
+            sender
+                .tx
+                .try_send(EmuStatus::Stats {
+                    audio_buffer_occupancy: i as f64,
+                })
+                .expect("kanalas turėtų priimti lygiai iki talpos");
+        }
+        assert!(matches!(
+            sender.tx.try_send(EmuStatus::Stats {
+                audio_buffer_occupancy: 0.0
+            }),
+            Err(TrySendError::Full(_))
+        ));
+
+        // Pati esmė: šis kvietimas PRIVALO grąžinti valdymą iškart (žr. modulio doc) —
+        // jei `send_best_effort` viduje netyčia naudotų blokuojantį `send()`, šis testas
+        // pakibtų (kaip ir realus vaikas pakibtų P4.0.4 scenarijuje).
+        sender.send_best_effort(EmuStatus::Stopped);
+        // Pasiekus čia — įrodyta, kad kvietimas negrįžtamai nepakibo (žr. testo doc).
     }
 
     #[test]

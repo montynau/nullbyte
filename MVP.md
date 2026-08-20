@@ -1029,16 +1029,37 @@ pats fixture principas kaip `core::loader` testuose).
 > `tauri-plugin-shell`, `CommandEvent` receiver'io drenavimas VISADA) ir P4.0.4 shutdown
 > orchestracija (EOF → `process::exit`).
 
+> **Peržiūros radinys, ištaisyta (2026-08-20)** — `Stopped` teardown metu buvo siunčiamas per
+> `send_important()` (blokuojantis `send()`). P4.0.4 scenarijuje (`kill -9` tėvui arba bet
+> koks kitas atvejis, kai stdout nustoja būti drenuojamas TEARDOWN metu) tai reikštų, kad
+> VAIKAS pats pakimba užpildytame kanale vietoj to, kad švariai išeitų — priešingai P4.0.4
+> tikslui. Sprendimas: naujas `StatusSender::send_best_effort()` (`try_send`, niekada
+> neblokuoja) TIK šiam vienam teardown call site'ui (`run_loop` pabaigoje). `Loaded`/`Error`
+> LIEKA per blokuojantį `send_important()` — jie siunčiami normalaus veikimo metu, kai tėvas
+> aktyviai drenuoja, tad blokavimo rizika ten realiai nekyla. Patikrinta nauju testu
+> (`stopped_via_best_effort_never_blocks_even_when_writer_never_drains` — kanalas užpildytas
+> iki talpos, RX niekada nedrenuojamas, kvietimas vis tiek grąžina valdymą iškart).
+>
+> **`Stats` throttle patikrintas REALIAI, ne vien testais** — paleidus `nullbyte-emu` ir
+> palaikius `Run` būvį ~5s prieš siunčiant `Stop`: **17 `Stats` eilučių** (≈3.4 Hz, atitinka
+> 300ms throttle) + 1 `Loaded` + 1 `Stopped` + 1 `IpcHello` = 20 eilučių iš viso. Ankstesnis
+> paleidimas buvo per trumpas throttle intervalui parodyti (0 `Stats` eilučių) — dabar
+> patvirtinta, kad `send_stats()` kelias realiai veikia, ne vien unit testuose.
+
 **Acceptance:**
-- [x] `Stop` komanda pasiekia vaiką ir sukelia teisingą elgesį (`Load`/`Pause`/`Resume`
-      analogiškai — tas pats kelias, patikrinta vien `Stop`, nes tai vienintelė, kuriai
-      reikėjo TIK stdin, be tėvo pusės kliento). Patikrinta REALIAI per FIFO, ne vien testu.
-- [x] Būvio pranešimai (klaidos, statistika) pasiekia tėvą — `Loaded`/`Stopped` patikrinti
-      REALIAI (žr. pastabą aukščiau); `Error`/`Stats` patikrinti TIK testais (nebuvo
-      natūralaus scenarijaus REALIAME paleidime šios sesijos metu klaidai ar `Run` būvio
-      sukelti — abu keliai identiški kodo prasme `Loaded`/`Stopped`, bet nepatikrinti akimis)
+- [x] `Load`/`Stop` komandos pasiekia vaiką ir sukelia teisingą elgesį (`Pause`/`Resume`
+      analogiškai — tas pats kodo kelias). Patikrinta REALIAI per FIFO KELIS kartus: `Stop`,
+      IR `Load` (du kartus — SNES→Genesis core keitimas per tikrą IPC `Load`, ne vien
+      P4.0.2 test hook'ą, patvirtina CLAUDE.md §3.2 taisyklę #2 realiu core swap'u).
+- [x] Būvio pranešimai (klaidos, statistika) pasiekia tėvą — `Loaded`/`Stopped`/`Stats`
+      VISI patikrinti REALIAI (žr. pastabas aukščiau, `Stats` — 17 eilučių per ~5s realiame
+      paleidime). `Error` patikrintas TIK testu (nebuvo natūralaus scenarijaus jam sukelti
+      realiame paleidime šios sesijos metu — kodo kelias identiškas `Loaded`, bet
+      nepatikrintas akimis).
 - [x] Serializacijos klaida NESULAUŽO nei vieno proceso — `bad_command_line_is_skipped_not_fatal`
       testas + writer pusės `run_writer_loop` `Err` šaka abi patikrintos
+- [x] Teardown (`Stopped`) NEBLOKUOJA vaiko net kai stdout nebedrenuojamas — naujas
+      `send_best_effort()` + testas (žr. pastabą aukščiau)
 - [ ] `nullbyte-emu` paleidus be jokio ROM'o (vien init) — `stdout` NEturi nė vienos baitos,
       kuri nėra validus NDJSON `EmuStatus`/`IpcHello` (patikrinta REALIAI su ROM'u įkeltu —
       žr. aukščiau; be ROM'o atvejis atskirai nebandytas šios sesijos metu)
