@@ -172,15 +172,40 @@ unsafe extern "C" fn video_refresh_cb(
 }
 ```
 
+### 3.4 Proceso architektūra — `nullbyte-emu` vaiko procesas
+
+Žr. **ADR-016** (MVP.md §14) pilnam kontekstui ir sprendimo priežastims. Santrauka:
+
+- `nullbyte-app` (Tauri tėvas) paleidžia `nullbyte-emu` kaip **vaiko procesą** (Tauri
+  `externalBin` sidecar) kiekvienam žaidimo paleidimui.
+- `nullbyte-emu` turi SAVO winit langą, SAVO wgpu `Surface`, SAVO cpal `AudioOutput`, SAVO
+  `gilrs` gamepad pump'ą — visi §3.2/§3.3 taisyklės galioja TOJE PAČIOJE prasmėje, tik dabar
+  „procesas" vietoj „Tauri aplikacija".
+- **Nei vaizdas, nei garsas nekerta proceso ribos.** Per IPC keliauja TIK lengvos valdymo
+  žinutės (`Load`/`Pause`/`Resume`/`Stop`/`SaveState`/`SetFastForward` ir būvio pranešimai
+  atgal) — `video::frame_buffer` ir `audio::ring` lieka algoritmiškai NEPAKITĘ, veikia tarp
+  dviejų gijų VIENAME (`nullbyte-emu`) procese, kaip ir anksčiau.
+- **Klaviatūra ir gamepad'as gyvena `nullbyte-emu`** — jokio IPC nereikia įvesčiai (winit
+  langas gauna klaviatūrą tiesiogiai; `gilrs` pollina nepriklausomai nuo proceso/lango).
+- Core'o perjungimas = senas vaiko procesas baigiamas, naujas paleidžiamas švariu būviu —
+  R4 (core'ų globalus būvis) išspręsta STRUKTŪRIŠKAI, ne apeinant (žr. rizikų registrą §13).
+
 ---
 
 ## 4. Katalogų struktūra
+
+> **Cargo workspace, trys crate'ai — nuo P4.3/ADR-016 (2026-08-20).** Emuliavimo langas
+> (vaizdas + garsas + gamepad + klaviatūra) veikia **atskirame vaiko procese**
+> (`nullbyte-emu`), ne Tauri procese — žr. §3.4 ir ADR-016 (MVP.md §14). Priežastis:
+> klaviatūros įvestis (Tauri `Window` be webview neturi jokio klaviatūros event'ų API) ir
+> R4 rizikos (core'ų globalus būvis) sprendimas viename architektūriniame žingsnyje.
 
 ```
 nullbyte/
 ├── CLAUDE.md                      # šis failas
 ├── README.md
 ├── MVP.md                         # darbų planas — SEK JO EILIŠKUMO
+├── Cargo.toml                     # workspace root — [workspace] members = ["crates/*"]
 ├── package.json
 ├── pnpm-lock.yaml
 ├── svelte.config.js               # adapter-static, ssr = false
@@ -188,80 +213,96 @@ nullbyte/
 ├── tsconfig.json
 ├── .env.example                   # ScreenScraper dev credentials pavyzdys
 │
-├── src-tauri/
-│   ├── Cargo.toml
-│   ├── build.rs
-│   ├── tauri.conf.json
-│   ├── capabilities/
-│   │   └── default.json           # Tauri v2 permissions
-│   ├── icons/
-│   ├── migrations/                # SQL migracijos, numeruotos
-│   │   ├── 001_initial.sql
-│   │   └── 002_....sql
-│   └── src/
-│       ├── main.rs                # tik `nullbyte_lib::run()`
-│       ├── lib.rs                 # Tauri builder, state, komandų registracija
-│       ├── error.rs               # AppError (thiserror) + serde konversija į UI
-│       ├── state.rs               # AppState (DB pool, emu handle, settings)
-│       ├── paths.rs               # XDG / macOS katalogų sprendimas
-│       │
-│       ├── core/                  # libretro sluoksnis
-│       │   ├── mod.rs
-│       │   ├── ffi.rs             # libretro.h tipai, konstantos, struct'ai
-│       │   ├── loader.rs          # libloading, simbolių gavimas, CoreHandle
-│       │   ├── callbacks.rs       # unsafe extern "C" callback'ai + thread_local CTX
-│       │   ├── environment.rs     # retro_environment komandų apdorojimas
-│       │   ├── runner.rs          # emuliavimo gija, frame loop, pacing
-│       │   ├── savestate.rs       # retro_serialize / retro_unserialize
-│       │   └── info.rs            # .info failų parsinimas (core → sistemos, plėtiniai)
-│       │
-│       ├── video/
-│       │   ├── mod.rs
-│       │   ├── renderer.rs        # wgpu device, surface, pipeline
-│       │   ├── frame_buffer.rs    # triple buffer tarp emu ir render gijų
-│       │   ├── pixel_format.rs    # RGB565 / XRGB8888 / 0RGB1555 → RGBA8
-│       │   └── shaders/
-│       │       ├── blit.wgsl      # bazinis full-screen quad
-│       │       └── crt.wgsl       # post-MVP: CRT / scanlines
-│       │
-│       ├── audio/
-│       │   ├── mod.rs
-│       │   ├── output.rs          # cpal stream setup
-│       │   ├── ring.rs            # rtrb producer/consumer
-│       │   └── resampler.rs       # rubato + dynamic rate control
-│       │
-│       ├── input/
-│       │   ├── mod.rs
-│       │   ├── gamepad.rs         # gilrs event pump
-│       │   ├── keyboard.rs        # lango klaviatūros įvykiai
-│       │   └── mapping.rs         # fizinis mygtukas → RETRO_DEVICE_ID_JOYPAD_*
-│       │
-│       ├── db/
-│       │   ├── mod.rs
-│       │   ├── migrations.rs      # user_version pagrįstos migracijos
-│       │   ├── models.rs          # Game, SaveState, Platform, Setting struct'ai
-│       │   ├── games.rs           # CRUD + paieška + filtravimas
-│       │   └── settings.rs        # key/value nustatymai
-│       │
-│       ├── library/
-│       │   ├── mod.rs
-│       │   ├── scanner.rs         # ROM katalogų skenavimas, plėtinių atpažinimas
-│       │   ├── hasher.rs          # CRC32 / MD5 / SHA1 (archyvams — vidinio failo hash)
-│       │   └── archive.rs         # .zip / .7z skaitymas
-│       │
-│       ├── scraper/
-│       │   ├── mod.rs
-│       │   ├── screenscraper.rs   # API v2 klientas
-│       │   ├── types.rs           # JSON atsako struct'ai
-│       │   ├── media.rs           # viršelių / video atsisiuntimas į cache
-│       │   └── rate_limit.rs      # kvotų laikymasis, backoff
-│       │
-│       └── commands/              # PLONAS sluoksnis — jokios logikos
-│           ├── mod.rs
-│           ├── library.rs         # scan_roms, list_games, get_game, ...
-│           ├── emulator.rs        # start_game, pause, resume, stop, save_state, ...
-│           ├── scraper.rs         # scrape_game, scrape_library, scrape_progress
-│           └── settings.rs        # get_settings, set_setting, list_cores
+├── crates/
+│   ├── nullbyte-core/              # BENDRA emuliavimo logika — naudoja IR nullbyte-emu
+│   │   │                           # (vykdo), IR nullbyte-app (dalinasi IPC žinučių tipais)
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── error.rs           # AppError (thiserror) — bendras visiems trims crate'ams
+│   │       │
+│   │       ├── core/              # libretro sluoksnis (nepakitęs nuo P1.x)
+│   │       │   ├── mod.rs
+│   │       │   ├── ffi.rs         # libretro.h tipai, konstantos, struct'ai
+│   │       │   ├── loader.rs      # libloading, simbolių gavimas, CoreHandle
+│   │       │   ├── callbacks.rs   # unsafe extern "C" callback'ai + thread_local CTX
+│   │       │   ├── environment.rs # retro_environment komandų apdorojimas
+│   │       │   ├── runner.rs      # emuliavimo gija, frame loop, audio-driven pacing
+│   │       │   ├── savestate.rs   # retro_serialize / retro_unserialize
+│   │       │   └── info.rs        # .info failų parsinimas (core → sistemos, plėtiniai)
+│   │       │
+│   │       ├── video/
+│   │       │   ├── mod.rs
+│   │       │   ├── renderer.rs    # wgpu device/surface/pipeline — DABAR winit::window::Window
+│   │       │   ├── frame_buffer.rs # triple buffer — LIEKA VIENAME (nullbyte-emu) procese
+│   │       │   ├── pixel_format.rs # RGB565 / XRGB8888 / 0RGB1555 → RGBA8
+│   │       │   └── shaders/
+│   │       │       ├── blit.wgsl  # centruotas quad, aspect ratio / integer scaling
+│   │       │       └── crt.wgsl   # post-MVP: CRT / scanlines
+│   │       │
+│   │       ├── audio/
+│   │       │   ├── mod.rs
+│   │       │   ├── output.rs      # cpal stream setup
+│   │       │   ├── ring.rs        # rtrb producer/consumer — LIEKA VIENAME procese
+│   │       │   └── resampler.rs   # rubato + dynamic rate control (P3.3/P3.4)
+│   │       │
+│   │       └── input/
+│   │           ├── mod.rs
+│   │           ├── gamepad.rs     # gilrs event pump — gyvena nullbyte-emu (low-latency)
+│   │           ├── keyboard.rs    # winit KeyboardInput — DABAR realiai gaunama (ADR-016)
+│   │           └── mapping.rs     # fizinis mygtukas/klavišas → RETRO_DEVICE_ID_JOYPAD_*
+│   │
+│   ├── nullbyte-emu/               # VAIKO procesas — emuliatoriaus langas, vykdo core'ą
+│   │   ├── Cargo.toml              # priklauso nuo nullbyte-core
+│   │   └── src/
+│   │       ├── main.rs             # winit event loop, ActivationPolicy::Accessory (§10)
+│   │       ├── ipc.rs              # IPC serveris — priima EmuCommand iš tėvo, siunčia būvį
+│   │       └── orphan_guard.rs     # tėvo pipe stebėjimas — EOF → savaiminis išsijungimas
+│   │
+│   └── nullbyte-app/                # TĖVO procesas — Tauri, UI, DB, scraper, biblioteka
+│       ├── Cargo.toml               # priklauso nuo nullbyte-core (dalinasi IPC tipais)
+│       ├── build.rs
+│       ├── tauri.conf.json          # bundle.externalBin → nullbyte-emu binaras (sidecar)
+│       ├── capabilities/
+│       │   └── default.json         # Tauri v2 permissions
+│       ├── icons/
+│       ├── migrations/              # SQL migracijos, numeruotos
+│       │   ├── 001_initial.sql
+│       │   └── 002_....sql
+│       └── src/
+│           ├── main.rs              # tik `nullbyte_app::run()`
+│           ├── lib.rs               # Tauri builder, state, komandų registracija
+│           ├── state.rs             # AppState — DABAR laiko vaiko proceso handle + IPC
+│           │                        # klientą, NE Renderer/EmuThread/AudioOutput tiesiogiai
+│           ├── paths.rs             # XDG / macOS katalogų sprendimas
+│           │
+│           ├── db/
+│           │   ├── mod.rs
+│           │   ├── migrations.rs    # user_version pagrįstos migracijos
+│           │   ├── models.rs        # Game, SaveState, Platform, Setting struct'ai
+│           │   ├── games.rs         # CRUD + paieška + filtravimas
+│           │   └── settings.rs      # key/value nustatymai
+│           │
+│           ├── library/
+│           │   ├── mod.rs
+│           │   ├── scanner.rs       # ROM katalogų skenavimas, plėtinių atpažinimas
+│           │   ├── hasher.rs        # CRC32 / MD5 / SHA1 (archyvams — vidinio failo hash)
+│           │   └── archive.rs       # .zip / .7z skaitymas
+│           │
+│           ├── scraper/
+│           │   ├── mod.rs
+│           │   ├── screenscraper.rs # API v2 klientas
+│           │   ├── types.rs         # JSON atsako struct'ai
+│           │   ├── media.rs         # viršelių / video atsisiuntimas į cache
+│           │   └── rate_limit.rs    # kvotų laikymasis, backoff
+│           │
+│           └── commands/            # PLONAS sluoksnis — jokios logikos
+│               ├── mod.rs
+│               ├── library.rs       # scan_roms, list_games, get_game, ...
+│               ├── emulator.rs      # start_game/pause/resume/stop — paleidžia/valdo
+│               │                    # nullbyte-emu vaiko procesą per IPC
+│               ├── scraper.rs       # scrape_game, scrape_library, scrape_progress
+│               └── settings.rs      # get_settings, set_setting, list_cores
 │
 ├── src/                           # Svelte frontend
 │   ├── app.html
@@ -304,6 +345,15 @@ nullbyte/
 │
 └── static/
 ```
+
+> **Istorinė pastaba:** iki P4.3/ADR-016 visas Rust kodas gyveno viename `src-tauri/`
+> crate'e (žr. git istoriją P0.1–P4.1 commit'uose) — vaizdas/garsas/emuliavimas veikė TAME
+> PAČIAME procese kaip Tauri UI, per `tauri::window::Window` be webview (ADR-005). Ta
+> architektūra susidūrė su dviem neišsprendžiamomis kliūtimis: (1) tokia `Window` neturi
+> jokio klaviatūros event'ų API Tauri v2 (patikrinta prieš `tauri` 2.11.5 šaltinį — tik
+> `on_window_event`/`on_menu_event`, jokio klaviatūros varianto `WindowEvent` enum'e), (2) R4
+> rizika (core'ų globalus būvis neleidžia perjungti core'o be restarto) neturėjo sprendimo
+> iki po-MVP. ADR-016 sprendžia abi vienu žingsniu — žr. §3.4 ir MVP.md §14.
 
 ---
 
@@ -670,20 +720,39 @@ DB laiko tik **santykinius kelius**, ne absoliučius — kad veiktų perkėlus p
 - **Panic per FFI ribą = UB.** Callback'uose venk `unwrap()`, indeksavimo be patikros, `assert!`.
 - **`CString` gyvavimo trukmė:** jei atiduodi core'ui `*const c_char` (pvz. system directory),
   `CString` privalo gyventi tiek pat, kiek core. Laikyk ją struct'e, ne lokaliai.
-- **`dlclose` ir globalus būvis:** kai kurie core'ai neatstato globalaus būvio. Jei perjungiant
-  core'us matai keistus crash'us — reiškia reikia child proceso izoliacijos (didelis darbas,
-  post-MVP; MVP metu tiesiog perkrauk aplikaciją arba neleisk perjungti be restarto).
+- **`dlclose` ir globalus būvis:** kai kurie core'ai neatstato globalaus būvio, jei bandai
+  perjungti core'ą TAME PAČIAME procese. **IŠSPRĘSTA nuo ADR-016** (P4.3): kiekvienas žaidimo
+  paleidimas = naujas `nullbyte-emu` vaiko procesas, senas užbaigiamas prieš tai — nešvarus
+  būvis tiesiog dingsta kartu su procesu. Nebereikia „neleisk perjungti be restarto" apribojimo.
 
-### wgpu / Tauri
-- **Tauri v2 atskiria `Window` ir `Webview`.** Emuliatoriaus langui kurk **`Window` be webview**
-  ir imk jo `raw_window_handle()` wgpu `Surface`'ui. Nebandyk piešti „po" webview — permatomumas
-  ir click-through veikia nepatikimai, ypač Linux/Wayland.
+### wgpu / winit (`nullbyte-emu` vaiko procesas)
+- **Emuliatoriaus langas — winit, ne Tauri `Window`.** Nuo ADR-016 emuliatoriaus vaizdas
+  veikia atskirame vaiko procese (`nullbyte-emu`) su SAVO winit event loop'u, ne Tauri
+  `Window` be webview. Priežastis: Tauri `Window` (patikrinta prieš `tauri` 2.11.5 šaltinį)
+  neturi JOKIO klaviatūros event'ų API — tik `on_window_event`/`on_menu_event`, jokio
+  klaviatūros varianto `WindowEvent` enum'e (žr. §3.4, ADR-016).
+- **macOS Dock:** winit numatytai naudoja `ActivationPolicy::Regular` — vaiko procesas
+  atsirastų Dock'e kaip ANTRA programa. Naudok
+  `EventLoopBuilderExtMacOS::with_activation_policy(ActivationPolicy::Accessory)`.
 - **Linux/Wayland:** wgpu Vulkan backend'as gali reikalauti `WAYLAND_DISPLAY` handling'o.
   Testuok ir X11, ir Wayland. Jei Wayland problemiškas — leisk force'inti X11 per `WINIT_UNIX_BACKEND=x11`.
-- **`Surface` turi būti kuriamas UI gijoje** (macOS reikalavimas — `NSView` prieinamas tik main thread).
-  Emuliavimo gija tik **rašo pikselius į buferį**; `queue.write_texture` + `present` daromas UI gijoje.
-- **macOS:** wgpu Metal backend'as reikalauja, kad lango dydžio keitimas ir surface rekonfigūracija
-  vyktų main thread'e.
+- **`Surface` turi būti kuriamas VAIKO PROCESO main gijoje** (macOS reikalavimas — `NSView`
+  prieinamas tik main thread; dabar tai `nullbyte-emu` proceso main thread, ne Tauri).
+  Emuliavimo gija tik **rašo pikselius į buferį**; `queue.write_texture` + `present` daromas
+  vaiko proceso main gijoje.
+- **macOS:** wgpu Metal backend'as reikalauja, kad lango dydžio keitimas ir surface
+  rekonfigūracija vyktų main thread'e.
+
+### Proceso architektūra (`nullbyte-emu` ↔ `nullbyte-app`, ADR-016)
+- **Našlaičių (orphan) procesai:** jei `nullbyte-app` (tėvas) staiga krenta, `nullbyte-emu`
+  (vaikas) Unix'e NEMIRŠTA automatiškai kartu — liktų veikiantis fone. **Nenaudok PID
+  pollinimo** (nepatikima, race'inama). Vietoj to: tėvas laiko atvirą pipe'ą į vaiką kaip
+  gyvumo signalą; vaikas jį skaito fone atskiroje gijoje — kai tėvas (net ir netikėtai)
+  baigiasi, OS uždaro pipe'ą ir vaikas gauna EOF → švariai išsijungia pats.
+- **IPC riba turi likti PLONA.** Per ją keliauja tik valdymo žinutės (`EmuCommand`-like) ir
+  būvio pranešimai — NIEKADA vaizdo kadrai ar audio sample'ai (tam nėra reikalo, nes vaikas
+  turi savo langą/garso įrenginį — žr. §3.4). Jei prireikia siųsti kadrą per IPC (pvz.
+  bibliotekos preview'ui) — tai atskiras, retas, apgalvotas atvejis, ne bendra taisyklė.
 
 ### Tauri IPC
 - **Nesiųsk kadrų per `invoke`.** JSON serializacija 60 kartų per sekundę užmuš aplikaciją.

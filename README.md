@@ -76,23 +76,27 @@ baitai atmintyje; Nullbyte grąžina juos į ekraną. Logotipe — `0x00`.
 
 ## Palaikomos platformos
 
-Nullbyte palaiko viską, kam yra libretro core'as. Testuojami ir dokumentuojami:
+Nullbyte palaiko viską, kam yra libretro core'as ir kurio core'o rendering keliui frontend'as
+šiuo metu geba tarnauti. **MVP frontend'as duoda core'ui tik CPU pusėje paruoštą pikselių
+buferį** (`retro_video_refresh_t` su žaliaviniais baitais) — core'ai, kurie patys piešia per
+OpenGL/Vulkan/D3D ir reikalauja iš frontend'o GL konteksto bei framebuffer'io
+(`RETRO_ENVIRONMENT_SET_HW_RENDER`), MVP metu nepalaikomi (žr. „Reikalauja hardware
+rendering" žemiau ir MVP.md §15 v0.2 sąrašą).
+
+### Veikia MVP metu (software rendering)
 
 | Konsolė | Rekomenduojamas core |
 |---|---|
 | Nintendo (NES / Famicom) | Nestopia UE, FCEUmm |
 | Super Nintendo (SNES) | Snes9x, bsnes-mercury |
-| Nintendo 64 | Mupen64Plus-Next, ParaLLEl N64 |
-| GameCube / Wii | Dolphin |
 | Game Boy / Color | Gambatte, SameBoy |
 | Game Boy Advance | mGBA |
-| Nintendo DS | melonDS, DeSmuME |
+| Nintendo DS | melonDS (software renderer), DeSmuME |
 | Sega Master System / Game Gear | Genesis Plus GX |
 | Sega Genesis / Mega Drive / CD | Genesis Plus GX, PicoDrive |
 | Sega 32X | PicoDrive |
-| Sega Saturn | Beetle Saturn, YabaSanshiro |
-| Sony PlayStation | Beetle PSX, SwanStation |
-| Sony PSP | PPSSPP |
+| Sega Saturn | Beetle Saturn |
+| Sony PlayStation | Beetle PSX |
 | Atari 2600 | Stella |
 | Atari 7800 | ProSystem |
 | Atari 800 / 5200 | Atari800 |
@@ -101,6 +105,18 @@ Nullbyte palaiko viską, kam yra libretro core'as. Testuojami ir dokumentuojami:
 | Vectrex | vecx |
 | Intellivision | FreeIntv |
 | Magnavox Odyssey² | O2EM |
+
+### Reikalauja hardware rendering (post-MVP)
+
+Šie core'ai reikalauja `RETRO_ENVIRONMENT_SET_HW_RENDER` (GL/Vulkan kontekstas iš
+frontend'o) — praktiškai neturi naudojamo software fallback'o. Palaikymas planuojamas
+po MVP (žr. MVP.md §15).
+
+| Konsolė | Core (reikalautų HW render) |
+|---|---|
+| Nintendo 64 | Mupen64Plus-Next, ParaLLEl N64 |
+| GameCube / Wii | Dolphin |
+| Sony PSP | PPSSPP |
 
 > Nullbyte nepateikia core'ų. Juos atsisiunti pats iš
 > [buildbot.libretro.com](https://buildbot.libretro.com/nightly/) arba per savo sistemos
@@ -313,6 +329,7 @@ Detalus planas — [MVP.md](MVP.md).
 
 ### v0.2
 
+- [ ] Hardware-rendered core'ų palaikymas (N64, GameCube, PSP)
 - [ ] Core options UI (per-core nustatymai)
 - [ ] Shader'iai (CRT, scanlines, xBRZ)
 - [ ] Netplay

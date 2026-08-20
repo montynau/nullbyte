@@ -462,6 +462,13 @@ Tik įrodymas, kad FFI veikia.
 - [x] Lango dydžio keitimas nesulaužo surface'o — patikrinta AppleScript resize (900×700 →
       1800×1400 su Retina scale), log: „wgpu Surface rekonfigūruotas (resize)", jokio crash'o
 
+> **Atnaujinta P4.3/ADR-016 (2026-08-20):** čia sukurtas Tauri `Window` be webview
+> pasirodė NETURINTIS jokio klaviatūros event'ų API — kliūtis, atrasta tik P4.2 metu.
+> ADR-016 perkelia šį langą (ir visą `renderer.rs`/`video::frame_buffer` logiką, iš esmės
+> nepakitusią) į atskirą `nullbyte-emu` vaiko procesą su winit langu vietoj Tauri `Window`.
+> Šio task'o rezultatai (acceptance įrodymai aukščiau) LIEKA teisingi kaip wgpu pipeline'o
+> patikra — keičiasi tik lango KŪRĖJAS (winit, ne Tauri), ne pati wgpu logika.
+
 ---
 
 ### P2.4 — Blit pipeline ir shader'is 🔴 `[x]`
@@ -751,6 +758,15 @@ klausytojo dar nėra, P4.2/P4.3).
 
 **Priklausomybės:** P4.2, P1.4
 **Failai:** `src-tauri/src/input/mod.rs`, `src-tauri/src/core/callbacks.rs`
+
+> **Pastaba (2026-08-20):** dauguma šio task'o „Ką daryti" punktų jau įgyvendinti anksčiau —
+> `EmuContext.input_state: [u16; 4]` (4 portai), `input_state_cb` (P1.4) ir
+> `GET_INPUT_BITMASKS => true` (P1.5) jau egzistuoja `core/callbacks.rs`/`core/environment.rs`.
+> Šio task'o TIKRASIS likęs darbas — sujungti P4.1 (`gilrs`) ir P4.2 (mapping) su šiuo jau
+> veikiančiu bitmask sluoksniu per `EmuCommand::SetInput`, IR pačios ARCHITEKTŪROS pokytis:
+> žr. ADR-016 — nuo šios užduoties emuliavimo gija (taigi ir `input_state` atnaujinimas)
+> gyvena `nullbyte-emu` vaiko procese, ne Tauri procese. Grįžtame prie šio task'o po ADR-016
+> dokumentacijos atnaujinimo (žr. pokalbio kontekstą).
 
 **Ką daryti:**
 - `retro_set_input_poll` → atnaujina `EmuContext.input_state`
@@ -1198,6 +1214,14 @@ CREATE TABLE scrape_cache (
 - Įkeliant: jei core nesutampa — įspėjimas UI, bet leisk bandyti
 - **Kviesk tik iš emuliavimo gijos, tarp `retro_run()`**
 
+> **Pastaba (ADR-016, 2026-08-20):** nuo proceso architektūros pakeitimo triple buffer'is
+> (taigi ir dabartinis kadras preview'ui) gyvena `nullbyte-emu` VAIKO procese, o DB — `nullbyte-app`
+> TĖVO procese. „Paimk kadrą → PNG" veiksmas turi vykti VAIKO pusėje (jis turi tiesioginę
+> prieigą prie triple buffer'io): `nullbyte-emu` pats užkoduoja dabartinį kadrą į PNG, įrašo
+> failą į diską (`states_dir()`), ir per IPC grąžina TIK failo kelią (`String`/`PathBuf`) —
+> NE žalius kadro baitus. Tėvas tik įrašo tą kelią į DB. Tai atitinka §10 „IPC riba turi
+> likti PLONA" taisyklę.
+
 **Acceptance:**
 - [ ] Save → uždaryti → paleisti → load → tas pats taškas
 - [ ] 4 slot'ai + quick save nepersidengia
@@ -1372,7 +1396,7 @@ CREATE TABLE scrape_cache (
 | **R1** | libretro FFI nestabilumas, segfault'ai callback'uose | Vidutinė | 🔴 Kritinis | P1.4/P1.5 daryti atsargiai, `GET_LOG_INTERFACE` pirmiausia, testuoti su 3+ core'ais anksti |
 | **R2** | wgpu + Tauri langas neveikia Linux/Wayland | Vidutinė | 🔴 Kritinis | Dokumentuotas fallback į `Channel` + WebGL canvas (P2.3). Testuoti abu backend'us Fazėje 2, ne pabaigoje |
 | **R3** | Garso traškesiai, kurių nepavyksta pašalinti | Vidutinė | 🟡 Didelis | Dynamic rate control yra įrodyta technika (RetroArch). Jei nepavyksta — didink buferį iki 100 ms |
-| **R4** | Core'ų globalus būvis neleidžia perjungti be restarto | Aukšta | 🟡 Vidutinis | Priimtina MVP: reikalauti restarto. Dokumentuoti. Child procesas — post-MVP |
+| **R4** | Core'ų globalus būvis neleidžia perjungti be restarto | Aukšta | ✅ **IŠSPRĘSTA** | Child procesas (`nullbyte-emu`) kiekvienam paleidimui — ADR-016 (P4.3, 2026-08-20). Perkelta iš post-MVP į dabar, nes kartu sprendė ir klaviatūros įvesties problemą |
 | **R5** | ScreenScraper kvotos per mažos naudingam scraping'ui | Vidutinė | 🟡 Vidutinis | Agresyvus cache'as, batch'inimas, aiškus kvotos rodymas UI. Atsarginis planas: pridėti TheGamesDB |
 | **R6** | ScreenScraper dev credentials negaunami | Žema | 🟡 Vidutinis | Kreiptis anksti (Fazėje 0). Alternatyva: TheGamesDB arba OpenVGDB offline |
 | **R7** | macOS notarizacija / gatekeeper trukdo platinti | Aukšta | 🟢 Mažas | MVP: instrukcijos README. Post-MVP: Apple Developer paskyra |
@@ -1435,14 +1459,23 @@ atnaujinama), TheGamesDB (mažiau pilna).
 **Pasekmės:** Priklausomybė nuo išorinio serviso ir jo kvotų → privalomas agresyvus cache'as (P6.2).
 
 ### ADR-005 — wgpu atskirame native lange, ne WebView canvas
-**Data:** 2026-08-19 · **Statusas:** priimta
+**Data:** 2026-08-19 · **Statusas:** priimta, PAPILDYTA ADR-016 (2026-08-20)
 **Kontekstas:** Kadrus reikia rodyti 60 k./s.
-**Sprendimas:** Atskiras Tauri `Window` be webview + wgpu `Surface` per `raw-window-handle`.
+**Sprendimas:** Atskiras native langas be webview + wgpu `Surface` per `raw-window-handle`.
 **Priežastis:** Kadrų siuntimas per IPC į canvas neskaluojasi: 640×480×4 B × 60 = 73 MB/s.
 Native langas duoda zero-copy GPU kelią ir vsync.
 **Alternatyva (fallback):** `Channel<&[u8]>` → WebGL2 canvas. Priimtina 8/16-bit sistemoms
-(256×224 ≈ 7 MB/s), bet ne N64/PSP.
+(256×224 ≈ 7 MB/s), bet ne N64/PSP — šis fallback'as NEBUS naudojamas MVP metu (žr. žemiau).
 **Pasekmės:** Du langai vietoj vieno. Reikia atskirai spręsti fullscreen, fokusą, hotkey'us.
+
+> **Papildymas (ADR-016, P4.3, 2026-08-20):** originalus sprendimas („atskiras **Tauri**
+> `Window` be webview") pasirodė nepilnas — patikrinta, kad toks langas Tauri v2 neturi
+> JOKIO klaviatūros event'ų API. Paaiškėjus šiai spragai KARTU su neišspręsta R4 rizika
+> (core'ų globalus būvis), esminis sprendimas „native langas, ne WebView canvas" **LIEKA
+> GALIOJANTIS**, bet native langas dabar priklauso **atskiram `nullbyte-emu` vaiko
+> procesui** (winit), ne Tauri procesui. Fallback'o (WebGL2 canvas) svarstyta ir sąmoningai
+> ATMESTA kaip pagrindinis kelias, nes ji apribotų platformų palaikymą (N64/GameCube/PSP —
+> žr. README) ir vis tiek nebūtų išsprendusi R4. Pilna nauja architektūra — ADR-016.
 
 ### ADR-006 — Audio-driven sinchronizacija
 **Data:** 2026-08-19 · **Statusas:** priimta
@@ -1599,12 +1632,102 @@ teste occupancy dar nespėja pasiekti problemiškos zonos).
 
 ---
 
+### ADR-016 — Atskiras `nullbyte-emu` vaiko procesas (winit) emuliacijai, ne Tauri procesas
+**Data:** 2026-08-20 · **Statusas:** priimta
+**Kontekstas:** P4.2 metu pradėjus dėlioti klaviatūros mapping'ą, paaiškėjo, kad ADR-005
+sprendimas („atskiras **Tauri** `Window` be webview" wgpu vaizdui, nuo P2.3) turi realią
+spragą: patikrinta prieš `tauri` 2.11.5 šaltinį — tokia `Window` neturi JOKIO klaviatūros
+event'ų API (`WindowEvent` enum'e tik `Resized`/`Moved`/`CloseRequested`/`Destroyed`/
+`Focused`/`ScaleFactorChanged`/`DragDrop`/`ThemeChanged` — jokio klaviatūros varianto).
+Vartotojo tyrimas patvirtino: Tauri issue [#11671](https://github.com/tauri-apps/tauri/issues/11671)
+atviras nuo 2024-11 be sprendimo. Trys realūs variantai buvo apsvarstyti:
+
+- **A (pasirinkta): atskiras vaiko procesas su winit.** Winit'o event loop duoda pilnus
+  klaviatūros įvykius (su tikru laikymo/atleidimo būviu, ne vien diskretiems spartos
+  klavišams). Kartu išsprendžia R4 (kiekvienas paleidimas = švarus procesas).
+- **B (atmesta kaip pagrindinis kelias, liko dokumentuota alternatyva ADR-005):**
+  `Channel<&[u8]>` → WebGL2 canvas viename Tauri lange. Išspręstų klaviatūrą „nemokamai" (JS
+  keydown/keyup), bet apribotų platformas (N64/GameCube/PSP nesutalpina pralaidumo — žr.
+  README) ir nespręstų R4.
+- **C (atmesta):** platformai specifinis native kodas (`NSEvent.addLocalMonitorForEvents`
+  macOS, `gtk_window().connect_key_press_event()` Linux). Veiktų, bet du atskiri `unsafe`
+  keliai; Tauri v2 neatskleidžia `ns_window()` macOS'e (tik `gtk_window()` Linux'e) — tektų
+  papildomai per `raw-window-handle` + `objc2`.
+
+**Iš karto ATMESTOS (klaidingai pasiūlytos, tada pačios paneigtos) alternatyvos:**
+`global-hotkey`/`tauri-plugin-global-shortcut`, `rdev`, `device_query`. Visos tai **sisteminio
+lygio spartos klavišų** bibliotekos, ne lango klaviatūros įvestis: (1) registruoja klavišus
+VISAI OS, net kai Nullbyte nefokusuotas — atimtų strėles/WASD iš kitų programų; (2) skirtos
+diskretiems paspaudimams (`Cmd+N`), ne nuolatinei „laikoma/nelaikoma" būsenai, kurios reikia
+žaidimui; (3) `rdev`/`device_query` reikalauja macOS Accessibility leidimo (sisteminis
+dialogas). Tauri dokumentacija pati įspėja, kad tokie shortcuts „can be inherently dangerous".
+
+**Sprendimas:** Emuliatoriaus langas + vykdymas persikelia į atskirą vaiko procesą
+`nullbyte-emu` (winit + wgpu + cpal + gilrs — visi P2–P4.1 jau parašyti moduliai persikelia
+BEVEIK NEPAKITĘ, keičiasi tik lango kūrėjas: `winit::window::Window` vietoj
+`tauri::window::Window`). `nullbyte-app` (Tauri tėvas) paleidžia jį kaip `externalBin`
+sidecar procesą kiekvienam žaidimo paleidimui.
+
+**Keturi konkretūs sprendimai (patvirtinti su vartotoju):**
+1. **macOS Dock:** winit numatytai naudoja `ActivationPolicy::Regular` (vaikas atsirastų
+   Dock'e kaip antra programa). Naudojama
+   `EventLoopBuilderExtMacOS::with_activation_policy(ActivationPolicy::Accessory)`.
+2. **Našlaičių procesų apsauga:** jei tėvas krenta, Unix'e vaikas savaime NEMIRŠTA. NE PID
+   pollinimas (nepatikimas, race'inamas) — tėvas laiko atvirą pipe'ą į vaiką; vaikas jį
+   skaito fone atskiroje gijoje; tėvo netikėtas baigimasis uždaro pipe'ą → vaikas gauna EOF
+   → švariai išsijungia pats.
+3. **Cargo workspace, trys crate'ai:** `nullbyte-core` (bendra: `core/`, `video/`, `audio/`,
+   `input/` — naudoja IR vaikas vykdymui, IR tėvas IPC tipų bendrinimui),
+   `nullbyte-app` (Tauri tėvas: `db/`, `scraper/`, `library/`, `commands/`),
+   `nullbyte-emu` (vaiko binaras). `tauri.conf.json` `bundle.externalBin` supakuoja antrą
+   binarą. Retroaktyviai keičia P0.3 (projekto struktūra) ir P0.4 (CI — reikės build'inti
+   visus tris crate'us) prielaidas.
+4. **P8.1 save state preview:** triple buffer'is dabar vaike, DB — tėve. Vaikas pats
+   užkoduoja dabartinį kadrą į PNG, įrašo į diską, IPC grąžina TIK failo kelią — ne kadro
+   baitus (žr. P8.1 pastabą).
+
+**IPC riba lieka plona:** per ją keliauja TIK valdymo žinutės (dabartinis `EmuCommand` enum'as
+— `Load`/`Pause`/`Resume`/`Stop`/`SaveState`/`SetFastForward`) ir būvio pranešimai atgal.
+Nei vaizdas, nei garsas, nei (dabar) klaviatūra/gamepad'as NIEKADA nekerta proceso ribos —
+`video::frame_buffer` triple buffer'is ir `audio::ring` SPSC ring buferis lieka algoritmiškai
+NEPAKITĘ, veikia tarp dviejų gijų VIENAME (`nullbyte-emu`) procese, kaip veikė P2.2–P3.4 metu.
+
+**Priežastis:** Sprendžia DVI problemas vienu architektūriniu žingsniu — klaviatūros
+įvestį IR R4 (Aukšta tikimybė, iki šiol be sprendimo, MVP.md §13). Pigiau daryti Fazėje 4
+(mažai kodo virš esamos architektūros) nei Fazėje 9 (viskas jau sujungta su biblioteka,
+scraping'u, UI).
+
+**Pasekmės:**
+- R4 pažymėta išspręsta (žr. §13 rizikų registrą).
+- ADR-005 papildyta pastaba (žr. aukščiau) — esminis sprendimas („native langas, ne WebView
+  canvas") lieka galiojantis, keičiasi tik proceso priklausomybė.
+- Naujas HW render (`RETRO_ENVIRONMENT_SET_HW_RENDER`, ID=14) apribojimas ATRASTAS (nesusijęs
+  su šiuo ADR, bet patikrintas tuo pačiu metu) — README platformų lentelė perskaidyta, žr.
+  §15 v0.2 sąrašą.
+- P2.3/P4.3/P8.1 papildytos pastabomis apie architektūros pasikeitimą (žr. atitinkamas
+  sekcijas).
+- Realaus kodo migracija (workspace split, `nullbyte-emu` binaras, IPC sluoksnis) — DAR
+  NEPADARYTA šios sesijos metu (šis ADR — dokumentacijos/sprendimo fiksavimas). Kitas
+  žingsnis: implementuoti, tada grįžti prie P4.2 (mapping) ir P4.3 (polling) su nauja
+  architektūra.
+
+---
+
 ## 15. Po MVP — idėjų sąrašas
 
 > **Nedaryk nieko iš šio sąrašo, kol MVP nebaigtas.**
 > Naujos idėjos rašomos čia, ne į fazių planą.
 
 **v0.2 — Gilesnis emuliavimas**
+- **Hardware-rendered core'ų palaikymas** (`RETRO_ENVIRONMENT_SET_HW_RENDER`, ID=14 —
+  patikrinta prieš tikrą `libretro.h`, 2026-08-20). Frontend'as turi suteikti GL/Vulkan
+  kontekstą + framebuffer'į core'ui — dabar `environment.rs` grąžina `false` (nežinoma
+  komanda), tad Nintendo 64 (Mupen64Plus-Next, ParaLLEl N64), GameCube/Wii (Dolphin) ir
+  Sony PSP (PPSSPP) core'ai arba nepasileidžia, arba kris į nenaudojamą fallback'ą. README
+  platformų lentelė atitinkamai perskaidyta į „veikia MVP" / „reikalauja HW render". Su P8.x
+  proceso izoliacijos architektūra (ADR-016) šis darbas natūraliai priklausytų
+  `nullbyte-emu` vaiko procesui (kuris jau turi savo wgpu `Device`/`Surface`, galėtų dalintis
+  GL kontekstą core'ui per `get_proc_address`)
 - Core options UI (per-core nustatymai su `SET_CORE_OPTIONS_V2`)
 - Shader'iai: CRT-Royale, scanlines, xBRZ, LCD grid
 - Rewind (žiedinis save state buferis)
