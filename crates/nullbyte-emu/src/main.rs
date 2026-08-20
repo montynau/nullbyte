@@ -8,6 +8,8 @@
 //! **`stdout` PRIKLAUSO P4.0.3 IPC protokolui** — šis procesas niekada į jį nerašo (CLAUDE.md
 //! §10). `init_tracing()` nukreipia visus logus į `stderr`.
 
+mod ipc;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 

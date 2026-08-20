@@ -3178,6 +3178,7 @@ name = "nullbyte-emu"
 version = "0.1.0"
 dependencies = [
  "nullbyte-core",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
  "winit",
