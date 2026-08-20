@@ -3,8 +3,8 @@ build
 .svelte-kit
 package
 pnpm-lock.yaml
-src-tauri/target
-src-tauri/gen
+target
+crates/nullbyte-app/gen
 static
 
 # Rankiniu būdu formatuoti dokumentai — netvarkyti prettier (CLAUDE.md yra instrukcija,

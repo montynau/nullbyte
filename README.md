@@ -223,9 +223,9 @@ pnpm check          # svelte-check + tsc
 pnpm lint           # eslint + prettier --check
 pnpm format         # prettier --write
 
-cargo test    --manifest-path src-tauri/Cargo.toml
-cargo clippy  --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-cargo fmt     --manifest-path src-tauri/Cargo.toml
+cargo test    --workspace
+cargo clippy  --workspace --all-targets -- -D warnings
+cargo fmt     --all
 ```
 
 ---
@@ -375,8 +375,8 @@ Pull request'ai laukiami. Prieš pradedant:
 Reikalavimai PR'ui:
 
 ```bash
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-cargo test   --manifest-path src-tauri/Cargo.toml
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test   --workspace
 pnpm check
 pnpm lint
 ```

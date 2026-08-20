@@ -1,7 +1,7 @@
 // Rankiniu būdu sinchronizuojama su Rust struct'ais, kurie kerta Tauri IPC.
 // CLAUDE.md §7.3: keitus Rust pusę, TUOJ PAT atnaujink čia.
 
-/** Atitinka `AppInfo` (src-tauri/src/lib.rs, komanda `get_app_info`). */
+/** Atitinka `AppInfo` (crates/nullbyte-app/src/lib.rs, komanda `get_app_info`). */
 export interface AppInfo {
   version: string;
   platform: string;

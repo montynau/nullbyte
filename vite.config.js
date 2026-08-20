@@ -26,8 +26,10 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching the Rust side (P4.0.1 workspace split moved
+      // `src-tauri/` to `crates/*` — watching Rust source/build output here would trigger
+      // pointless frontend HMR reloads on every `cargo build`)
+      ignored: ["**/crates/**", "**/target/**"],
     },
   },
 }));
