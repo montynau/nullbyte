@@ -695,7 +695,7 @@ Tik įrodymas, kad FFI veikia.
 **Tikslas:** valdyti žaidimą gamepad'u ir klaviatūra.
 **Rizika:** 🟡 vidutinė. **Įvertis:** 2 dienos.
 
-### P4.1 — Gamepad aptikimas `[ ]`
+### P4.1 — Gamepad aptikimas `[ ]` (kodas paruoštas, laukia fizinio valdiklio testo)
 
 **Priklausomybės:** P0.3
 **Failai:** `src-tauri/src/input/gamepad.rs`
@@ -705,10 +705,25 @@ Tik įrodymas, kad FFI veikia.
 - Prijungimo/atjungimo įvykiai → pranešk UI per Tauri event
 - Analoginių ašių deadzone (numatytoji 0.2)
 
+**Įgyvendinta:** `GamepadThread` — dedikuota gija (kaip `EmuThread`/`start_audio_pump`, nes
+`gilrs::Gilrs` nėra `Sync`), `next_event_blocking` event pump su 100ms timeout (leidžia
+švariai sustoti), `GamepadEvent` kanalu siunčiamas kviečiančiajai pusei. Deadzone (0.2)
+taikomas RANKINIU BŪDU (gilrs įmontuoti filtrai išjungti — jie naudoja kiekvieno valdiklio
+DB deadzone, ne fiksuotą 0.2 iš MVP.md), tolydžiu remap'u (ne atkirpimu), patikrinta 3
+testais (nulinimas, tolydumas ribose, monotoniškumas). Naujas
+`commands::input::start_gamepad_pump` persiunčia prisijungimo/atsijungimo įvykius kaip
+Tauri `"gamepad-connection"` event'ą UI (mygtukų/ašių įvykiai UI nesiunčiami — jiems
+klausytojo dar nėra, P4.2/P4.3).
+
 **Acceptance:**
-- [ ] Aptinka Xbox, DualShock 4/5, 8BitDo valdiklius
-- [ ] Prijungimas veikiant nesulaužo (hot-plug)
-- [ ] Veikia macOS ir Linux
+- [!] Aptinka Xbox, DualShock 4/5, 8BitDo valdiklius — **LAUKIA vartotojo fizinio
+      valdiklio** (nė vieno neturėjo po ranka šios sesijos metu, žadėjo turėti už kelių
+      valandų — patikrinti vėliau, kai valdiklis bus prieinamas)
+- [!] Prijungimas veikiant nesulaužo (hot-plug) — **LAUKIA** tos pačios fizinės patikros
+- [x] Veikia macOS — patikrinta: `GamepadThread::spawn()` sėkmingai inicializuoja `gilrs`
+      ir švariai baigia darbą net be jokio prijungto valdiklio (`cargo test`,
+      `spawn_does_not_panic_without_any_gamepad`). [!] Linux — NEPATIKRINTA (nėra Linux
+      mašinos šioje sesijoje, ta pati priežastis kaip P2.3/P2.5/P3.1)
 
 ---
 

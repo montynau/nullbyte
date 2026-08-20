@@ -3,3 +3,4 @@
 //! `emulator` prijungtas P2.3. Užpildoma vėlesnėse fazėse: `library`, `scraper`, `settings`.
 
 pub mod emulator;
+pub mod input;
