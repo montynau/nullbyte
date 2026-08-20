@@ -393,7 +393,7 @@ Tik įrodymas, kad FFI veikia.
 **Tikslas:** matomas žaidimo vaizdas lange.
 **Rizika:** 🔴 didelė (wgpu + Tauri + platformų skirtumai). **Įvertis:** 3–4 dienos.
 
-### P2.1 — Pikselių formatų konversija `[ ]`
+### P2.1 — Pikselių formatų konversija `[x]`
 
 **Priklausomybės:** P1.4
 **Failai:** `src-tauri/src/video/pixel_format.rs`
@@ -405,9 +405,10 @@ Tik įrodymas, kad FFI veikia.
 - Optimizuok: pre-alokuotas išvesties buferis, ne `Vec` per kadrą
 
 **Acceptance:**
-- [ ] Unit testai visiems 3 formatams su žinomomis reikšmėmis
-- [ ] Testas su `pitch > width * bpp` (padding'as) duoda teisingą rezultatą
-- [ ] Benchmark: 256×224 RGB565 konversija < 0.5 ms
+- [x] Unit testai visiems 3 formatams su žinomomis reikšmėmis (raudona/žalia/mėlyna/balta/juoda)
+- [x] Testas su `pitch > width * bpp` (padding'as) duoda teisingą rezultatą
+- [x] Benchmark: 256×224 RGB565 konversija < 0.5 ms — patikrinta `--release` (debug build'e
+      naudojamas atlaidesnis 5 ms limitas, nes debug optimizacijos išjungtos)
 
 ---
 
@@ -1220,7 +1221,7 @@ CREATE TABLE scrape_cache (
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
 | 1 — libretro | 7 | 7 | 100 % |
-| 2 — Vaizdas | 5 | 0 | 0 % |
+| 2 — Vaizdas | 5 | 1 | 20 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
@@ -1228,7 +1229,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **12** | **26 %** |
+| **Viso** | **47** | **13** | **28 %** |
 
 ---
 
