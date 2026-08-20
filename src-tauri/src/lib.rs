@@ -95,7 +95,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             get_app_info,
-            commands::emulator::open_emulator_window
+            commands::emulator::open_emulator_window,
+            commands::emulator::toggle_emulator_fullscreen
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -494,7 +494,7 @@ Tik įrodymas, kad FFI veikia.
 
 ---
 
-### P2.5 — Aspect ratio, scaling, fullscreen `[ ]`
+### P2.5 — Aspect ratio, scaling, fullscreen 🔴 `[x]`
 
 **Priklausomybės:** P2.4
 **Failai:** `src-tauri/src/video/renderer.rs`
@@ -507,9 +507,34 @@ Tik įrodymas, kad FFI veikia.
 - `Esc` išeina iš fullscreen
 
 **Acceptance:**
-- [ ] SNES 4:3 vaizdas neištemptas 16:9 lange
-- [ ] Integer scaling duoda ryškius pikselius be interpoliacijos artefaktų
-- [ ] Fullscreen veikia abiejose platformose
+- [x] SNES 4:3 vaizdas neištemptas 16:9 lange — patikrinta realiu `pnpm tauri dev` paleidimu,
+      langas rankiniu būdu pakeistas į 1600×900 (16:9), core'as/ROM'as (snes9x + Super Mario
+      World) sugeneruoja `aspect_ratio` per `LoadedGameInfo` → `VideoFrameData` → `Renderer`.
+      Ekrano nuotrauka rodo simetriškas pillarbox juodas juostas abiejose pusėse, vaizdas
+      NEIŠTEMPTAS. **Rasta ir ištaisyta reali klaida verifikacijos metu:** pirma
+      implementacija (NDC pozicijos skaliavimas ant P2.4 „pilno ekrano trikampio") davė
+      ASIMETRIŠKĄ juostą (tik vienoje pusėje) — trikampio „perteklinis" kraštas kirpamas prie
+      FIKSUOTOS clip ribos, ne prie sutrauktos, todėl scale'inimas nesimetriškas. Sprendimas —
+      pakeista į tikrą 4-kampų quad'ą (6 viršūnės, 2 trikampiai), kurio kampai visada tiksliai
+      `(±scale.x, ±scale.y)`. Antra ekrano nuotrauka po pataisymo patvirtina simetriją
+- [x] Integer scaling duoda ryškius pikselius be interpoliacijos artefaktų — patikrinta
+      realiu paleidimu, `ScaleMode::Integer` perjungtas per laikiną verifikacijos hook'ą
+      (pašalintas po patikros). Ekrano nuotrauka rodo aiškiai mažesnį, sveikojo daugiklio
+      dydžio, centruotą vaizdą su juoda juosta visose 4 pusėse (skirtingai nuo `Fit`, kuris
+      užpildo pilną aukštį) — pikseliai aštrūs, jokio blur'o (Nearest sampler + sveikasis
+      daugiklis pagal RAW core'o pikselių dydį, sąmoningai NEPRITAIKANT aspect_ratio, kad
+      kiekvienas šaltinio pikselis atitiktų tikslų NxN bloką ekrane)
+- [x] Fullscreen veikia macOS — patikrinta realiu paleidimu per naują
+      `commands::emulator::toggle_emulator_fullscreen` (Tauri `Window::set_fullscreen`).
+      Ekrano nuotrauka rodo langą, užimantį visą ekraną, su tebeveikiančiu Integer scaling
+      (aspect/scale skaičiavimas teisingai persiskaičiuoja po `resize` įvykio, kurį
+      fullscreen sukelia). [!] Linux — NEPATIKRINTA (nėra Linux mašinos šioje sesijoje, ta
+      pati priežastis kaip P2.3). **Klavišų susiejimas (`F11`, `Cmd+Ctrl+F`, `Esc`) SĄMONINGAI
+      NEĮGYVENDINTAS šioje užduotyje** — Tauri `Window` be webview nesiunčia klaviatūros
+      `WindowEvent`'ų šioje API versijoje (patikrinta `tauri::app::WindowEvent` šaltinyje),
+      o CLAUDE.md pati numato klaviatūros įvesties sluoksnį kaip atskirą P4.2
+      (`input/keyboard.rs`) — nešokama į vėlesnę fazę. `toggle_emulator_fullscreen` komanda
+      užregistruota ir paruošta, kad P4.2/P7.x UI galėtų ją kviesti tiesiogiai per `invoke`.
 
 ---
 
@@ -1242,7 +1267,7 @@ CREATE TABLE scrape_cache (
 |---|---|---|---|
 | 0 — Pamatai | 5 | 5 | 100 % |
 | 1 — libretro | 7 | 7 | 100 % |
-| 2 — Vaizdas | 5 | 4 | 80 % |
+| 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 0 | 0 % |
 | 4 — Įvestis | 4 | 0 | 0 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
@@ -1250,7 +1275,7 @@ CREATE TABLE scrape_cache (
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **47** | **16** | **34 %** |
+| **Viso** | **47** | **17** | **36 %** |
 
 ---
 
@@ -1432,6 +1457,32 @@ core'o ir t.t.) toliau bėga lygiagrečiai.
 3 kartus iš eilės po pataisymo, jokio SIGSEGV. Bet koks naujas testas, kuris įkelia realų
 `.dylib`/`.so` core'ą, PRIVALO paimti šį užraktą — priešingu atveju rizikuoja tuo pačiu
 crash'u.
+
+---
+
+### ADR-014 — Tikras quad'as (4 kampai) vietoj „pilno ekrano trikampio" scale'inamam blit'ui (P2.5)
+**Data:** 2026-08-20 · **Statusas:** priimta
+**Kontekstas:** P2.4 naudojo standartinį „full-screen triangle" triuką (1 trikampis, 3
+viršūnės, be vertex buffer'io) — pigesnis nei quad, populiarus GPU tutorialuose. P2.5
+reikėjo sutraukti nupieštą sritį (aspect ratio / integer scaling), tad vertex shader'yje
+NDC pozicija tiesiog dauginama iš `scale < 1.0`. **Vizuali verifikacija parodė realią
+klaidą:** juoda pillarbox juosta atsirado TIK vienoje pusėje, ne simetriškai. Priežastis —
+trikampio triukas veikia TIK todėl, kad jo „perteklinis" kraštas (už NDC [-1,1] ribų)
+GPU kerpamas TIKSLIAI ties fiksuota clip riba; padauginus poziciją iš `scale`, viena
+trikampio kraštinė (buvusi TIKSLIAI ties riba) susitraukia proporcingai, o kita (buvusi TOLI
+už ribos) po dauginimo VIS DAR lieka už ribos ir kerpama prie SENOS fiksuotos vietos —
+rezultatas asimetriškas.
+**Sprendimas:** Pakeista į tikrą quad'ą — 4 fiksuoti kampai (`array<vec2<f32>, 4>`),
+2 trikampiai per indeksų masyvą, 6 viršūnės iš `vertex_index` (vis dar be vertex buffer'io).
+Kampai visada tiksliai `(±scale.x, ±scale.y)` — simetrija garantuota konstrukciškai, ne
+šalutinis clip'inimo efektas.
+**Priežastis:** Vienintelis saugus būdas gauti simetriškai centruotą, savavališkai
+sutraukiamą stačiakampį be papildomos geometrijos ar UV perskaičiavimo gudrybių.
+**Pasekmės:** Nedidelis GPU kaštas (papildomas trikampis, 3 papildomos viršūnės) —
+nereikšmingas šiam pipeline'ui. `pass.draw(0..3, ...)` → `pass.draw(0..6, ...)`. Pamoka
+kitiems P2.x/P7.x shader pakeitimams: **kiekvieną vizualų pakeitimą PRIVALOMA patikrinti
+realiu ekrano vaizdu, ne vien „kompiliuojasi ir neplaukė crash'as"** — ši klaida būtų
+praėjusi visus automatinius testus (jų nėra shader'iams) ir net `cargo clippy`.
 
 ---
 

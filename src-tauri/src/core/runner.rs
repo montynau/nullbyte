@@ -184,7 +184,10 @@ fn map_pixel_format(raw: u32) -> Option<PixelFormat> {
 /// Konvertuoja `EmuContext.video_frame` (žalia core formatu) į RGBA8 ir publikuoja per
 /// `producer`. Tyliai praleidžia, jei dar nėra jokio kadro arba pixel format nepalaikomas —
 /// tai NĖRA klaida (pvz. prieš pirmą `video_refresh_cb` kvietimą).
-fn publish_video_frame(producer: &mut FrameProducer) {
+///
+/// `aspect_ratio` — core'o `av_info.geometry.aspect_ratio` (P2.5); Renderer'is naudoja
+/// `width / height`, jei čia `<= 0.0`.
+fn publish_video_frame(producer: &mut FrameProducer, aspect_ratio: f32) {
     callbacks::with_context(|ctx| {
         let frame = &ctx.video_frame;
         if frame.width == 0 || frame.height == 0 || frame.data.is_empty() {
@@ -196,7 +199,7 @@ fn publish_video_frame(producer: &mut FrameProducer) {
 
         let (width, height, pitch) = (frame.width, frame.height, frame.pitch);
         let src = &frame.data;
-        producer.write_frame(width, height, |dst| {
+        producer.write_frame(width, height, aspect_ratio, |dst| {
             pixel_format::convert_to_rgba8_into(src, format, width, height, pitch, dst);
         });
     });
@@ -288,7 +291,7 @@ fn run_loop(receiver: Receiver<EmuCommand>, mut video_producer: FrameProducer) {
             // yra Some tik po to).
             unsafe { core.run() };
             frame_count += 1;
-            publish_video_frame(&mut video_producer);
+            publish_video_frame(&mut video_producer, info.aspect_ratio);
 
             // MVP kadrų pacing: laukiam iki kito kadro momento pagal core'o TIKRĄ fps
             // (ne apvalintą 60) — pakeis audio-driven sinchronizacija P3.4 (ADR-012).

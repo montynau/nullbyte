@@ -75,6 +75,31 @@ fn create_window_and_renderer(app: &AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Perjungia emuliatoriaus langą į/iš fullscreen (P2.5). Klavišų susiejimas (`F11`,
+/// `Cmd+Ctrl+F`, `Esc`) — P4.2 (`input/keyboard.rs`), kai bus klaviatūros įvesties
+/// sluoksnis; Tauri `Window` be webview nesiunčia klaviatūros `WindowEvent`'ų šioje API
+/// versijoje, tad realaus klavišo paspaudimo čia dar nėra kam pagauti. Ši komanda —
+/// mechanizmas, kurį P4.2/P7.x UI galės kviesti tiesiogiai per `invoke`.
+#[tauri::command]
+pub fn toggle_emulator_fullscreen(app: AppHandle) -> Result<bool, AppError> {
+    let window = app
+        .get_window("emulator")
+        .ok_or_else(|| AppError::Other("emuliatoriaus langas neatidarytas".to_string()))?;
+
+    let is_fullscreen = window
+        .is_fullscreen()
+        .map_err(|e| AppError::Other(format!("nepavyko sužinoti fullscreen būvio: {e}")))?;
+    window
+        .set_fullscreen(!is_fullscreen)
+        .map_err(|e| AppError::Other(format!("nepavyko perjungti fullscreen: {e}")))?;
+
+    tracing::info!(
+        fullscreen = !is_fullscreen,
+        "emuliatoriaus langas perjungtas"
+    );
+    Ok(!is_fullscreen)
+}
+
 /// Paleidžia foninę „frame pump" giją, kuri seka `FrameConsumer` (P2.2) ir kiekvieną naują
 /// emuliatoriaus kadrą nupiešia per `Renderer` (P2.4). Kadro duomenys kopijuojami (klonuojami)
 /// prieš perduodant į `run_on_main_thread`, nes `Surface`/`render()` operacijos PRIVALO vykti
@@ -99,6 +124,7 @@ pub fn start_frame_pump(app: AppHandle, mut consumer: FrameConsumer) {
             let owned = VideoFrameData {
                 width: frame.width,
                 height: frame.height,
+                aspect_ratio: frame.aspect_ratio,
                 generation: frame.generation,
                 data: frame.data.clone(),
             };

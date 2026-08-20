@@ -13,8 +13,9 @@
 //! `Future` apvalkalas daugiausia web suderinamumui.
 //!
 //! Blit pipeline (P2.4): kadras iš [`super::frame_buffer`] įkeliamas į `Rgba8Unorm` tekstūrą
-//! (`queue.write_texture`), tada nupiešiamas per pilno ekrano trikampį (be vertex buffer'io)
-//! ir sample'inamas fragment shader'yje — žr. `shaders/blit.wgsl`.
+//! (`queue.write_texture`), tada nupiešiamas per centruotą quad'ą (be vertex buffer'io, 4
+//! kampai iš `vertex_index`) ir sample'inamas fragment shader'yje — žr. `shaders/blit.wgsl`.
+//! P2.5: quad'o dydis (aspect ratio / integer scaling) valdomas `scale` uniform'u.
 
 // device()/queue() accessor'ius naudoja tik testai/ateities kodas.
 #![allow(dead_code)]
@@ -34,6 +35,21 @@ pub enum FilterMode {
     Linear,
 }
 
+/// Kadro dydžio skaičiavimo režimas lango viduje (P2.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScaleMode {
+    /// Didžiausias dydis, kuris tilpsta lange, IŠLAIKANT teisingą aspect ratio
+    /// (`av_info.geometry.aspect_ratio`, arba `width/height`, jei core'as jo nenurodo).
+    /// Nepilnai užpildytos sritys — letterbox/pillarbox juodi kraštai.
+    #[default]
+    Fit,
+    /// Didžiausias SVEIKASIS (1x, 2x, 3x, ...) šaltinio pikselių daugiklis, kuris tilpsta
+    /// lange — kiekvienas core'o pikselis atvaizduojamas kaip tolygus NxN blokas, be
+    /// interpoliacijos artefaktų (nepriklauso nuo `aspect_ratio` — sąmoningai laiko
+    /// pikselius kvadratiniais, kaip įprasta emuliatorių „integer scale" režimuose).
+    Integer,
+}
+
 /// wgpu būvis, susietas su vienu emuliatoriaus langu.
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
@@ -46,6 +62,16 @@ pub struct Renderer {
     nearest_sampler: wgpu::Sampler,
     linear_sampler: wgpu::Sampler,
     filter: FilterMode,
+
+    /// `scale` uniform buferis (P2.5) — vertex shader'yje sutraukia NDC poziciją, kad
+    /// išlaikytų aspect ratio / integer scaling. Turinys perrašomas kas kadrą `render()`
+    /// pradžioje — pigu (16 baitų), o vengia atskirų „dirty" žymių kiekvienam mutatoriui
+    /// (`resize`, `upload_frame`, `set_scale_mode`).
+    scale_uniform: wgpu::Buffer,
+    scale_mode: ScaleMode,
+    /// Paskutinio įkelto kadro `av_info.geometry.aspect_ratio` — `<= 0.0` reiškia
+    /// „nenurodyta", naudok `frame_size` santykį.
+    aspect_ratio: f32,
 
     frame_texture: Option<wgpu::Texture>,
     frame_size: (u32, u32),
@@ -125,6 +151,14 @@ impl Renderer {
         let nearest_sampler = create_sampler(&device, wgpu::FilterMode::Nearest);
         let linear_sampler = create_sampler(&device, wgpu::FilterMode::Linear);
 
+        // 16 baitų = vec2<f32> scale + vec2<f32> padding (WGSL uniform bloko išlygiavimas).
+        let scale_uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("nullbyte-scale-uniform"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         Ok(Self {
             surface,
             device,
@@ -135,6 +169,9 @@ impl Renderer {
             nearest_sampler,
             linear_sampler,
             filter: FilterMode::default(),
+            scale_uniform,
+            scale_mode: ScaleMode::default(),
+            aspect_ratio: 0.0,
             frame_texture: None,
             frame_size: (0, 0),
             bind_group: None,
@@ -166,12 +203,20 @@ impl Renderer {
         self.bind_group = None; // priverčia ensure_texture perkurti su nauju sampler'iu
     }
 
+    /// Nustato kadro dydžio skaičiavimo režimą (post-MVP nustatymų ekranui, P2.5). Įsigalioja
+    /// nuo kito [`Renderer::render`] kvietimo — uniform buferis perrašomas kas kadrą, bind
+    /// group'o perkurti nereikia.
+    pub fn set_scale_mode(&mut self, mode: ScaleMode) {
+        self.scale_mode = mode;
+    }
+
     /// Įkelia naują kadrą į GPU tekstūrą (`queue.write_texture`). Tekstūra perkuriama tik
     /// kai pasikeičia dydis (P2.1 nulinio-alokavimo principo tąsa GPU pusėje).
     pub fn upload_frame(&mut self, frame: &VideoFrameData) {
         if frame.width == 0 || frame.height == 0 {
             return;
         }
+        self.aspect_ratio = frame.aspect_ratio;
         self.ensure_texture(frame.width, frame.height);
         let Some(texture) = &self.frame_texture else {
             return;
@@ -239,12 +284,63 @@ impl Renderer {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.scale_uniform.as_entire_binding(),
+                },
             ],
         });
 
         self.frame_texture = Some(texture);
         self.frame_size = (width, height);
         self.bind_group = Some(bind_group);
+    }
+
+    /// Apskaičiuoja `[scale_x, scale_y]` NDC daugiklį (P2.5) — sutraukia pilno ekrano
+    /// trikampį taip, kad nupieštas kadras išlaikytų teisingą aspect ratio (`Fit`) arba
+    /// būtų sveikasis šaltinio pikselių daugiklis (`Integer`). Grąžina `[1.0, 1.0]`
+    /// (pilnas langas), jei dar nėra kadro arba lango dydis nulinis.
+    fn compute_scale(&self) -> [f32; 2] {
+        let (frame_width, frame_height) = self.frame_size;
+        if frame_width == 0
+            || frame_height == 0
+            || self.config.width == 0
+            || self.config.height == 0
+        {
+            return [1.0, 1.0];
+        }
+
+        let window_width = self.config.width as f32;
+        let window_height = self.config.height as f32;
+
+        match self.scale_mode {
+            ScaleMode::Fit => {
+                let target_aspect = if self.aspect_ratio > 0.0 {
+                    self.aspect_ratio
+                } else {
+                    frame_width as f32 / frame_height as f32
+                };
+                let window_aspect = window_width / window_height;
+                if window_aspect > target_aspect {
+                    // Langas platesnis už turinį — pillarbox (juosta kairėje/dešinėje).
+                    [target_aspect / window_aspect, 1.0]
+                } else {
+                    // Langas aukštesnis/siauresnis už turinį — letterbox (juosta viršuje/apačioje).
+                    [1.0, window_aspect / target_aspect]
+                }
+            }
+            ScaleMode::Integer => {
+                let max_scale_x = window_width / frame_width as f32;
+                let max_scale_y = window_height / frame_height as f32;
+                let integer_scale = max_scale_x.min(max_scale_y).floor().max(1.0);
+                let rendered_width = frame_width as f32 * integer_scale;
+                let rendered_height = frame_height as f32 * integer_scale;
+                [
+                    rendered_width / window_width,
+                    rendered_height / window_height,
+                ]
+            }
+        }
     }
 
     /// Nupiešia dabartinę tekstūrą (paskutinį `upload_frame` kadrą) į `Surface` ir
@@ -254,6 +350,13 @@ impl Renderer {
     /// `PresentMode::AutoVsync` (nustatyta `new()`) užtikrina, kad `present()` sinchronizuotųsi
     /// su ekrano atnaujinimu — be tearing'o (P2.4 acceptance).
     pub fn render(&mut self) -> Result<(), AppError> {
+        let scale = self.compute_scale();
+        let mut uniform_bytes = [0u8; 16];
+        uniform_bytes[0..4].copy_from_slice(&scale[0].to_le_bytes());
+        uniform_bytes[4..8].copy_from_slice(&scale[1].to_le_bytes());
+        self.queue
+            .write_buffer(&self.scale_uniform, 0, &uniform_bytes);
+
         let output = match self.surface.get_current_texture() {
             Ok(frame) => frame,
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -297,7 +400,9 @@ impl Renderer {
             if let Some(bind_group) = &self.bind_group {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, bind_group, &[]);
-                pass.draw(0..3, 0..1);
+                // 6 viršūnės = quad (2 trikampiai), ne 3 — žr. blit.wgsl komentarą, kodėl
+                // „pilno ekrano trikampio" triukas netinka scale'inamam (P2.5) quad'ui.
+                pass.draw(0..6, 0..1);
             }
         }
 
@@ -358,6 +463,16 @@ fn create_blit_pipeline(
                 binding: 1,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
                 count: None,
             },
         ],

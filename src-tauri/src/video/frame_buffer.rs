@@ -28,6 +28,9 @@ const INDEX_MASK: usize = 0b011;
 pub struct VideoFrameData {
     pub width: u32,
     pub height: u32,
+    /// Core'o pranešamas `av_info.geometry.aspect_ratio` (P2.5). `0.0` arba neigiama reikšmė
+    /// reiškia „nenurodyta" — naudok `width / height` (CLAUDE.md §8.4/P2.5 „Ką daryti").
+    pub aspect_ratio: f32,
     /// Monotoniškai didėjantis skaitliukas — leidžia consumer'iui atpažinti, ar tai tas
     /// pats kadras, kurį jau matė (pvz. praleisti nereikalingą GPU texture upload).
     pub generation: u64,
@@ -93,7 +96,15 @@ impl FrameProducer {
     /// Parašo naują kadrą. `fill` gauna jau teisingo dydžio (`width * height * 4`) baitų
     /// buferį — pakartotinis kvietimas su tuo pačiu `width`/`height` NEALOKUOJA iš naujo.
     /// Niekada nelaukia consumer'io — grąžina iškart.
-    pub fn write_frame(&mut self, width: u32, height: u32, fill: impl FnOnce(&mut [u8])) {
+    ///
+    /// `aspect_ratio` — core'o `av_info.geometry.aspect_ratio` (P2.5); `0.0`, jei nežinoma.
+    pub fn write_frame(
+        &mut self,
+        width: u32,
+        height: u32,
+        aspect_ratio: f32,
+        fill: impl FnOnce(&mut [u8]),
+    ) {
         self.generation += 1;
         let needed = width as usize * height as usize * 4;
 
@@ -103,6 +114,7 @@ impl FrameProducer {
         let slot = unsafe { &mut *self.buffer.slots[self.write_idx].0.get() };
         slot.width = width;
         slot.height = height;
+        slot.aspect_ratio = aspect_ratio;
         slot.generation = self.generation;
         if slot.data.len() != needed {
             slot.data.resize(needed, 0);
@@ -152,13 +164,13 @@ mod tests {
     fn consumer_sees_latest_frame_after_update() {
         let (mut producer, mut consumer) = new();
 
-        producer.write_frame(2, 2, |data| data.fill(0xAA));
+        producer.write_frame(2, 2, 0.0, |data| data.fill(0xAA));
         assert!(consumer.update());
         assert_eq!(consumer.current().generation, 1);
         assert_eq!(consumer.current().data, vec![0xAA; 16]);
 
-        producer.write_frame(2, 2, |data| data.fill(0xBB));
-        producer.write_frame(2, 2, |data| data.fill(0xCC));
+        producer.write_frame(2, 2, 0.0, |data| data.fill(0xBB));
+        producer.write_frame(2, 2, 0.0, |data| data.fill(0xCC));
         // Consumer'is „pramiega" tarpinį kadrą — turi matyti tik PASKUTINĮ (0xCC), ne 0xBB.
         assert!(consumer.update());
         assert_eq!(consumer.current().generation, 3);
@@ -168,7 +180,7 @@ mod tests {
     #[test]
     fn update_returns_false_when_no_new_frame() {
         let (mut producer, mut consumer) = new();
-        producer.write_frame(1, 1, |data| data.fill(1));
+        producer.write_frame(1, 1, 0.0, |data| data.fill(1));
         assert!(consumer.update());
         assert!(
             !consumer.update(),
@@ -179,8 +191,8 @@ mod tests {
     #[test]
     fn resize_between_frames_does_not_corrupt_data() {
         let (mut producer, mut consumer) = new();
-        producer.write_frame(4, 4, |data| data.fill(0x11)); // 64 baitai
-        producer.write_frame(2, 2, |data| data.fill(0x22)); // 16 baitų — mažesnis kadras
+        producer.write_frame(4, 4, 0.0, |data| data.fill(0x11)); // 64 baitai
+        producer.write_frame(2, 2, 0.0, |data| data.fill(0x22)); // 16 baitų — mažesnis kadras
 
         consumer.update();
         let frame = consumer.current();
@@ -228,7 +240,7 @@ mod tests {
             for gen in 1..=FRAME_COUNT {
                 let marker = (gen % 256) as u8;
                 let start = Instant::now();
-                producer.write_frame(WIDTH, HEIGHT, |data| data.fill(marker));
+                producer.write_frame(WIDTH, HEIGHT, 0.0, |data| data.fill(marker));
                 max_duration = max_duration.max(start.elapsed());
             }
             // Release: viskas, ką producer'is parašė iki šiol (įskaitant paskutinį swap),
