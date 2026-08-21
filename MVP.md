@@ -827,21 +827,12 @@ pats fixture principas kaip `core::loader` testuose).
       pasirinktas, Surface sukonfigūruotas (1600×1200 @ Retina 2x), `snes9x_libretro.dylib` +
       `Super Punch-Out!!.sfc` sėkmingai įkelti (`fps=50.006...`, PAL). Vizualiai pikselių
       teisingumas atskirai nefotografuotas — piešimo pipeline (P2.4) NEPAKEISTA.
-- [!] Garsas groja be traškesių (regresijos patikra prieš P3.4 rezultatą) — **REALIAI paleista**
-      `cargo test --package nullbyte-core --release -- --ignored --nocapture --test-threads=1`,
-      visi 4 praėjo (157s):
-      - `core::runner::tests::runs_snes_rom_for_60_seconds_without_crash` — ok
-      - `audio::output::tests::plays_440hz_sine_for_30_seconds` — ok (`is_device_lost() == false`)
-      - `audio::ring::tests::producer_and_consumer_at_different_speeds_for_60_seconds` — ok
-        (underrun=34517, overrun=221779 — abi fazės suveikė kaip suprojektuota, be panikos)
-      - `audio::resampler::tests::plays_resampled_440hz_snes_tone` — ok (nėra skaitinio assert'o,
-        grynai klausomas)
-      **[!] LIEKA:** šie testai patvirtina, kad `nullbyte-core` audio primityvai (nepakitę)
-      neregresavo, IR kad `nullbyte-emu` realiai paleistas negriūna su realiu cpal srautu main
-      gijoje (žr. aukščiau — patikrinta atskirai, 6s paleidimu su realiu langu). Bet AR REALIAI
-      SKAMBA ŠVARIAI (be traškesių) — tai grynai klausomas sprendimas, kurio Claude negali
-      priimti (nėra ausų). Rekomenduoju pačiam paleisti `cargo run --package nullbyte-emu` ir
-      paklausyti bent 30s.
+- [x] Garsas groja be traškesių (regresijos patikra prieš P3.4 rezultatą) — mechaniškai
+      patvirtinta `cargo test --package nullbyte-core --release -- --ignored --nocapture
+      --test-threads=1` (visi 4, 157s, žr. git istoriją). Klausomas patvirtinimas —
+      vartotojas PATS realiai paleido ir klausėsi kelių žaidimų (SNES *Super Punch-Out!!*,
+      Genesis *Sonic 2*/*Aladdin*, įskaitant core keitimą gyvai) tos pačios sesijos metu ir
+      patvirtino: „viskas labai gerai" (2026-08-20).
 - [x] **Klaviatūra REALIAI valdo žaidimą** — patikrinta realiai: paleistas `nullbyte-emu`,
       `osascript`/System Events aktyvavo langą (`background only: true` patvirtina Accessory) ir
       nusiuntė Up strėlės klavišą; `stderr` log parodė
