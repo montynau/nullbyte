@@ -784,7 +784,7 @@ error.rs) ir `crates/nullbyte-app/src/` (likusi dalis), `.gitignore`
 
 ---
 
-### P4.0.2 — `nullbyte-emu` binaro griaučiai (winit) `[ ]`
+### P4.0.2 — `nullbyte-emu` binaro griaučiai (winit) `[x]`
 
 **Priklausomybės:** P4.0.1
 **Failai:** `crates/nullbyte-emu/Cargo.toml`, `crates/nullbyte-emu/src/main.rs`
@@ -840,13 +840,12 @@ pats fixture principas kaip `core::loader` testuose).
       KeyboardInput` tikrai ateina — buvo neįmanoma prieš ADR-016.
 - [x] macOS Dock nerodo antros programos (`ActivationPolicy::Accessory` patikrinta) — patikrinta
       realiai: `System Events` grąžino `background only: true` veikiančiam procesui.
-- [!] **Gamepad mygtuko paspaudimas duoda log eilutę** (simetriška klaviatūros kriterijui) —
-      `GamepadThread` sėkmingai paleistas realiame `nullbyte-emu` paleidime, be crash'o, be
-      jokio prijungto valdiklio (tas pats rezultatas kaip P4.1 `spawn_does_not_panic_without_
-      any_gamepad`). Kodo kelias identiškas klaviatūros: `drain_gamepad_events()` →
-      `tracing::info!("gamepad mygtukas paspaustas")`. **LAUKIA fizinio valdiklio** (ta pati
-      priežastis kaip P4.1 — nė vieno neturėjo po ranka šios sesijos metu) — mygtuko
-      paspaudimo įvykis pats savaime NEPATIKRINTAS, tik infrastruktūra iki jo.
+- [x] **Gamepad mygtuko paspaudimas duoda log eilutę** (simetriška klaviatūros kriterijui) —
+      patikrinta REALIAI su fiziniu DualShock 4 (2026-08-21): `nullbyte-emu` jau veikė,
+      controller'is prijungtas GYVAI (`gamepad prijungtas name="PS4 Controller"` — tai
+      TAIP PAT patvirtina hot-plug, žr. žemiau), paspausti X/Kvadratas/Trikampis/Nulis —
+      visi keturi teisingai atpažinti (`button=South/West/North/East`, standartinis gilrs
+      face-button mapping'as).
 
 ---
 
@@ -1159,7 +1158,7 @@ gijoje, NE atskiras modulis — žr. pastabą žemiau), `crates/nullbyte-app/src
 
 ---
 
-### P4.1 — Gamepad aptikimas `[ ]` (kodas paruoštas SENOJE struktūroje, laukia P4.0.1 perkėlimo + fizinio valdiklio testo)
+### P4.1 — Gamepad aptikimas `[ ]` (DualShock 4 + hot-plug patikrinti realiai 2026-08-21; Xbox/8BitDo/Linux — ne)
 
 **Priklausomybės:** P0.3 (originaliai), P4.0.1 (kodo perkėlimui į naują crate — žr. pastabą aukščiau)
 **Failai:** `crates/nullbyte-core/src/input/gamepad.rs`
@@ -1197,15 +1196,20 @@ infrastruktūra nustatymų ekranui — tai UI pranešimo kelias, ne žaidimo val
 neprieštarauja `nullbyte-emu` pusės wiring'ui.
 
 **Acceptance:**
-- [!] Aptinka Xbox, DualShock 4/5, 8BitDo valdiklius — **LAUKIA vartotojo fizinio
-      valdiklio** (nė vieno neturėjo po ranka šios sesijos metu, žadėjo turėti už kelių
-      valandų — patikrinti vėliau, kai valdiklis bus prieinamas)
-- [!] Prijungimas veikiant nesulaužo (hot-plug) — **LAUKIA** tos pačios fizinės patikros
+- [!] Aptinka Xbox, DualShock 4/5, 8BitDo valdiklius — **DualShock 4 patikrintas REALIAI**
+      (2026-08-21): `gilrs prijungtas name="PS4 Controller"`, X/Kvadratas/Trikampis/Nulis
+      visi teisingai atpažinti (`South`/`West`/`North`/`East`). Xbox/8BitDo — NEPATIKRINTA
+      (nė vieno neturėjo po ranka), nors `gilrs` abstrahuoja tarp gamintojų per SDL_GameControllerDB,
+      tad rizika žema, bet neįrodyta.
+- [x] Prijungimas veikiant nesulaužo (hot-plug) — patikrinta REALIAI: `nullbyte-emu` jau
+      veikė (paleistas PRIEŠ prijungiant valdiklį), `Connected` įvykis pagautas gyvai be
+      crash'o.
 - [x] Veikia macOS — patikrinta: `GamepadThread::spawn()` sėkmingai inicializuoja `gilrs`
       ir švariai baigia darbą net be jokio prijungto valdiklio (`cargo test`,
       `spawn_does_not_panic_without_any_gamepad`; taip pat realiai paleidus `nullbyte-emu`
-      P4.0.2 metu — jokio crash'o be prijungto valdiklio). [!] Linux — NEPATIKRINTA (nėra
-      Linux mašinos šioje sesijoje, ta pati priežastis kaip P2.3/P2.5/P3.1)
+      P4.0.2 metu — jokio crash'o be prijungto valdiklio, ir su realiu DualShock 4).
+      [!] Linux — NEPATIKRINTA (nėra Linux mašinos šioje sesijoje, ta pati priežastis kaip
+      P2.3/P2.5/P3.1)
 
 ---
 
