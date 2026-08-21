@@ -20,8 +20,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 nullbyte-core = { path = "../nullbyte-core" }
 
-# "unstable" reikalingas WindowBuilder (langas be webview) — CLAUDE.md §10, P2.3.
-tauri = { version = "2.11", features = ["unstable"] }
+tauri = { version = "2.11" }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
@@ -35,3 +34,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 walkdir = "2"
+
+[dev-dependencies]
+# "test" atrakina tauri::test::{mock_builder, mock_context, noop_assets} — naudoja
+# ipc.rs #[ignore]'intas realaus sidecar spawn'inimo testas.
+tauri = { version = "2.11", features = ["test"] }

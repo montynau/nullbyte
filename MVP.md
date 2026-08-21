@@ -984,11 +984,10 @@ pats fixture principas kaip `core::loader` testuose).
   pagal nutylėjimą skaido baitus per `\n`/`\r`, tad kiekviena `EmuCommand`/`EmuStatus` žinutė —
   vienas kompaktiškas `serde_json` objektas per eilutę (be įterptų `\n`). Length-prefix framing
   būtų reikalingas tik su žaliu `Command`, čia perteklinis
-- `nullbyte-emu`: fono gija skaito savo `stdin` per `BufRead::lines()`, parsina kiekvieną eilutę
-  kaip `EmuCommand`, siunčia į `EmuThread`; rašo `EmuStatus` į `stdout` (viena eilutė, `flush()`
-  iš karto)
-- `nullbyte-app`: paleidžia sidecar'ą, siunčia komandas per `CommandChild::write()`, skaito
-  `CommandEvent::Stdout` žinutes iš `Receiver`
+- ~~`nullbyte-emu`: fono gija skaito savo `stdin` per `BufRead::lines()`, parsina kiekvieną
+  eilutę kaip `EmuCommand`, siunčia į `EmuThread`; rašo `EmuStatus` į `stdout`~~ — PADARYTA
+- ~~`nullbyte-app`: paleidžia sidecar'ą, siunčia komandas per `CommandChild::write()`, skaito
+  `CommandEvent::Stdout` žinutes iš `Receiver`~~ — PADARYTA (`EmuClient`, žr. pastabą aukščiau)
 - **KRITIŠKAI SVARBU:** kadangi IPC eina per `stdout`, `nullbyte-emu` NIEKADA negali rašyti į
   `stdout` nieko kito — nei `println!`/`dbg!`, nei numatytojo `tracing_subscriber` writer'io
   (jis pagal nutylėjimą rašo į stdout!). Vienas pamirštas `println!` arba nenukreiptas
@@ -1045,6 +1044,42 @@ pats fixture principas kaip `core::loader` testuose).
 > 300ms throttle) + 1 `Loaded` + 1 `Stopped` + 1 `IpcHello` = 20 eilučių iš viso. Ankstesnis
 > paleidimas buvo per trumpas throttle intervalui parodyti (0 `Stats` eilučių) — dabar
 > patvirtinta, kad `send_stats()` kelias realiai veikia, ne vien unit testuose.
+
+> **Tėvo pusės klientas padarytas (2026-08-21)** — `crates/nullbyte-app/src/ipc.rs`:
+> `EmuClient::spawn()` paleidžia `nullbyte-emu` per `app.shell().sidecar("nullbyte-emu")`
+> (`tauri-plugin-shell`), siunčia SAVO `IpcHello`, laukia VAIKO `IpcHello` kaip pirmos
+> `CommandEvent::Stdout` eilutės, ir TIK PO sėkmingo handshake'o paleidžia
+> `tauri::async_runtime::spawn`'intą foninę užduotį. `send()` rašo `EmuCommand` per
+> `CommandChild::write()`. `kill()` — vienintelis būdas nutraukti PATĮ procesą (`Stop`
+> baigia tik žaidimą, ne procesą — vartotojas gali įkelti kitą; švarus viso proceso
+> išjungimas per stdin EOF — P4.0.4, dar neįgyvendinta, ir kadangi `CommandChild` NETURI
+> `Drop`, kuris nutrauktų vaiką, iki P4.0.4 caller'is PATS atsakingas kviesti `kill()`).
+>
+> **Backpressure radinys prieš rašant** — `tauri-plugin-shell` PATS (2.3.5 šaltinis,
+> `Command::spawn()`) turi vidinį `CommandEvent` kanalą su talpa **1**. Jei `EmuClient`
+> naudotojas nedelsdamas nedrenuoja `Receiver`, ne tik vaiko `StatusWriter` (žr. ankstesnę
+> pastabą), bet PATI `tauri-plugin-shell` stdout skaitymo užduotis užsiblokuoja — backpressure
+> grandinė gali prasidėti bet kada, kai UI „nieko nedaro", ne tik `kill -9` scenarijuje. Todėl
+> drenavimo užduotis paleidžiama BE SĄLYGŲ iškart po handshake'o, ne laukiant UI veiksmo.
+>
+> **Patikrinta REALIAI DVIEM būdais:** (1) laikinai prijungus `EmuClient::spawn()` prie
+> `lib.rs` `setup()` hook'o ir paleidus tikrą `nullbyte-app` binarą tiesiogiai (be `pnpm tauri
+> dev`) — pilnas dvikryptis ciklas per TIKRĄ sidecar transportą: handshake OK →
+> `EmuStatus::Loaded` gautas atgal (P4.0.2 test hook) → `Stop` nusiųstas → `EmuStatus::Stopped`
+> gautas atgal. (2) Tas pats scenarijus paverstas automatizuotu `#[ignore]`'intu testu
+> (`tauri::test::mock_builder()` + `tauri_plugin_shell::init()`), patikrintu 3 kartus iš eilės
+> — praeina IR nepalieka orphan `nullbyte-emu` proceso (dėka naujo `kill()`). `#[ignore]`, nes
+> `nullbyte-emu` sukuria TIKRĄ winit langą + wgpu + cpal — headless CI (ypač `ubuntu-latest`,
+> be X11/Wayland) tai gali nepavykti nenuspėjamai, ta pati priežastis kaip CLAUDE.md §10
+> P2.3/P2.5/P3.1 Linux apribojimai.
+>
+> **Šalutinis radinys, ištaisyta prieš rašant klientą** — `commands/emulator.rs` (P2.3 era) IR
+> `AppState.renderer`/`emu_thread` vis dar tarši PRIEŠ-ADR-016 architektūrą (lokalus
+> `Renderer`/`EmuThread` `nullbyte-app` procese) — niekada nebuvo sutvarkyta per P4.0.x
+> pivotą, kompiliavosi tik todėl, kad niekas realiai nebekvietė `EmuThread::spawn()`/
+> `Renderer::new()`. Pašalinta ATSKIRU commit'u prieš `EmuClient` (žr. git istoriją) — kartu
+> pašalintas ir dabar nereikalingas `tauri` `"unstable"` feature'is (jo vienintelis
+> pateisinimas buvo P2.3 windowless `WindowBuilder`, kurio nebeliko).
 
 **Acceptance:**
 - [x] `Load`/`Stop` komandos pasiekia vaiką ir sukelia teisingą elgesį (`Pause`/`Resume`
