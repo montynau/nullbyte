@@ -1,9 +1,12 @@
 name: CI
 
+# TIK rankinis paleidimas (žr. git istoriją, 2026-08) — privatus repo, GitHub Actions minučių
+# kvota (ypač macos-latest, ~10x brangesnis už ubuntu) baigėsi šios sesijos metu dėl dažnų
+# push'ų. Paleisti rankiniu būdu: `gh workflow run ci.yml` arba GitHub UI "Run workflow".
+# Grąžinti automatinį `on: push`/`on: pull_request`, kai kvota atsinaujins (mėnesio pabaiga)
+# arba jei repo taps viešas (public repo = neribotos GitHub-hosted runner minutės).
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
