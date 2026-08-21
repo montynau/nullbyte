@@ -2,93 +2,94 @@
 
 # Nullbyte
 
-**Modernus retro žaidimų emuliavimo frontend'as macOS ir Linux**
+**A modern retro game emulation frontend for macOS and Linux**
 
-Nullbyte įkelia libretro core'us ir suteikia jiems UI, kokio retro emuliacija nusipelnė.
+Nullbyte loads libretro cores and gives them the UI retro emulation deserves.
 
 [![Rust](https://img.shields.io/badge/Rust-1.82+-orange?logo=rust)](https://www.rust-lang.org)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri)](https://v2.tauri.app)
 [![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte)](https://svelte.dev)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+🇬🇧 English | [🇱🇹 Lietuviškai](README.lt.md)
+
 </div>
 
 ---
 
-## Kas tai
+## What this is
 
-Nullbyte yra **frontend'as**, ne emuliatorius. Jis nesukuria savo emuliavimo kodo — vietoj to
-įkelia [libretro](https://docs.libretro.com) core'us (tas pačias bibliotekas, kurias naudoja
-RetroArch) ir apvelka jas greitu, tvarkingu, klaviatūra valdomu UI.
+Nullbyte is a **frontend**, not an emulator. It doesn't implement any emulation itself — instead
+it loads [libretro](https://docs.libretro.com) cores (the same libraries RetroArch uses) and
+wraps them in a fast, tidy, keyboard-driven UI.
 
-Idėja paprasta: RetroArch turi geriausią emuliavimo ekosistemą, bet jo sąsaja sukurta
-televizoriui ir žaidimų konsolėms. OpenEmu turi gražią sąsają, bet veikia tik macOS ir naudoja
-savo uždarą core sistemą, kurios beveik niekas nebeprižiūri. Nullbyte bando paimti geriausias
-abiejų puses.
+The idea is simple: RetroArch has the best emulation ecosystem, but its interface was built for
+TVs and game controllers. OpenEmu has a beautiful interface, but only runs on macOS and uses its
+own closed core system that's barely maintained anymore. Nullbyte tries to take the best of both.
 
-### Iš kur pavadinimas
+### Where the name comes from
 
-**null** + **byte** — nulinis baitas, žemiausias duomenų lygis. Seni žaidimai ir buvo tik
-baitai atmintyje; Nullbyte grąžina juos į ekraną. Logotipe — `0x00`.
+**null** + **byte** — the zero byte, the lowest level of data. Old games were just bytes in
+memory; Nullbyte brings them back to the screen. The logo is `0x00`.
 
-### Kuo skiriasi
+### How it compares
 
 | | RetroArch | OpenEmu | **Nullbyte** |
 |---|---|---|---|
-| Core sistema | libretro | sava `.oecoreplugin` | **libretro** |
-| Platformos | visos | tik macOS | **macOS + Linux** |
-| UI technologija | savas menu driver | AppKit / SwiftUI | **Svelte 5 + Tailwind** |
-| Metaduomenys | thumbnails repo | OpenVGDB (offline) | **ScreenScraper API** |
-| Gameplay video | ne | ne | **taip** |
-| ROM atpažinimas | pavadinimu | pavadinimu / hash | **CRC32 + MD5 + SHA1** |
+| Core system | libretro | own `.oecoreplugin` | **libretro** |
+| Platforms | everything | macOS only | **macOS + Linux** |
+| UI technology | custom menu driver | AppKit / SwiftUI | **Svelte 5 + Tailwind** |
+| Metadata | thumbnails repo | OpenVGDB (offline) | **ScreenScraper API** |
+| Gameplay video | no | no | **yes** |
+| ROM identification | by filename | filename / hash | **CRC32 + MD5 + SHA1** |
 
 ---
 
-## Funkcijos
+## Features
 
-> Žemiau — pilnas TIKSLINIS MVP funkcijų sąrašas, ne vien jau veikiantis. Kas realiai
-> padaryta šiandien — žr. „Roadmap" žemiau.
+> Below is the full TARGET MVP feature list, not just what's already working. For what's
+> actually done today, see "Roadmap" below.
 
-### Biblioteka
+### Library
 
-- **Automatinis ROM skenavimas** — nurodai katalogus, Nullbyte suranda ir atpažįsta žaidimus
-- **Hash pagrįstas atpažinimas** — CRC32, MD5 ir SHA1, ne spėliojimas pagal failo pavadinimą
-- **Archyvų palaikymas** — `.zip` ir `.7z` skaitomi tiesiogiai, be išpakavimo
-- **Gameplay video preview** — užvedus pelę ant žaidimo groja trumpas gameplay įrašas
-- **Viršeliai, screenshot'ai, logotipai, aprašymai** — automatiškai iš ScreenScraper
-- **Greita paieška ir filtravimas** — pagal platformą, žanrą, metus, paskutinį žaidimą
-- **Virtualizuotas grid'as** — sklandu net su tūkstančiais žaidimų
+- **Automatic ROM scanning** — point it at directories, Nullbyte finds and identifies games
+- **Hash-based identification** — CRC32, MD5, and SHA1, not guessing from the filename
+- **Archive support** — `.zip` and `.7z` read directly, no unpacking needed
+- **Gameplay video preview** — hovering over a game plays a short gameplay clip
+- **Covers, screenshots, logos, descriptions** — pulled automatically from ScreenScraper
+- **Fast search and filtering** — by platform, genre, year, last played
+- **Virtualized grid** — smooth even with thousands of games
 
-### Emuliavimas
+### Emulation
 
-- **Bet koks libretro core** — jei veikia RetroArch'e, veiks ir čia
-- **Tikslus timing** — kadrų dažnis imamas iš core (SNES 60.098 Hz, ne apvalinta 60)
-- **Audio-driven sinchronizacija** su dynamic rate control — be traškesių ir drifto
-- **GPU atvaizdavimas** per wgpu (Metal macOS, Vulkan Linux)
-- **Save states** su preview paveiksliuku
-- **Automatinis SRAM išsaugojimas** — progresas neprapuola
-- **Gamepad palaikymas** — bet koks USB / Bluetooth valdiklis per `gilrs`
+- **Any libretro core** — if it runs in RetroArch, it runs here
+- **Accurate timing** — frame rate comes from the core (SNES 60.098 Hz, not a rounded 60)
+- **Audio-driven sync** with dynamic rate control — no crackling, no drift
+- **GPU rendering** via wgpu (Metal on macOS, Vulkan on Linux)
+- **Save states** with a preview thumbnail
+- **Automatic SRAM saving** — progress is never lost
+- **Gamepad support** — any USB / Bluetooth controller via `gilrs`
 
-### Sąsaja
+### Interface
 
-- Tamsi tema kaip numatytoji
-- Klaviatūros navigacija ir command palette
-- Nustatymai be XML ir be konfigūracijos failų redagavimo ranka
+- Dark theme by default
+- Keyboard navigation and a command palette
+- Settings without XML or hand-edited config files
 
 ---
 
-## Palaikomos platformos
+## Supported platforms
 
-Nullbyte palaiko viską, kam yra libretro core'as ir kurio core'o rendering keliui frontend'as
-šiuo metu geba tarnauti. **MVP frontend'as duoda core'ui tik CPU pusėje paruoštą pikselių
-buferį** (`retro_video_refresh_t` su žaliaviniais baitais) — core'ai, kurie patys piešia per
-OpenGL/Vulkan/D3D ir reikalauja iš frontend'o GL konteksto bei framebuffer'io
-(`RETRO_ENVIRONMENT_SET_HW_RENDER`), MVP metu nepalaikomi (žr. „Reikalauja hardware
-rendering" žemiau ir MVP.md §15 v0.2 sąrašą).
+Nullbyte supports anything with a libretro core whose rendering path the frontend can currently
+serve. **The MVP frontend only feeds the core a CPU-side pixel buffer**
+(`retro_video_refresh_t` with raw bytes) — cores that draw via OpenGL/Vulkan/D3D themselves and
+require a GL context and framebuffer from the frontend (`RETRO_ENVIRONMENT_SET_HW_RENDER`) are
+not supported during the MVP (see "Requires hardware rendering" below and the MVP.md §15 v0.2
+list).
 
-### Veikia MVP metu (software rendering)
+### Works during the MVP (software rendering)
 
-| Konsolė | Rekomenduojamas core |
+| Console | Recommended core |
 |---|---|
 | Nintendo (NES / Famicom) | Nestopia UE, FCEUmm |
 | Super Nintendo (SNES) | Snes9x, bsnes-mercury |
@@ -109,51 +110,50 @@ rendering" žemiau ir MVP.md §15 v0.2 sąrašą).
 | Intellivision | FreeIntv |
 | Magnavox Odyssey² | O2EM |
 
-### Reikalauja hardware rendering (post-MVP)
+### Requires hardware rendering (post-MVP)
 
-Šie core'ai reikalauja `RETRO_ENVIRONMENT_SET_HW_RENDER` (GL/Vulkan kontekstas iš
-frontend'o) — praktiškai neturi naudojamo software fallback'o. Palaikymas planuojamas
-po MVP (žr. MVP.md §15).
+These cores require `RETRO_ENVIRONMENT_SET_HW_RENDER` (a GL/Vulkan context from the frontend) —
+in practice they have no usable software fallback. Support is planned post-MVP (see MVP.md §15).
 
-| Konsolė | Core (reikalautų HW render) |
+| Console | Core (would require HW render) |
 |---|---|
 | Nintendo 64 | Mupen64Plus-Next, ParaLLEl N64 |
 | GameCube / Wii | Dolphin |
 | Sony PSP | PPSSPP |
 
-> Nullbyte nepateikia core'ų. Juos atsisiunti pats iš
-> [buildbot.libretro.com](https://buildbot.libretro.com/nightly/) arba per savo sistemos
-> paketų valdyklę.
+> Nullbyte does not ship cores. Download them yourself from
+> [buildbot.libretro.com](https://buildbot.libretro.com/nightly/) or via your system's package
+> manager.
 
 ---
 
-## Sistemos reikalavimai
+## System requirements
 
-| | Minimalūs | Rekomenduojami |
+| | Minimum | Recommended |
 |---|---|---|
 | **macOS** | 12 Monterey | 14 Sonoma+ |
-| **Linux** | glibc 2.31+, Vulkan 1.1 | Vulkan 1.3, Wayland arba X11 |
-| **CPU** | dviejų branduolių x86-64 arba Apple Silicon | 4+ branduoliai |
-| **RAM** | 4 GB | 8 GB (GameCube/PSP core'ams) |
-| **GPU** | bet kokia su Metal / Vulkan palaikymu | — |
+| **Linux** | glibc 2.31+, Vulkan 1.1 | Vulkan 1.3, Wayland or X11 |
+| **CPU** | dual-core x86-64 or Apple Silicon | 4+ cores |
+| **RAM** | 4 GB | 8 GB (for GameCube/PSP cores) |
+| **GPU** | anything with Metal / Vulkan support | — |
 
 ---
 
-## Diegimas
+## Installation
 
-> **MVP dar kuriamas (~46 %, žr. Roadmap žemiau) — release'ų dar nėra.** Kol kas vienintelis
-> būdas paleisti Nullbyte yra susikompiliuoti patiems — žr. „Kūrimas (development)" žemiau.
-> Ši sekcija aprašo, kaip diegimas atrodys, kai pasieksime pirmą release'ą.
+> **The MVP is still in progress (~46%, see Roadmap below) — there are no releases yet.** For
+> now the only way to run Nullbyte is to build it yourself — see "Development" below. This
+> section describes what installation will look like once the first release ships.
 
-### Paruošti build'ai
+### Prebuilt builds
 
-Atsisiųsk iš [Releases](https://github.com/montynau/nullbyte/releases):
+Download from [Releases](https://github.com/montynau/nullbyte/releases):
 
 - **macOS:** `Nullbyte_x.y.z_universal.dmg` (Intel + Apple Silicon)
-- **Linux:** `nullbyte_x.y.z_amd64.AppImage` arba `.deb`
+- **Linux:** `nullbyte_x.y.z_amd64.AppImage` or `.deb`
 
-macOS pirmą kartą paleidžiant: `System Settings → Privacy & Security → Open Anyway`
-(programa dar nėra notarizuota).
+First launch on macOS: `System Settings → Privacy & Security → Open Anyway`
+(the app isn't notarized yet).
 
 Linux AppImage:
 
@@ -164,17 +164,17 @@ chmod +x nullbyte_x.y.z_amd64.AppImage
 
 ---
 
-## Kūrimas (development)
+## Development
 
-### Priklausomybės
+### Dependencies
 
-**Bendra:**
+**Common:**
 
 ```bash
 # Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Node.js 20+ ir pnpm
+# Node.js 20+ and pnpm
 npm install -g pnpm
 ```
 
@@ -208,24 +208,24 @@ sudo pacman -S webkit2gtk-4.1 base-devel curl wget file openssl \
   libappindicator-gtk3 librsvg alsa-lib
 ```
 
-### Paleidimas
+### Running it
 
 ```bash
 git clone https://github.com/montynau/nullbyte.git
 cd nullbyte
 
 pnpm install
-cp .env.example .env       # įrašyk savo ScreenScraper credentials
+cp .env.example .env       # fill in your ScreenScraper credentials
 
 pnpm tauri dev
 ```
 
-### Naudingos komandos
+### Useful commands
 
 ```bash
-pnpm dev            # tik frontend, be Tauri (greičiau UI darbams)
-pnpm tauri dev      # pilnas dev režimas
-pnpm tauri build    # produkcinis build'as
+pnpm dev            # frontend only, no Tauri (faster for UI work)
+pnpm tauri dev      # full dev mode
+pnpm tauri build    # production build
 pnpm check          # svelte-check + tsc
 pnpm lint           # eslint + prettier --check
 pnpm format         # prettier --write
@@ -237,86 +237,86 @@ cargo fmt     --all
 
 ---
 
-## Konfigūracija
+## Configuration
 
-### Core'ų katalogas
+### Cores directory
 
-Nullbyte ieško libretro core'ų šiuose keliuose:
+Nullbyte looks for libretro cores in these paths:
 
-| Platforma | Kelias |
+| Platform | Path |
 |---|---|
 | macOS | `~/Library/Application Support/Nullbyte/cores/` |
 | Linux | `~/.local/share/nullbyte/cores/` |
 
-Papildomus katalogus gali nurodyti nustatymuose. Atsisiuntę core'ą (`*_libretro.dylib` /
-`*_libretro.so`), tiesiog įdėkite jį ten — Nullbyte aptiks automatiškai.
+You can add extra directories in settings. After downloading a core (`*_libretro.dylib` /
+`*_libretro.so`), just drop it there — Nullbyte will detect it automatically.
 
-### BIOS failai
+### BIOS files
 
-Kai kurioms sistemoms (PlayStation, Saturn, PC Engine CD) reikia originalių BIOS failų:
+Some systems (PlayStation, Saturn, PC Engine CD) need original BIOS files:
 
-| Platforma | Kelias |
+| Platform | Path |
 |---|---|
 | macOS | `~/Library/Application Support/Nullbyte/system/` |
 | Linux | `~/.local/share/nullbyte/system/` |
 
 ### ScreenScraper
 
-Metaduomenims ir video reikia [ScreenScraper](https://www.screenscraper.fr) paskyros.
-Registracija nemokama; be paskyros kvota praktiškai nulinė.
+Metadata and video need a [ScreenScraper](https://www.screenscraper.fr) account. Registration
+is free; without an account the quota is practically zero.
 
-`.env` failas:
+`.env` file:
 
 ```env
-SCREENSCRAPER_DEV_ID=tavo_dev_id
-SCREENSCRAPER_DEV_PASSWORD=tavo_dev_slaptazodis
+SCREENSCRAPER_DEV_ID=your_dev_id
+SCREENSCRAPER_DEV_PASSWORD=your_dev_password
 ```
 
-Vartotojo login/slaptažodis įvedamas aplikacijos nustatymuose ir saugomas lokaliai.
+Your user login/password is entered in the app's settings and stored locally.
 
-> Dev credentials gaunami parašius ScreenScraper administratoriams jų forume.
-> Jie **niekada** nepatenka į repozitoriją.
+> Dev credentials are obtained by writing to the ScreenScraper admins on their forum. They
+> **never** end up in the repository.
 
-### Duomenys
+### Data
 
-| Platforma | Duomenų katalogas |
+| Platform | Data directory |
 |---|---|
 | macOS | `~/Library/Application Support/Nullbyte/` |
 | Linux | `~/.local/share/nullbyte/` |
 
 ```
 nullbyte/
-├── nullbyte.db        # SQLite: biblioteka, nustatymai, metaduomenų cache
-├── cores/             # libretro core'ai
-├── system/            # BIOS failai
+├── nullbyte.db        # SQLite: library, settings, metadata cache
+├── cores/             # libretro cores
+├── system/            # BIOS files
 ├── saves/             # SRAM (.srm)
 ├── states/            # save states
-└── media/             # viršeliai, screenshot'ai, video
+└── media/             # covers, screenshots, video
 ```
 
 ---
 
-## Architektūra
+## Architecture
 
-Nullbyte veikia kaip **du procesai**, ne vienas — tėvo procesas (Tauri UI + biblioteka) ir
-atskiras vaiko procesas kiekvienam paleistam žaidimui (langas + emuliacija). Sprendimas: Tauri
-`Window` be webview neturi klaviatūros API, o libretro core'ų globalus (ne thread-local) būvis
-neleidžia perjungti core'o be švaraus proceso restarto — atskiras vaiko procesas išsprendžia
-abi problemas vienu žingsniu.
+Nullbyte runs as **two processes**, not one — a parent process (Tauri UI + library) and a
+separate child process for each running game (window + emulation). Reason: a Tauri `Window`
+without a webview has no keyboard API, and libretro cores' global (not thread-local) state
+doesn't allow switching cores without a clean process restart — a separate child process solves
+both problems in one step.
 
 ```mermaid
 flowchart LR
-    subgraph app["nullbyte-app — Tauri tėvo procesas"]
-        ui["Svelte 5 UI (WebView)<br/>biblioteka, nustatymai, scraping"]
+    subgraph app["nullbyte-app — Tauri parent process"]
+        ui["Svelte 5 UI (WebView)<br/>library, settings, scraping"]
         rust["Rust: rusqlite · reqwest (ScreenScraper)<br/>tauri-plugin-shell"]
         ui -- "Tauri v2 IPC" --> rust
     end
 
-    subgraph emu["nullbyte-emu — vaiko procesas (vienas žaidimui)"]
-        win["winit langas — SAVA klaviatūros įvestis"]
+    subgraph emu["nullbyte-emu — child process (one per game)"]
+        win["winit window — OWN keyboard input"]
         core["libloading → libretro core"]
-        video["wgpu → vaizdas"]
-        audio["cpal → garsas"]
+        video["wgpu → video"]
+        audio["cpal → audio"]
         pad["gilrs → gamepad"]
         win --- core
         core --- video
@@ -324,14 +324,14 @@ flowchart LR
         core --- pad
     end
 
-    rust -- "EmuCommand / EmuStatus\n(NDJSON per stdin/stdout)" --> win
+    rust -- "EmuCommand / EmuStatus\n(NDJSON over stdin/stdout)" --> win
 ```
 
-Per proceso IPC ribą keliauja TIK lengvos valdymo žinutės (paleisk/pristabdyk/sustabdyk,
-būvio pranešimai) — vaizdas ir garsas niekada jos nekerta. Emuliavimas vaiko procese vyksta
-dedikuotoje gijoje; kadrai ir audio sample'ai keliauja per lock-free buferius, kad UI/main
-gija niekada nestabdytų emuliacijos. Detaliau (ADR-016 ir visas sprendimų žurnalas) —
-[CLAUDE.md](CLAUDE.md) ir [MVP.md](MVP.md) §14.
+Only lightweight control messages cross the process IPC boundary (start/pause/stop, status
+reports) — video and audio never cross it. Emulation in the child process runs on a dedicated
+thread; frames and audio samples travel through lock-free buffers so the UI/main thread never
+blocks emulation. For more detail (ADR-016 and the full decision log) — see
+[CLAUDE.md](CLAUDE.md) and [MVP.md](MVP.md) §14.
 
 ---
 
@@ -339,65 +339,65 @@ gija niekada nestabdytų emuliacijos. Detaliau (ADR-016 ir visas sprendimų žur
 
 ### MVP (v0.1)
 
-- [x] Projekto sprendimai ir dokumentacija
-- [x] libretro core įkėlimas ir paleidimas
-- [x] Vaizdas (wgpu) ir garsas (cpal)
-- [x] Vaiko proceso architektūra + IPC (`nullbyte-emu` ↔ `nullbyte-app`, ADR-016)
-- [ ] Gamepad ir klaviatūros įvesties mapping'as (aptikimas ir žalia įvestis jau veikia —
-      DualShock 4/klaviatūra patikrinti realiai; fizinis mygtukas → veiksmas susiejimas dar ne)
-- [ ] ROM skenavimas ir SQLite biblioteka
-- [ ] ScreenScraper metaduomenys + video preview
-- [ ] Save states ir SRAM
-- [ ] Nustatymų ekranas
+- [x] Project decisions and documentation
+- [x] libretro core loading and launching
+- [x] Video (wgpu) and audio (cpal)
+- [x] Child process architecture + IPC (`nullbyte-emu` ↔ `nullbyte-app`, ADR-016)
+- [ ] Gamepad and keyboard input mapping (detection and raw input already work —
+      DualShock 4/keyboard verified for real; physical button → action binding not yet)
+- [ ] ROM scanning and SQLite library
+- [ ] ScreenScraper metadata + video preview
+- [ ] Save states and SRAM
+- [ ] Settings screen
 
-~46 % MVP užduočių baigta (žr. [MVP.md](MVP.md) progreso lentelę). Detalus planas — ten pat.
+~46% of MVP tasks complete (see the [MVP.md](MVP.md) progress table). Full plan is there too.
 
 ### v0.2
 
-- [ ] Hardware-rendered core'ų palaikymas (N64, GameCube, PSP)
-- [ ] Core options UI (per-core nustatymai)
-- [ ] Shader'iai (CRT, scanlines, xBRZ)
+- [ ] Hardware-rendered core support (N64, GameCube, PSP)
+- [ ] Core options UI (per-core settings)
+- [ ] Shaders (CRT, scanlines, xBRZ)
 - [ ] Netplay
 - [ ] Rewind
 - [ ] Achievements (RetroAchievements)
 
 ### v0.3+
 
-- [ ] Core downloader tiesiai iš aplikacijos
-- [ ] Playlist'ai ir kolekcijos
-- [ ] Statistikos (žaidimo laikas, dažniausiai žaisti)
-- [ ] Šviesi tema
-- [ ] Lokalizacija
-- [ ] Windows palaikymas
+- [ ] Core downloader built into the app
+- [ ] Playlists and collections
+- [ ] Stats (playtime, most played)
+- [ ] Light theme
+- [ ] Localization
+- [ ] Windows support
 
 ---
 
-## Teisinė informacija
+## Legal
 
-**Nullbyte yra legali programinė įranga.** Emuliatoriai ir emuliavimo frontend'ai yra teisėti
-daugumoje jurisdikcijų.
+**Nullbyte is legal software.** Emulators and emulation frontends are legal in most
+jurisdictions.
 
-Tačiau:
+However:
 
-- **Nullbyte nepateikia, nedistribuoja ir nenurodo, kur gauti ROM failų ar BIOS.**
-- ROM failų atsisiuntimas iš interneto be originalaus žaidimo nuosavybės daugumoje šalių
-  yra autorių teisių pažeidimas.
-- BIOS failai yra gamintojų autorių teisių objektas ir turi būti išgauti iš jūsų pačių įrangos.
-- Naudotojas pats atsako už tai, kad jo turimi ROM ir BIOS failai būtų įgyti teisėtai.
+- **Nullbyte does not provide, distribute, or point to ROM or BIOS files.**
+- Downloading ROMs from the internet without owning the original game is copyright
+  infringement in most countries.
+- BIOS files are copyrighted by their manufacturers and must be dumped from your own hardware.
+- You are responsible for making sure any ROM and BIOS files you have were obtained legally.
 
-Prašymai pridėti ROM šaltinius bus uždaromi be diskusijų.
+Requests to add ROM sources will be closed without discussion.
 
 ---
 
-## Prisidėjimas
+## Contributing
 
-Pull request'ai laukiami. Prieš pradedant:
+Pull requests are welcome. Before starting:
 
-1. Perskaityk [CLAUDE.md](CLAUDE.md) — ten yra architektūra ir konvencijos
-2. Patikrink [MVP.md](MVP.md) — gal tai jau suplanuota
-3. Didesniems pakeitimams pirma atidaryk issue
+1. Read [CLAUDE.md](CLAUDE.md) — it covers architecture and conventions
+2. Check [MVP.md](MVP.md) — it might already be planned
+3. Open an issue first for larger changes
 
-Reikalavimai PR'ui:
+Requirements for a PR:
 
 ```bash
 cargo clippy --workspace --all-targets -- -D warnings
@@ -406,23 +406,23 @@ pnpm check
 pnpm lint
 ```
 
-Commit'ai — [Conventional Commits](https://www.conventionalcommits.org).
+Commits — [Conventional Commits](https://www.conventionalcommits.org).
 
 ---
 
-## Padėkos
+## Acknowledgements
 
-- [libretro / RetroArch](https://www.libretro.com) — core ekosistema, be kurios šio projekto nebūtų
-- [OpenEmu](https://openemu.org) — įkvėpimas, kaip emuliavimo UI *gali* atrodyti
-- [ScreenScraper](https://www.screenscraper.fr) — metaduomenų ir media duomenų bazė
+- [libretro / RetroArch](https://www.libretro.com) — the core ecosystem this project couldn't exist without
+- [OpenEmu](https://openemu.org) — inspiration for what an emulation UI *can* look like
+- [ScreenScraper](https://www.screenscraper.fr) — metadata and media database
 - [Tauri](https://tauri.app), [Svelte](https://svelte.dev), [shadcn-svelte](https://shadcn-svelte.com)
-- Visiems core kūrėjams — Snes9x, mGBA, Genesis Plus GX, Mupen64Plus, Beetle, Dolphin, PPSSPP ir kitiems
+- All the core developers — Snes9x, mGBA, Genesis Plus GX, Mupen64Plus, Beetle, Dolphin, PPSSPP, and others
 
 ---
 
-## Licencija
+## License
 
-MIT — žr. [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
 
-Libretro core'ai turi savo atskiras licencijas (dažniausiai GPL). Nullbyte juos įkelia
-dinamiškai vykdymo metu ir nedistribuoja.
+Libretro cores have their own separate licenses (usually GPL). Nullbyte loads them dynamically
+at runtime and does not distribute them.
