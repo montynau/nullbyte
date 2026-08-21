@@ -859,7 +859,7 @@ pats fixture principas kaip `core::loader` testuose).
 
 ---
 
-### P4.0.3 — IPC protokolas (`nullbyte-app` ↔ `nullbyte-emu`) `[ ]`
+### P4.0.3 — IPC protokolas (`nullbyte-app` ↔ `nullbyte-emu`) `[x]`
 
 **Priklausomybės:** P4.0.1
 **Failai:** `crates/nullbyte-core/src/ipc.rs` (bendras protokolo tipas), `crates/nullbyte-emu/src/ipc.rs`
@@ -1095,9 +1095,10 @@ pats fixture principas kaip `core::loader` testuose).
       testas + writer pusės `run_writer_loop` `Err` šaka abi patikrintos
 - [x] Teardown (`Stopped`) NEBLOKUOJA vaiko net kai stdout nebedrenuojamas — naujas
       `send_best_effort()` + testas (žr. pastabą aukščiau)
-- [ ] `nullbyte-emu` paleidus be jokio ROM'o (vien init) — `stdout` NEturi nė vienos baitos,
-      kuri nėra validus NDJSON `EmuStatus`/`IpcHello` (patikrinta REALIAI su ROM'u įkeltu —
-      žr. aukščiau; be ROM'o atvejis atskirai nebandytas šios sesijos metu)
+- [x] `nullbyte-emu` paleidus be jokio ROM'o (vien init) — `stdout` NEturi nė vienos baitos,
+      kuri nėra validus NDJSON `EmuStatus`/`IpcHello`. Patikrinta REALIAI: laikinai paslėptas
+      `crates/nullbyte-core/cores/`, paleistas binaras — `stderr` parodė „nerasta test
+      fixture", `stdout` turėjo LYGIAI vieną eilutę (`IpcHello`), nieko daugiau.
 
 ---
 
