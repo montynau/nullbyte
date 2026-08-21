@@ -1,11 +1,10 @@
 //! Gamepad aptikimas ir įvykiai per `gilrs` (P4.1).
 //!
 //! `gilrs::Gilrs` nėra `Sync` — VISI kvietimai (event pump, `gamepad()` lookup'ai) turi
-//! vykti iš TOS PAČIOS gijos. Todėl, kaip ir `core::runner::EmuThread`/
-//! `commands::emulator::start_audio_pump`, čia naudojama dedikuota gija: `Gilrs` sukuriamas
-//! ir gyvena joje visą laiką, o prisijungimo/atsijungimo bei mygtukų/ašių įvykiai
-//! persiunčiami per kanalą kviečiančiajai pusei (pvz. `commands/input.rs`, kuris juos
-//! persiųs kaip Tauri event'us UI — P4.1 „Ką daryti").
+//! vykti iš TOS PAČIOS gijos. Todėl, kaip ir `core::runner::EmuThread`, čia naudojama
+//! dedikuota gija: `Gilrs` sukuriamas ir gyvena joje visą laiką, o prisijungimo/atsijungimo
+//! bei mygtukų/ašių įvykiai persiunčiami per kanalą kviečiančiajai pusei (`nullbyte-emu`
+//! main.rs, žr. P4.0.2 — winit main gija juos nuskaito neblokuojančiai per `about_to_wait()`).
 
 #![allow(dead_code)] // pilnai išnaudos P4.2/P4.3 (mapping, polling) — P4.1 metu naudoja testai.
 

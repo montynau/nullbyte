@@ -1,14 +1,11 @@
 //! Aplikacijos globalus būvis, laikomas kaip Tauri managed state.
 //!
-//! Laiko išspręstus duomenų katalogus, emuliatoriaus lango `Renderer` (P2.3) ir veikiančią
-//! `EmuThread` (P2.4) — jei jos nelaikytume čia, `Drop` iškart sustabdytų emuliaciją.
-//! DB pool'as prisijungs P5.1.
+//! Laiko išspręstus duomenų katalogus. DB pool'as prisijungs P5.1; `nullbyte-emu` vaiko
+//! proceso rankena (`crate::ipc::EmuClient`) — P9.1, kai bus realus žaidimo paleidimo
+//! srautas (žr. `crate::commands` modulio doc dėl P2.3-eros lokalaus `Renderer`/`EmuThread`
+//! pašalinimo P4.0.3 metu — ADR-016 juos perkėlė į atskirą procesą).
 
 use std::path::PathBuf;
-use std::sync::Mutex;
-
-use nullbyte_core::core::runner::EmuThread;
-use nullbyte_core::video::renderer::Renderer;
 
 use crate::error::AppError;
 use crate::paths;
@@ -21,12 +18,6 @@ pub struct AppState {
     pub states_dir: PathBuf,
     pub media_dir: PathBuf,
     pub db_path: PathBuf,
-    /// Emuliatoriaus lango wgpu būvis — `None`, kol `open_emulator_window` komanda
-    /// dar nebuvo kviesta (P2.3).
-    pub renderer: Mutex<Option<Renderer>>,
-    /// Veikianti emuliavimo gija — `None`, kol joks žaidimas neįkeltas (P2.4/P9.1).
-    #[allow(dead_code)]
-    pub emu_thread: Mutex<Option<EmuThread>>,
 }
 
 impl AppState {
@@ -39,8 +30,6 @@ impl AppState {
             states_dir: paths::states_dir()?,
             media_dir: paths::media_dir()?,
             db_path: paths::db_path()?,
-            renderer: Mutex::new(None),
-            emu_thread: Mutex::new(None),
         })
     }
 }
