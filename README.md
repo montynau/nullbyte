@@ -304,19 +304,27 @@ atskiras vaiko procesas kiekvienam paleistam žaidimui (langas + emuliacija). Sp
 neleidžia perjungti core'o be švaraus proceso restarto — atskiras vaiko procesas išsprendžia
 abi problemas vienu žingsniu.
 
-```
-┌────────────────────────────────────────────┐      ┌──────────────────────────────────┐
-│  nullbyte-app (Tauri tėvo procesas)         │      │  nullbyte-emu (vaiko procesas)    │
-│                                              │      │  paleidžiamas kiekvienam žaidimui │
-│  Svelte 5 + shadcn-svelte + Tailwind        │      │                                    │
-│  (WebView) ── Tauri v2 IPC ──┐              │ IPC  │  winit langas (SAVO, su realia    │
-│                               ▼              │◄────►│  klaviatūros įvestimi)             │
-│  Rust: rusqlite (biblioteka) │              │      │  ├── libloading → libretro core   │
-│        reqwest (ScreenScraper)              │      │  ├── wgpu  → vaizdas               │
-│        tauri-plugin-shell → spawn'ina ──────┘      │  ├── cpal  → garsas                │
-│        vaiko procesą, siunčia EmuCommand,          │  └── gilrs → gamepad               │
-│        skaito EmuStatus (NDJSON per stdin/stdout)  │                                    │
-└────────────────────────────────────────────┘      └────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph app["nullbyte-app — Tauri tėvo procesas"]
+        ui["Svelte 5 UI (WebView)<br/>biblioteka, nustatymai, scraping"]
+        rust["Rust: rusqlite · reqwest (ScreenScraper)<br/>tauri-plugin-shell"]
+        ui -- "Tauri v2 IPC" --> rust
+    end
+
+    subgraph emu["nullbyte-emu — vaiko procesas (vienas žaidimui)"]
+        win["winit langas — SAVA klaviatūros įvestis"]
+        core["libloading → libretro core"]
+        video["wgpu → vaizdas"]
+        audio["cpal → garsas"]
+        pad["gilrs → gamepad"]
+        win --- core
+        core --- video
+        core --- audio
+        core --- pad
+    end
+
+    rust -- "EmuCommand / EmuStatus\n(NDJSON per stdin/stdout)" --> win
 ```
 
 Per proceso IPC ribą keliauja TIK lengvos valdymo žinutės (paleisk/pristabdyk/sustabdyk,
