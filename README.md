@@ -46,6 +46,9 @@ baitai atmintyje; Nullbyte grąžina juos į ekraną. Logotipe — `0x00`.
 
 ## Funkcijos
 
+> Žemiau — pilnas TIKSLINIS MVP funkcijų sąrašas, ne vien jau veikiantis. Kas realiai
+> padaryta šiandien — žr. „Roadmap" žemiau.
+
 ### Biblioteka
 
 - **Automatinis ROM skenavimas** — nurodai katalogus, Nullbyte suranda ir atpažįsta žaidimus
@@ -138,9 +141,13 @@ po MVP (žr. MVP.md §15).
 
 ## Diegimas
 
+> **MVP dar kuriamas (~46 %, žr. Roadmap žemiau) — release'ų dar nėra.** Kol kas vienintelis
+> būdas paleisti Nullbyte yra susikompiliuoti patiems — žr. „Kūrimas (development)" žemiau.
+> Ši sekcija aprašo, kaip diegimas atrodys, kai pasieksime pirmą release'ą.
+
 ### Paruošti build'ai
 
-Atsisiųsk iš [Releases](https://github.com/USERNAME/nullbyte/releases):
+Atsisiųsk iš [Releases](https://github.com/montynau/nullbyte/releases):
 
 - **macOS:** `Nullbyte_x.y.z_universal.dmg` (Intel + Apple Silicon)
 - **Linux:** `nullbyte_x.y.z_amd64.AppImage` arba `.deb`
@@ -204,7 +211,7 @@ sudo pacman -S webkit2gtk-4.1 base-devel curl wget file openssl \
 ### Paleidimas
 
 ```bash
-git clone https://github.com/USERNAME/nullbyte.git
+git clone https://github.com/montynau/nullbyte.git
 cd nullbyte
 
 pnpm install
@@ -291,24 +298,32 @@ nullbyte/
 
 ## Architektūra
 
+Nullbyte veikia kaip **du procesai**, ne vienas — tėvo procesas (Tauri UI + biblioteka) ir
+atskiras vaiko procesas kiekvienam paleistam žaidimui (langas + emuliacija). Sprendimas: Tauri
+`Window` be webview neturi klaviatūros API, o libretro core'ų globalus (ne thread-local) būvis
+neleidžia perjungti core'o be švaraus proceso restarto — atskiras vaiko procesas išsprendžia
+abi problemas vienu žingsniu.
+
 ```
-┌──────────────────────────────────────────────────┐
-│  Svelte 5 + shadcn-svelte + Tailwind (WebView)   │
-└─────────────────────┬────────────────────────────┘
-                      │ Tauri v2 IPC
-┌─────────────────────▼────────────────────────────┐
-│  Rust                                            │
-│  ├── libloading  →  libretro core (.dylib/.so)   │
-│  ├── wgpu        →  vaizdo atvaizdavimas         │
-│  ├── cpal        →  garso išvestis               │
-│  ├── gilrs       →  gamepad įvestis              │
-│  ├── rusqlite    →  SQLite biblioteka            │
-│  └── reqwest     →  ScreenScraper API            │
-└──────────────────────────────────────────────────┘
+┌────────────────────────────────────────────┐      ┌──────────────────────────────────┐
+│  nullbyte-app (Tauri tėvo procesas)         │      │  nullbyte-emu (vaiko procesas)    │
+│                                              │      │  paleidžiamas kiekvienam žaidimui │
+│  Svelte 5 + shadcn-svelte + Tailwind        │      │                                    │
+│  (WebView) ── Tauri v2 IPC ──┐              │ IPC  │  winit langas (SAVO, su realia    │
+│                               ▼              │◄────►│  klaviatūros įvestimi)             │
+│  Rust: rusqlite (biblioteka) │              │      │  ├── libloading → libretro core   │
+│        reqwest (ScreenScraper)              │      │  ├── wgpu  → vaizdas               │
+│        tauri-plugin-shell → spawn'ina ──────┘      │  ├── cpal  → garsas                │
+│        vaiko procesą, siunčia EmuCommand,          │  └── gilrs → gamepad               │
+│        skaito EmuStatus (NDJSON per stdin/stdout)  │                                    │
+└────────────────────────────────────────────┘      └────────────────────────────────────┘
 ```
 
-Emuliavimas vyksta dedikuotoje gijoje; vaizdas ir garsas keliauja per lock-free buferius,
-kad UI niekada nestabdytų emuliacijos. Detaliau — [CLAUDE.md](CLAUDE.md).
+Per proceso IPC ribą keliauja TIK lengvos valdymo žinutės (paleisk/pristabdyk/sustabdyk,
+būvio pranešimai) — vaizdas ir garsas niekada jos nekerta. Emuliavimas vaiko procese vyksta
+dedikuotoje gijoje; kadrai ir audio sample'ai keliauja per lock-free buferius, kad UI/main
+gija niekada nestabdytų emuliacijos. Detaliau (ADR-016 ir visas sprendimų žurnalas) —
+[CLAUDE.md](CLAUDE.md) ir [MVP.md](MVP.md) §14.
 
 ---
 
@@ -317,15 +332,17 @@ kad UI niekada nestabdytų emuliacijos. Detaliau — [CLAUDE.md](CLAUDE.md).
 ### MVP (v0.1)
 
 - [x] Projekto sprendimai ir dokumentacija
-- [ ] libretro core įkėlimas ir paleidimas
-- [ ] Vaizdas (wgpu) ir garsas (cpal)
-- [ ] Gamepad ir klaviatūros įvestis
+- [x] libretro core įkėlimas ir paleidimas
+- [x] Vaizdas (wgpu) ir garsas (cpal)
+- [x] Vaiko proceso architektūra + IPC (`nullbyte-emu` ↔ `nullbyte-app`, ADR-016)
+- [ ] Gamepad ir klaviatūros įvesties mapping'as (aptikimas ir žalia įvestis jau veikia —
+      DualShock 4/klaviatūra patikrinti realiai; fizinis mygtukas → veiksmas susiejimas dar ne)
 - [ ] ROM skenavimas ir SQLite biblioteka
 - [ ] ScreenScraper metaduomenys + video preview
 - [ ] Save states ir SRAM
 - [ ] Nustatymų ekranas
 
-Detalus planas — [MVP.md](MVP.md).
+~46 % MVP užduočių baigta (žr. [MVP.md](MVP.md) progreso lentelę). Detalus planas — ten pat.
 
 ### v0.2
 

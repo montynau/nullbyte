@@ -1866,13 +1866,13 @@ CREATE TABLE scrape_cache (
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
-| 4 — Įvestis (+P4.0.x migracija) | 9 | 1 | 11 % |
+| 4 — Įvestis (+P4.0.x migracija) | 9 | 3 | 33 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **22** | **42 %** |
+| **Viso** | **52** | **24** | **46 %** |
 
 ---
 
@@ -1883,7 +1883,7 @@ CREATE TABLE scrape_cache (
 | **R1** | libretro FFI nestabilumas, segfault'ai callback'uose | Vidutinė | 🔴 Kritinis | P1.4/P1.5 daryti atsargiai, `GET_LOG_INTERFACE` pirmiausia, testuoti su 3+ core'ais anksti |
 | **R2** | wgpu + Tauri langas neveikia Linux/Wayland | Vidutinė | 🔴 Kritinis | Dokumentuotas fallback į `Channel` + WebGL canvas (P2.3). Testuoti abu backend'us Fazėje 2, ne pabaigoje |
 | **R3** | Garso traškesiai, kurių nepavyksta pašalinti | Vidutinė | 🟡 Didelis | Dynamic rate control yra įrodyta technika (RetroArch). Jei nepavyksta — didink buferį iki 100 ms |
-| **R4** | Core'ų globalus būvis neleidžia perjungti be restarto | Aukšta | ✅ **IŠSPRĘSTA** | Child procesas (`nullbyte-emu`) kiekvienam paleidimui — ADR-016 (P4.3, 2026-08-20). Perkelta iš post-MVP į dabar, nes kartu sprendė ir klaviatūros įvesties problemą |
+| **R4** | Core'ų globalus būvis neleidžia perjungti be restarto | Aukšta | ✅ **IŠSPRĘSTA** | Child procesas (`nullbyte-emu`) kiekvienam paleidimui — ADR-016 (P4.0.1–P4.0.3, 2026-08-20/21). Perkelta iš post-MVP į dabar, nes kartu sprendė ir klaviatūros įvesties problemą |
 | **R5** | ScreenScraper kvotos per mažos naudingam scraping'ui | Vidutinė | 🟡 Vidutinis | Agresyvus cache'as, batch'inimas, aiškus kvotos rodymas UI. Atsarginis planas: pridėti TheGamesDB |
 | **R6** | ScreenScraper dev credentials negaunami | Žema | 🟡 Vidutinis | Kreiptis anksti (Fazėje 0). Alternatyva: TheGamesDB arba OpenVGDB offline |
 | **R7** | macOS notarizacija / gatekeeper trukdo platinti | Aukšta | 🟢 Mažas | MVP: instrukcijos README. Post-MVP: Apple Developer paskyra |
