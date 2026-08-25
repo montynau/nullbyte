@@ -1308,10 +1308,11 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 
 ---
 
-### P4.3 — Įvesties polling ir input bitmask `[ ]`
+### P4.3 — Įvesties polling ir input bitmask `[ ]` (klaviatūros delsa patvirtinta REALIAI 2026-08-25; 2 gamepad'ai vienu metu — nepatikrinta, tik 1 valdiklio po ranka)
 
 **Priklausomybės:** P4.2, P1.4
-**Failai:** `crates/nullbyte-core/src/input/mod.rs`, `crates/nullbyte-core/src/core/callbacks.rs`
+**Failai:** `crates/nullbyte-core/src/input/mod.rs`, `crates/nullbyte-core/src/core/callbacks.rs`,
+`crates/nullbyte-emu/src/main.rs` (`gamepad_ports`/`assign_gamepad_port`/`send_port_input`)
 
 > **Pastaba (2026-08-20):** dauguma šio task'o „Ką daryti" punktų jau įgyvendinti anksčiau —
 > `EmuContext.input_state: [u16; 4]` (4 portai), `input_state_cb` (P1.4) ir
@@ -1322,6 +1323,22 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 > gyvena `nullbyte-emu` vaiko procese, ne Tauri procese. Grįžtame prie šio task'o po ADR-016
 > dokumentacijos atnaujinimo (žr. pokalbio kontekstą).
 
+> **Baigta 2026-08-25** (kiek įmanoma be antro valdiklio). P4.2 metu port'as visada buvo
+> hardkodintas į 0 — šis task'as pridėjo REALŲ port'ų priskyrimą: `App.gamepad_ports`
+> (`HashMap<gilrs id, port>`) priskiria kiekvieną prisijungusį gamepad'ą KITAM laisvam
+> port'ui (0..4) pirmo prisijungimo eile, atsijungus port'as atlaisvinamas (IR išvalomas —
+> kitaip paskutinė žinoma bitmask'o reikšmė liktų „įstrigusi"). Klaviatūra visada valdo TIK
+> port'ą 0 (fiziškai negali būti antras žaidėjas vienu metu su savimi), sujungiama su TO
+> PORTO gamepad'u TIK siunčiant `SetInput` (ne bendru lauku — žr. `send_port_input` doc dėl
+> KODĖL). `drain_gamepad_events` per vieną `about_to_wait()` ciklą gali paveikti KELIS
+> skirtingus portus vienu metu — kiekvienas pakitęs port'as siunčiamas atskirai.
+>
+> **Realiai patikrinta:** klaviatūros valdymas (SNES, kelios minutės žaidimo) — vartotojas
+> nejautė jokios delsos. **NEpatikrinta realiu hardware'u:** 2 gamepad'ai vienu metu (tik
+> vienas DualShock 4 buvo po ranka P4.1 metu, šią sesiją — nė vieno) — logika ta pati, kuri
+> jau veikia vienam valdikliui (tik `gamepad_ports` priskyrimas), bet fizinis patikrinimas
+> su realiu 2-player žaidimu lieka atviras, tas pats apribojimų klasė kaip P4.1/P4.2.
+
 **Ką daryti:**
 - `retro_set_input_poll` → atnaujina `EmuContext.input_state`
 - `retro_set_input_state` → grąžina iš to būvio
@@ -1329,8 +1346,10 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 - Iki 4 portų (multiplayer)
 
 **Acceptance:**
-- [ ] Įvesties delsa nejuntama (subjektyviai; objektyviai < 1 kadras)
-- [ ] 2 gamepad'ai vienu metu veikia (testuok su 2-player žaidimu)
+- [x] Įvesties delsa nejuntama (subjektyviai) — patikrinta REALIAI (žr. pastabą aukščiau);
+      objektyvus matavimas (< 1 kadras) neatliktas, tik subjektyvus vartotojo patvirtinimas
+- [!] 2 gamepad'ai vienu metu veikia (testuok su 2-player žaidimu) — logika įgyvendinta ir
+      pagrįsta jau veikiančiu 1-gamepad keliu, bet NEPATIKRINTA su realiais 2 valdikliais
 
 ---
 

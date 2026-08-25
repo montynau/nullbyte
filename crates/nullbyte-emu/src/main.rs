@@ -127,10 +127,19 @@ struct App {
     /// Laikoma gyva TIK tam, kad rašymo gija nebūtų nutraukta (žr. `nullbyte_core::ipc`
     /// modulio doc) — niekas tiesiogiai jos nekviečia po `resumed()`.
     _status_writer: Option<StatusWriter>,
-    /// P4.2: einamas port'o 0 mygtukų bitmask'as iš KIEKVIENO įvesties šaltinio ATSKIRAI
-    /// (žr. `send_port0_input` doc dėl KODĖL dviejų atskirų laukų, ne vieno bendro).
+    /// P4.2/P4.3: einamas mygtukų bitmask'as iš KIEKVIENO įvesties šaltinio ATSKIRAI (žr.
+    /// `send_port_input` doc dėl KODĖL, ne vieno bendro lauko). Klaviatūra visada valdo TIK
+    /// port'ą 0 (žaidėjas 1) — `core::callbacks::input_state_cb` jau palaiko iki 4 portų
+    /// (P1.4/P1.5), bet klaviatūra fiziškai negali būti „antras žaidėjas" vienu metu su
+    /// pirmuoju tame pačiame kompiuteryje, tad multiplayer sprendžiamas TIK per gamepad'us.
     keyboard_buttons: u16,
-    gamepad_buttons: u16,
+    /// P4.3: kiekvieno iš 4 portų gamepad'ų mygtukų bitmask'as (indeksas = port'o numeris).
+    gamepad_port_buttons: [u16; 4],
+    /// P4.3: `gilrs` gamepad ID → priskirtas port'as (0..4). Priskiriama PIRMO PRISIJUNGIMO
+    /// eile — pirmas prisijungęs gamepad'as gauna port'ą 0 (dalinasi su klaviatūra, kaip
+    /// „žaidėjas 1" abiem įvesties būdais), antras — port'ą 1, ir t.t. Atsijungus, port'as
+    /// ATLAISVINAMAS kitam gamepad'ui (žr. `drain_gamepad_events`).
+    gamepad_ports: std::collections::HashMap<usize, usize>,
 }
 
 impl App {
@@ -146,7 +155,8 @@ impl App {
             gamepad_rx: None,
             _status_writer: None,
             keyboard_buttons: 0,
-            gamepad_buttons: 0,
+            gamepad_port_buttons: [0; 4],
+            gamepad_ports: std::collections::HashMap::new(),
         }
     }
 
@@ -169,38 +179,67 @@ impl App {
             ElementState::Pressed => self.keyboard_buttons |= bit,
             ElementState::Released => self.keyboard_buttons &= !bit,
         }
-        self.send_port0_input();
+        self.send_port_input(0);
     }
 
-    /// P4.2: konvertuoja gamepad įvykius į `EmuCommand::SetInput` port'ui 0 (VIENAS žaidėjas
-    /// MVP metu — kelių port'ų priskyrimas atskiriems gamepad ID's yra P4.3 „polling ir input
-    /// bitmask" darbas, žr. MVP.md). `try_recv()` — neblokuojantis, nes kviečiama kas
-    /// `about_to_wait()` ciklą, ne dedikuotoje gijoje.
+    /// P4.3: priskiria kiekvieną prisijungusį gamepad'ą KITAM laisvam port'ui (0..4, žr.
+    /// `gamepad_ports` doc), konvertuoja mygtukų įvykius į `EmuCommand::SetInput` teisingam
+    /// port'ui. `try_recv()` — neblokuojantis, nes kviečiama kas `about_to_wait()` ciklą, ne
+    /// dedikuotoje gijoje.
     fn drain_gamepad_events(&mut self) {
-        let Some(rx) = self.gamepad_rx.as_ref() else {
+        // `take()`, NE `as_ref()` — reikia `&mut self` cikle (`assign_gamepad_port`), o
+        // skolinimas iš `self.gamepad_rx` tam kliudytų (skolinimo tikrintuvas). `rx` grąžinama
+        // atgal ciklo pabaigoje, nebent `Disconnected` (tada lieka `None`, kaip ir anksčiau).
+        let Some(rx) = self.gamepad_rx.take() else {
             return;
         };
-        let mut input_changed = false;
+        let mut changed_ports: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut disconnected = false;
         loop {
             match rx.try_recv() {
-                Ok(GamepadEvent::Connected { id, name }) => {
-                    tracing::info!(gamepad_id = id, name = %name, "gamepad prijungtas");
-                }
+                Ok(GamepadEvent::Connected { id, name }) => match self.assign_gamepad_port(id) {
+                    Some(port) => {
+                        tracing::info!(gamepad_id = id, name = %name, port, "gamepad prijungtas");
+                    }
+                    None => {
+                        tracing::warn!(
+                            gamepad_id = id,
+                            name = %name,
+                            "gamepad prijungtas, bet visi 4 portai jau užimti — ignoruojamas"
+                        );
+                    }
+                },
                 Ok(GamepadEvent::Disconnected { id }) => {
-                    tracing::info!(gamepad_id = id, "gamepad atjungtas");
+                    if let Some(port) = self.gamepad_ports.remove(&id) {
+                        tracing::info!(gamepad_id = id, port, "gamepad atjungtas");
+                        // Atlaisvinti port'ą — kitaip paskutinė žinoma bitmask'o reikšmė
+                        // liktų „įstrigusi" (core'as manytų, kad mygtukas vis dar laikomas).
+                        self.gamepad_port_buttons[port] = 0;
+                        changed_ports.insert(port);
+                    } else {
+                        tracing::info!(
+                            gamepad_id = id,
+                            "gamepad atjungtas (nebuvo priskirtas port'ui)"
+                        );
+                    }
                 }
                 Ok(GamepadEvent::ButtonChanged {
-                    button, pressed, ..
+                    id,
+                    button,
+                    pressed,
                 }) => {
-                    if let Some(joypad_id) = default_gamepad_mapping(button) {
-                        let bit = joypad_bit(joypad_id);
-                        if pressed {
-                            self.gamepad_buttons |= bit;
-                        } else {
-                            self.gamepad_buttons &= !bit;
-                        }
-                        input_changed = true;
+                    let (Some(&port), Some(joypad_id)) =
+                        (self.gamepad_ports.get(&id), default_gamepad_mapping(button))
+                    else {
+                        continue;
+                    };
+                    let bit = joypad_bit(joypad_id);
+                    if pressed {
+                        self.gamepad_port_buttons[port] |= bit;
+                    } else {
+                        self.gamepad_port_buttons[port] &= !bit;
                     }
+                    changed_ports.insert(port);
                 }
                 Ok(GamepadEvent::AxisChanged { .. }) => {
                     // Analoginės ašys → skaitmeninis D-pad ekvivalentas NEĮTRAUKTA MVP metu —
@@ -208,29 +247,55 @@ impl App {
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.gamepad_rx = None;
+                    disconnected = true;
                     break;
                 }
             }
         }
-        if input_changed {
-            self.send_port0_input();
+        if !disconnected {
+            self.gamepad_rx = Some(rx);
+        }
+        for port in changed_ports {
+            self.send_port_input(port);
         }
     }
 
-    /// Siunčia SUJUNGTĄ (klaviatūra `|` gamepad) port'o 0 bitmask'ą. Du ATSKIRI laukai
-    /// (`keyboard_buttons`/`gamepad_buttons`), sujungiami TIK siunčiant — jei būtų vienas
-    /// bendras laukas su tiesioginiu set/clear iš abiejų šaltinių, vieno šaltinio mygtuko
-    /// ATLEIDIMAS galėtų netyčia išvalyti bitą, kurį VIS DAR laiko nuspaudęs kitas šaltinis
-    /// (pvz. laikai `UP` klaviatūra IR gamepad'u vienu metu, atleidi tik gamepad'ą — be šio
-    /// atskyrimo klaviatūros paspaudimas irgi dingtų).
-    fn send_port0_input(&self) {
+    /// Priskiria `gilrs` gamepad ID kitam laisvam port'ui (0..4) PIRMO PRISIJUNGIMO eile —
+    /// žr. `gamepad_ports` lauko doc. `None`, jei visi 4 jau užimti (MVP libretro joypad
+    /// portų limitas, žr. `core::callbacks::input_state_cb`).
+    fn assign_gamepad_port(&mut self, id: usize) -> Option<usize> {
+        if let Some(&existing) = self.gamepad_ports.get(&id) {
+            return Some(existing); // Jau priskirtas (pvz. pakartotinis Connected įvykis).
+        }
+        let taken: std::collections::HashSet<usize> =
+            self.gamepad_ports.values().copied().collect();
+        let port = (0..4).find(|p| !taken.contains(p))?;
+        self.gamepad_ports.insert(id, port);
+        Some(port)
+    }
+
+    /// Siunčia SUJUNGTĄ (klaviatūra `|` gamepad, TIK port'ui 0 — žr. `keyboard_buttons` doc)
+    /// bitmask'ą nurodytam port'ui. Du ATSKIRI laukai (`keyboard_buttons`/
+    /// `gamepad_port_buttons`), sujungiami TIK siunčiant — jei būtų vienas bendras laukas su
+    /// tiesioginiu set/clear iš abiejų šaltinių, vieno šaltinio mygtuko ATLEIDIMAS galėtų
+    /// netyčia išvalyti bitą, kurį VIS DAR laiko nuspaudęs kitas šaltinis (pvz. laikai `UP`
+    /// klaviatūra IR gamepad'u vienu metu, atleidi tik gamepad'ą — be šio atskyrimo
+    /// klaviatūros paspaudimas irgi dingtų).
+    fn send_port_input(&self, port: usize) {
         let Some(emu_thread) = &self.emu_thread else {
             return;
         };
-        let buttons = self.keyboard_buttons | self.gamepad_buttons;
-        if let Err(error) = emu_thread.send(EmuCommand::SetInput(InputState { port: 0, buttons })) {
-            tracing::warn!(%error, "nepavyko nusiųsti SetInput komandos");
+        let gamepad_bits = self.gamepad_port_buttons[port];
+        let buttons = if port == 0 {
+            self.keyboard_buttons | gamepad_bits
+        } else {
+            gamepad_bits
+        };
+        if let Err(error) = emu_thread.send(EmuCommand::SetInput(InputState {
+            port: port as u32,
+            buttons,
+        })) {
+            tracing::warn!(%error, port, "nepavyko nusiųsti SetInput komandos");
         }
     }
 }
