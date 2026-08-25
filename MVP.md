@@ -1896,13 +1896,13 @@ CREATE TABLE scrape_cache (
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
-| 4 — Įvestis (+P4.0.x migracija) | 9 | 3 | 33 % |
+| 4 — Įvestis (+P4.0.x migracija) | 9 | 4 | 44 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **24** | **46 %** |
+| **Viso** | **52** | **25** | **48 %** |
 
 ---
 
