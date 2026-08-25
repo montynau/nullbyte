@@ -338,7 +338,7 @@ impl CoreHandle {
     }
 }
 
-fn path_to_cstring(path: &Path) -> Result<CString, CoreError> {
+pub(crate) fn path_to_cstring(path: &Path) -> Result<CString, CoreError> {
     let s = path
         .to_str()
         .ok_or_else(|| CoreError::Other(format!("kelias nėra UTF-8: {}", path.display())))?;

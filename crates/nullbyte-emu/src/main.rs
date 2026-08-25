@@ -65,6 +65,23 @@ fn test_core_and_rom() -> Option<(PathBuf, PathBuf)> {
     Some((core, rom))
 }
 
+/// `system_dir`/`save_dir` — CLI argumentai `argv[1]`/`argv[2]` (`nullbyte-app` juos paduoda
+/// sidecar spawn metu, žr. `nullbyte_app::ipc::EmuClient::spawn`, MVP.md P9.1). Standalone
+/// dev paleidimui (`cargo run -p nullbyte-emu`, be `nullbyte-app`) trūkstami argumentai
+/// pakeičiami `nullbyte-core/{bios,saves}` test fixture katalogais — tas pats principas kaip
+/// `test_core_and_rom()` aukščiau.
+fn resolve_system_and_save_dirs() -> (PathBuf, PathBuf) {
+    let mut args = std::env::args().skip(1);
+    let system_dir = args.next().map(PathBuf::from);
+    let save_dir = args.next().map(PathBuf::from);
+
+    let core_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../nullbyte-core");
+    (
+        system_dir.unwrap_or_else(|| core_root.join("bios")),
+        save_dir.unwrap_or_else(|| core_root.join("saves")),
+    )
+}
+
 /// Atidaro cpal audio srautą, kurio šaltinis — `AudioConsumer` (P3.2/P3.4).
 fn open_audio(mut consumer: AudioConsumer) -> Result<AudioOutput, CoreError> {
     AudioOutput::open(move |buf: &mut [f32], _channels: u16| {
@@ -230,8 +247,14 @@ impl ApplicationHandler for App {
             }
         };
 
-        let (emu_thread, frame_consumer, audio_consumer) =
-            EmuThread::spawn(device_sample_rate, device_channels, status_sender);
+        let (system_dir, save_dir) = resolve_system_and_save_dirs();
+        let (emu_thread, frame_consumer, audio_consumer) = EmuThread::spawn(
+            device_sample_rate,
+            device_channels,
+            system_dir,
+            save_dir,
+            status_sender,
+        );
 
         // Fono gija skaito stdin per `BufRead::lines()` (MVP.md P4.0.3 „Ką daryti") — tik
         // klonuota `Sender<EmuCommand>`, NE `&EmuThread`, kad nereikėtų 'static nuorodos

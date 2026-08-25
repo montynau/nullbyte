@@ -4,6 +4,7 @@ node_modules
 /crates/nullbyte-core/cores
 /crates/nullbyte-core/roms
 /crates/nullbyte-core/bios
+/crates/nullbyte-core/saves
 /crates/nullbyte-app/gen
 /crates/nullbyte-app/binaries
 /build

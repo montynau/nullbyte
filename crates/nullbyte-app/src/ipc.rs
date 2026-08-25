@@ -47,11 +47,26 @@ impl EmuClient {
     ///
     /// Generic per `R: tauri::Runtime`, NE fiksuota `Wry` — leidžia testams naudoti
     /// `tauri::test::MockRuntime` vietoj tikro `AppHandle`.
-    pub async fn spawn<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<Self, AppError> {
+    ///
+    /// `system_dir`/`save_dir` (`AppState::system_dir`/`saves_dir`, `crate::paths`) paduodami
+    /// kaip CLI argumentai (`argv[1]`/`argv[2]`) — vaikas juos naudoja
+    /// `GET_SYSTEM_DIRECTORY`/`GET_SAVE_DIRECTORY` core callback'ams (CLAUDE.md §8.3). Būtina:
+    /// kai kurie core'ai (pvz. MAME) besąlygiškai dereferencina šią rodyklę, tad trūkstamas
+    /// arba `NULL` kelias sukelia segfault, ne gražią klaidą — žr. `nullbyte_core::core::runner`
+    /// `make_initial_context` doc.
+    pub async fn spawn<R: tauri::Runtime>(
+        app: &AppHandle<R>,
+        system_dir: &std::path::Path,
+        save_dir: &std::path::Path,
+    ) -> Result<Self, AppError> {
         let sidecar = app
             .shell()
             .sidecar("nullbyte-emu")
-            .map_err(|e| AppError::Other(format!("nepavyko paruošti nullbyte-emu sidecar: {e}")))?;
+            .map_err(|e| AppError::Other(format!("nepavyko paruošti nullbyte-emu sidecar: {e}")))?
+            .args([
+                system_dir.to_string_lossy().into_owned(),
+                save_dir.to_string_lossy().into_owned(),
+            ]);
 
         let (mut rx, mut child) = sidecar
             .spawn()
@@ -215,9 +230,14 @@ mod tests {
                 .build(tauri::test::mock_context(tauri::test::noop_assets()))
                 .expect("mock Tauri app turėtų susikurti");
 
-            let mut client = EmuClient::spawn(&app.handle().clone())
-                .await
-                .expect("EmuClient turėtų sėkmingai spawn'intis ir atlikti handshake'ą");
+            let test_dir = std::env::temp_dir().join("nullbyte_emu_client_test");
+            let mut client = EmuClient::spawn(
+                &app.handle().clone(),
+                &test_dir.join("system"),
+                &test_dir.join("saves"),
+            )
+            .await
+            .expect("EmuClient turėtų sėkmingai spawn'intis ir atlikti handshake'ą");
 
             client
                 .send(EmuCommand::Stop)

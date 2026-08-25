@@ -1744,6 +1744,15 @@ CREATE TABLE scrape_cache (
 
 **Priklausomybės:** P7.4, P2.5, P3.4, P4.4
 
+> **Priešdarbis atliktas (2026-08-25):** `system_dir`/`save_dir` (`GET_SYSTEM_DIRECTORY`/
+> `GET_SAVE_DIRECTORY`, CLAUDE.md §8.3) dabar realiai keliauja `nullbyte-app` → `nullbyte-emu`
+> (sidecar CLI argumentai, `EmuClient::spawn`) → `EmuThread::spawn` → `EmuContext` (žr.
+> `core::runner::make_initial_context`), abu katalogai sukuriami, jei jų dar nėra. Anksčiau
+> visada buvo `NULL` — dauguma core'ų (SNES9x, Genesis Plus GX) tai toleruoja, bet MAME
+> besąlygiškai dereferencina ir be šios pataisos segfault'ina kraunant bet kurį žaidimą
+> (atrasta rankiniu MAME core smoke testu). Likusi P9.1 dalis (UI srautas, core parinkimas,
+> `last_played`/`play_time`) nepradėta — priklauso nuo P5.1/P7.4/P4.4.
+
 **Ką daryti:**
 - UI „Žaisti" → parink core'ą (per `platform_core_prefs`, arba klausk) → paleisk
 - Krovimosi būsena UI

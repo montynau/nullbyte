@@ -104,9 +104,19 @@ impl EmuThread {
     /// `Loaded`/`Error`/`Stats`/`Stopped` per jį (žr. `crate::ipc` modulio doc dėl
     /// backpressure). `EmuThread` PATS nekuria `StatusWriter`/stdout ryšio — tik naudoja
     /// jau paruoštą rankeną, kad `core::runner` liktų nepriklausomas nuo proceso/IPC detalių.
+    ///
+    /// `system_dir`/`save_dir` — `GET_SYSTEM_DIRECTORY`/`GET_SAVE_DIRECTORY` core'ams
+    /// grąžinami keliai (CLAUDE.md §8.3). Konstanta visai gijos gyvavimo trukmei, kaip ir
+    /// `device_sample_rate`/`device_channels` — vienam `nullbyte-emu` procesui tenka vienas
+    /// žaidimo paleidimas (ADR-016), tad šie katalogai nesikeičia tarp `Load` komandų per
+    /// vieną gyvavimo ciklą. Privaloma, ne `Option`: dauguma core'ų (SNES9x, Genesis Plus GX)
+    /// toleruoja `NULL`, bet kai kurie (MAME) aktyviai skaito/rašo tuose kataloguose ir
+    /// dereferencina rodyklę besąlygiškai — `NULL` sukelia segfault, ne gražų `false`.
     pub fn spawn(
         device_sample_rate: u32,
         device_channels: u16,
+        system_dir: PathBuf,
+        save_dir: PathBuf,
         status_sender: Option<StatusSender>,
     ) -> (Self, FrameConsumer, AudioConsumer) {
         let (sender, receiver) = mpsc::channel();
@@ -127,6 +137,7 @@ impl EmuThread {
                     audio_producer,
                     device_sample_rate,
                     device_channels,
+                    (system_dir, save_dir),
                     status_sender,
                 )
             })
@@ -200,6 +211,36 @@ impl RunnerState {
             device_channels,
         }
     }
+}
+
+/// Sukuria pradinį `EmuContext` su realiais `system_dir`/`save_dir` (CLAUDE.md §8.3
+/// `GET_SYSTEM_DIRECTORY`/`GET_SAVE_DIRECTORY`) — kviečiama vieną kartą `run_loop` pradžioje
+/// (žr. jos doc). Sukuria abu katalogus, jei jų dar nėra — kai kurie core'ai (MAME) juos
+/// besąlygiškai naudoja rašymui/skaitymui iškart po `retro_load_game()`, tad vien teisingo
+/// KELIO nepakanka, jis turi ir REALIAI egzistuoti.
+fn make_initial_context(system_dir: &std::path::Path, save_dir: &std::path::Path) -> EmuContext {
+    let mut ctx = EmuContext::default();
+
+    for (label, dir) in [("system_dir", system_dir), ("save_dir", save_dir)] {
+        if let Err(error) = std::fs::create_dir_all(dir) {
+            tracing::warn!(%error, %label, dir = %dir.display(), "nepavyko sukurti katalogo");
+        }
+    }
+
+    match super::loader::path_to_cstring(system_dir) {
+        Ok(c) => ctx.system_dir = Some(c),
+        Err(error) => {
+            tracing::warn!(%error, dir = %system_dir.display(), "system_dir nėra galiojantis CString")
+        }
+    }
+    match super::loader::path_to_cstring(save_dir) {
+        Ok(c) => ctx.save_dir = Some(c),
+        Err(error) => {
+            tracing::warn!(%error, dir = %save_dir.display(), "save_dir nėra galiojantis CString")
+        }
+    }
+
+    ctx
 }
 
 fn stub_callbacks() -> RetroCallbacks {
@@ -374,9 +415,11 @@ fn run_loop(
     mut audio_producer: AudioProducer,
     device_sample_rate: u32,
     device_channels: u16,
+    dirs: (PathBuf, PathBuf),
     status_sender: Option<StatusSender>,
 ) {
-    callbacks::install_context(EmuContext::default());
+    let (system_dir, save_dir) = dirs;
+    callbacks::install_context(make_initial_context(&system_dir, &save_dir));
 
     let mut state = RunnerState::new(device_sample_rate, device_channels);
     let mut frame_count: u64 = 0;
@@ -548,6 +591,14 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    /// Testams nesvarbu, KUR tiksliai yra system/save katalogai — svarbu tik, kad
+    /// `EmuThread::spawn` juos gautų (žr. `make_initial_context` doc dėl KODĖL tai privaloma,
+    /// ne `Option`). Bendras temp katalogas abiem — testai nerašo/neskaito jo turinio.
+    fn test_dirs() -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join("nullbyte_runner_test");
+        (dir.join("system"), dir.join("saves"))
+    }
+
     fn snes9x_path() -> Option<PathBuf> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("cores/snes9x_libretro.dylib");
         path.exists().then_some(path)
@@ -579,7 +630,8 @@ mod tests {
         };
 
         let _core_lock = crate::core::test_support::lock_core_load();
-        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, None);
+        let (system_dir, save_dir) = test_dirs();
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, system_dir, save_dir, None);
         emu.send(EmuCommand::Load { core, rom }).unwrap();
         emu.send(EmuCommand::Run).unwrap();
 
@@ -598,7 +650,8 @@ mod tests {
 
     #[test]
     fn stop_without_load_does_not_hang_or_panic() {
-        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, None);
+        let (system_dir, save_dir) = test_dirs();
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, system_dir, save_dir, None);
         emu.send(EmuCommand::Pause).unwrap(); // komanda be įkelto core'o — turėtų būti no-op
         drop(emu);
     }
@@ -620,7 +673,8 @@ mod tests {
         };
 
         let _core_lock = crate::core::test_support::lock_core_load();
-        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, None);
+        let (system_dir, save_dir) = test_dirs();
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, system_dir, save_dir, None);
         emu.send(EmuCommand::Load { core, rom }).unwrap();
         emu.send(EmuCommand::Run).unwrap();
 
@@ -641,7 +695,8 @@ mod tests {
             return;
         };
 
-        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, None);
+        let (system_dir, save_dir) = test_dirs();
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, system_dir, save_dir, None);
         emu.send(EmuCommand::Load {
             core: bad_core.to_path_buf(),
             rom: PathBuf::from("/nonexistent.sfc"),
