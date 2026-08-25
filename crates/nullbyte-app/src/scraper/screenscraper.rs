@@ -11,7 +11,9 @@
 #![allow(dead_code)] // pilnai išnaudos P6.2/P6.4 (rate limiting, scraping orkestracija)
 
 use crate::error::AppError;
-use crate::scraper::types::{Genre, Jeu, JeuInfosBody, JeuInfosResponse, LangText, RegionText};
+use crate::scraper::types::{
+    Genre, Jeu, JeuInfosBody, JeuInfosResponse, LangText, Media, RegionText,
+};
 
 const API_URL: &str = "https://www.screenscraper.fr/api2/jeuInfos.php";
 
@@ -72,6 +74,11 @@ pub struct RomIdentity<'a> {
 /// kad UŽKLAUSA/ATSAKYMAS buvo sugadintas — semantiškai skirtingi atvejai kviečiančiajai
 /// pusei (P6.4): NotFound → pažymėk `scrape_status='notfound'` ir cache'uok; Err → pakartok
 /// vėliau arba loginink kaip realią problemą.
+// `GameMetadata` (su P6.4 pridėtu `medias: Vec<Media>`) yra ~224 baitų — clippy siūlo
+// `Box<GameMetadata>`, bet `ScrapeOutcome` sukuriamas VIENĄ kartą per žaidimo scraping'ą
+// (ne per kadrą/hot path'e), tad 224 baitų steko skirtumas praktiškai nesvarbus; boxinimas
+// tik pridėtų netiesioginumo visose `match`/konstrukcijos vietose be realios naudos.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ScrapeOutcome {
     Found(GameMetadata),
@@ -94,6 +101,11 @@ pub struct GameMetadata {
     pub release_date: Option<String>,
     pub rating: Option<f64>,
     pub region: Option<String>,
+    /// Žaliaviniai media įrašai (P6.4) — `scraper::media::download_game_media` juos vėliau
+    /// pasirenka/atsisiunčia. Laikomi ČIA (ne atskirai grąžinami iš `lookup_game`), kad
+    /// cache'uotas (`scrape_cache`) atsakymas galėtų pakartotinai atsisiųsti media BE naujo
+    /// gyvo API kvietimo — žr. `types.rs::Media` doc.
+    pub medias: Vec<Media>,
 }
 
 /// Vartotojo kvota, ištraukta iš `response.ssuser`/`response.serveurs` (kiekviename
@@ -286,6 +298,7 @@ fn extract_metadata(jeu: &Jeu) -> GameMetadata {
         release_date: pick_region_text(&dates),
         rating: jeu.note.as_ref().and_then(|n| n.text.parse().ok()),
         region: pick_available_region(&noms),
+        medias: jeu.medias.clone().into_vec(),
     }
 }
 
@@ -386,6 +399,11 @@ mod tests {
         assert_eq!(quota.max_requests_per_day, 20000);
         assert!(!quota.closed_for_nonmember);
         assert!(!quota.closed_for_leecher);
+
+        // P6.4: `medias` perkeliami į `GameMetadata` be pakeitimų — `scraper::media` juos
+        // vėliau pasirenka/atsisiunčia (žr. `GameMetadata` doc).
+        assert_eq!(metadata.medias.len(), 1);
+        assert_eq!(metadata.medias[0].media_type, "box-2D");
     }
 
     /// MVP.md P6.1 acceptance: „Blogas JSON nesulaužo (graceful degradation)" — grąžina

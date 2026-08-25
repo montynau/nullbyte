@@ -234,6 +234,90 @@ pub fn record_play(conn: &Connection, id: i64, seconds: i64) -> Result<(), AppEr
     Ok(())
 }
 
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// `scrape_status = 'pending'` žaidimai, neprivalomai filtruoti pagal platformą — MVP.md P6.4
+/// „scrape_library(platform_id?) — visi scrape_status = 'pending'".
+pub fn list_pending_games(
+    conn: &Connection,
+    platform_id: Option<i64>,
+) -> Result<Vec<Game>, AppError> {
+    let mut sql = format!("SELECT {GAME_COLUMNS} FROM games g WHERE g.scrape_status = 'pending'");
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if let Some(id) = platform_id {
+        sql.push_str(" AND g.platform_id = ?");
+        params.push(Box::new(id));
+    }
+    sql.push_str(" ORDER BY g.id");
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(
+        params_from_iter(params.iter().map(|p| p.as_ref())),
+        game_from_row,
+    )?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+}
+
+/// Pažymi žaidimą apdorotu su konkrečiu statusu, BE metaduomenų (P6.4: „notfound"/„error"
+/// atvejai — sėkmingam radiniui naudok [`apply_scrape_result`], kuris rašo ir statusą, ir
+/// duomenis viename sakinyje). `scrape_status` reikšmės pagal P5.1 schemos komentarą:
+/// `"pending" | "ok" | "notfound" | "error"`.
+pub fn set_scrape_status(conn: &Connection, id: i64, status: &str) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE games SET scrape_status = ?1, scraped_at = ?2 WHERE id = ?3",
+        rusqlite::params![status, unix_now(), id],
+    )?;
+    Ok(())
+}
+
+/// Įrašo sėkmingo scraping'o rezultatą: ScreenScraper metaduomenis + media kelius, pažymi
+/// `scrape_status = 'ok'`.
+///
+/// **SĄMONINGAI NEKEIČIA `title`/`sort_title`** — skenerio (`library::scanner`) parinktas
+/// pavadinimas iš ROM failo vardo lieka autoritetingas rodymui/rikiavimui; ScreenScraper
+/// pavadinimas patenka TIK per `description`/kitus laukus, ne perrašo tai, ką vartotojas mato
+/// bibliotekoje. Priežastis: netikėtas žaidimo PERVADINIMAS vidury scraping'o būtų
+/// nemalonus siurprizas, o `sort_title` perskaičiavimas reikalautų `library::scanner`
+/// logikos importo į DB sluoksnį vien šiam retam atvejui — nepakankama nauda šiai MVP daliai.
+pub fn apply_scrape_result(
+    conn: &Connection,
+    id: i64,
+    metadata: &crate::scraper::screenscraper::GameMetadata,
+    media: &crate::scraper::media::MediaPaths,
+) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE games SET
+            description = ?1, developer = ?2, publisher = ?3, genre = ?4, players = ?5,
+            release_date = ?6, rating = ?7, region = ?8,
+            cover_path = ?9, screenshot_path = ?10, wheel_path = ?11, video_path = ?12,
+            scrape_status = 'ok', scraped_at = ?13
+         WHERE id = ?14",
+        rusqlite::params![
+            metadata.description,
+            metadata.developer,
+            metadata.publisher,
+            metadata.genre,
+            metadata.players,
+            metadata.release_date,
+            metadata.rating,
+            metadata.region,
+            media.cover_path,
+            media.screenshot_path,
+            media.wheel_path,
+            media.video_path,
+            unix_now(),
+            id,
+        ],
+    )?;
+    Ok(())
+}
+
 /// Visos platformos su jų žaidimų kiekiu (`LEFT JOIN`, kad platformos be nė vieno žaidimo
 /// vis tiek pasirodytų su `game_count = 0`, ne visai dingtų iš sąrašo).
 pub fn list_platforms(conn: &Connection) -> Result<Vec<PlatformSummary>, AppError> {
@@ -409,6 +493,84 @@ mod tests {
         assert_eq!(game.play_count, 2);
         assert_eq!(game.play_time_seconds, 180);
         assert!(game.last_played.is_some());
+    }
+
+    #[test]
+    fn list_pending_games_excludes_non_pending_and_other_platforms() {
+        let conn = open_test_db();
+        let snes = snes_platform_id(&conn);
+        let genesis = genesis_platform_id(&conn);
+        let pending = insert_game(&conn, snes, "Chrono Trigger", "/roms/ct.sfc");
+        let other_platform_pending = insert_game(&conn, genesis, "Sonic", "/roms/sonic.md");
+        let already_done = insert_game(&conn, snes, "EarthBound", "/roms/eb.sfc");
+        set_scrape_status(&conn, already_done, "ok").unwrap();
+
+        let all_pending = list_pending_games(&conn, None).unwrap();
+        assert_eq!(all_pending.len(), 2);
+        assert!(all_pending.iter().any(|g| g.id == pending));
+        assert!(all_pending.iter().any(|g| g.id == other_platform_pending));
+
+        let snes_pending = list_pending_games(&conn, Some(snes)).unwrap();
+        assert_eq!(snes_pending.len(), 1);
+        assert_eq!(snes_pending[0].id, pending);
+    }
+
+    #[test]
+    fn set_scrape_status_updates_status_and_timestamp_without_touching_metadata() {
+        let conn = open_test_db();
+        let snes = snes_platform_id(&conn);
+        let id = insert_game(&conn, snes, "Chrono Trigger", "/roms/ct.sfc");
+
+        set_scrape_status(&conn, id, "notfound").unwrap();
+
+        let game = get_game(&conn, id).unwrap().unwrap();
+        assert_eq!(game.scrape_status, "notfound");
+        assert!(game.scraped_at.is_some());
+        assert_eq!(game.title, "Chrono Trigger"); // nepakito.
+    }
+
+    fn sample_scrape_metadata() -> crate::scraper::screenscraper::GameMetadata {
+        crate::scraper::screenscraper::GameMetadata {
+            title: "Ignoruojama".to_string(), // apply_scrape_result SĄMONINGAI nerašo title.
+            description: Some("Aprašymas".to_string()),
+            developer: Some("Nintendo".to_string()),
+            publisher: Some("Nintendo".to_string()),
+            genre: Some("Platform".to_string()),
+            players: Some(2),
+            release_date: Some("1994-07-28".to_string()),
+            rating: Some(16.0),
+            region: Some("eu".to_string()),
+            medias: vec![],
+        }
+    }
+
+    #[test]
+    fn apply_scrape_result_writes_metadata_and_media_but_preserves_scanned_title() {
+        let conn = open_test_db();
+        let snes = snes_platform_id(&conn);
+        let id = insert_game(&conn, snes, "Chrono Trigger (USA)", "/roms/ct.sfc");
+
+        let media = crate::scraper::media::MediaPaths {
+            cover_path: Some("covers/1.png".to_string()),
+            screenshot_path: None,
+            wheel_path: None,
+            video_path: Some("videos/1.mp4".to_string()),
+        };
+
+        apply_scrape_result(&conn, id, &sample_scrape_metadata(), &media).unwrap();
+
+        let game = get_game(&conn, id).unwrap().unwrap();
+        assert_eq!(game.title, "Chrono Trigger (USA)"); // NEPAKEISTA — žr. funkcijos doc.
+        assert_eq!(game.description.as_deref(), Some("Aprašymas"));
+        assert_eq!(game.developer.as_deref(), Some("Nintendo"));
+        assert_eq!(game.genre.as_deref(), Some("Platform"));
+        assert_eq!(game.players, Some(2));
+        assert_eq!(game.rating, Some(16.0));
+        assert_eq!(game.cover_path.as_deref(), Some("covers/1.png"));
+        assert_eq!(game.video_path.as_deref(), Some("videos/1.mp4"));
+        assert_eq!(game.screenshot_path, None);
+        assert_eq!(game.scrape_status, "ok");
+        assert!(game.scraped_at.is_some());
     }
 
     #[test]

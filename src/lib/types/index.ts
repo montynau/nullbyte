@@ -83,3 +83,25 @@ export interface GameFilter {
   page?: number;
   pageSize?: number;
 }
+
+/** Atitinka `ScrapeProgress` (crates/nullbyte-app/src/scraper/mod.rs) — siunčiamas per
+ * `Channel<ScrapeProgress>` komandose `scrape_game`/`scrape_library` (MVP.md P6.4). */
+export interface ScrapeProgress {
+  current: number;
+  total: number;
+  title: string;
+  /** `"ok" | "notfound" | "unsupported" | "error"` — PLATESNIS žodynas nei `Game.scrapeStatus`
+   * (kuris `"unsupported"` neturi), nes tai efemeriška UI reikšmė, ne DB stulpelis. */
+  status: string;
+  /** `null`, kol dar negauta nė vieno gyvo (ne cache) atsakymo su kvotos informacija. */
+  quotaLeft: number | null;
+}
+
+/** Atitinka `ScrapeSummary` (crates/nullbyte-app/src/scraper/mod.rs) — komandų
+ * `scrape_game`/`scrape_library` grąžinama reikšmė. */
+export interface ScrapeSummary {
+  found: number;
+  notFound: number;
+  errored: number;
+  cancelled: boolean;
+}

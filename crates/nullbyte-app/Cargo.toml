@@ -40,6 +40,11 @@ sha1 = "0.10"
 # P6.1: credentials iš .env, ne hardkodinti (MVP.md acceptance) — naujas priklausomumas,
 # žr. MVP.md P6.1 pastabą dėl priežasties.
 dotenvy = "0.15"
+# P6.4: scrape_library() atšaukimas (MVP.md acceptance) — `tokio_util::sync::CancellationToken`.
+# Jau tranzityvi priklausomybė (per `tauri`), bet reikia tiesioginio įrašo Cargo.toml, kad
+# `use tokio_util::...` kompiliuotųsi (Cargo neduoda `use` prieigos vien dėl to, kad kažkas
+# kitas jį tranzityviai atsivelka).
+tokio-util = "0.7"
 
 [dev-dependencies]
 # "test" atrakina tauri::test::{mock_builder, mock_context, noop_assets} — naudoja

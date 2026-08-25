@@ -25,6 +25,18 @@ pub struct AppState {
     /// `rusqlite::Connection` NĖRA `Sync` (CLAUDE.md §10 „SQLite") — `Mutex<Connection>` MVP
     /// metu pakanka (vienas ryšys, ne pool'as; `r2d2_sqlite` — post-MVP, jei tikrai reikės).
     pub db: Mutex<Connection>,
+    /// Bendras `reqwest::Client` ScreenScraper užklausoms (P6.4) — vienas klientas visai
+    /// programos gyvavimo trukmei, kad būtų pakartotinai naudojami TCP/TLS ryšiai, ne kuriami
+    /// nauji kiekvienam `scrape_game`/`scrape_library` kvietimui.
+    pub scraper_client: reqwest::Client,
+    /// Semaforas + žinomas `maxthreads` (P6.2) — TURI IŠGYVENTI tarp atskirų
+    /// `scrape_game`/`scrape_library` kvietimų, kad kartą sužinotas realus `maxthreads`
+    /// nebūtų pamirštas kiekvieną kartą pradedant nuo numatytosios „1".
+    pub rate_limiter: crate::scraper::rate_limit::RateLimiter,
+    /// Šiuo metu vykstančio `scrape_library` atšaukimo žetonas — `None`, kai joks scraping'as
+    /// nevyksta. `commands::scraper::cancel_scrape` jį randa čia (P6.4 acceptance:
+    /// „Atšaukimas veikia iškart").
+    pub scrape_cancellation: Mutex<Option<tokio_util::sync::CancellationToken>>,
 }
 
 impl AppState {
@@ -41,6 +53,9 @@ impl AppState {
             media_dir: paths::media_dir()?,
             db_path,
             db: Mutex::new(db),
+            scraper_client: reqwest::Client::new(),
+            rate_limiter: crate::scraper::rate_limit::RateLimiter::new(),
+            scrape_cancellation: Mutex::new(None),
         })
     }
 }

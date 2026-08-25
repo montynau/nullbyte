@@ -271,6 +271,7 @@ mod tests {
             release_date: Some("1994-07-28".to_string()),
             rating: Some(16.0),
             region: Some("eu".to_string()),
+            medias: vec![],
         }
     }
 

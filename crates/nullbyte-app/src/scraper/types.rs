@@ -135,7 +135,11 @@ pub struct Genre {
 
 /// Vienas media įrašas (`medias` masyvo elementas) — `type` diskriminuoja (`"box-2D"`,
 /// `"video"`, `"ss"`, ir t.t., žr. CLAUDE.md §9.2 lentelę), likę laukai bendri visiems tipams.
-#[derive(Debug, Clone, Deserialize)]
+///
+/// `Serialize` (nuo P6.4) — `GameMetadata.medias` keliauja per `scrape_cache.response` JSON
+/// stulpelį kartu su likusiais laukais (žr. `screenscraper.rs`), tad cache'uotas atsakymas
+/// gali atkurti media sąrašą PAKARTOTINAI atsisiųsti be naujo gyvo API kvietimo.
+#[derive(Debug, Clone, PartialEq, Deserialize, serde::Serialize)]
 pub struct Media {
     #[serde(rename = "type")]
     pub media_type: String,

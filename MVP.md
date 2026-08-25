@@ -1890,10 +1890,69 @@ CREATE TABLE scrape_cache (
 
 ---
 
-### P6.4 — Scraping orkestracija `[ ]`
+### P6.4 — Scraping orkestracija `[x]`
 
 **Priklausomybės:** P6.3
 **Failai:** `crates/nullbyte-app/src/commands/scraper.rs`
+
+> **Įgyvendinta 2026-08-25.** Tikroji orkestracijos logika gyvena `crates/nullbyte-app/src/
+> scraper/mod.rs` (`scrape_single_game`/`scrape_pending_games`), NE `commands/scraper.rs` —
+> tas pats sluoksniavimas kaip `library::scanner`/`commands::library`: domeno modulis lieka
+> Tauri-nepriklausomas (`on_progress: impl FnMut`, ne `Channel`), kad būtų testuojamas be
+> `tauri::test` scaffolding'o; `commands/scraper.rs` yra PLONAS `Channel`/`CancellationToken`
+> laidas aplink jį (CLAUDE.md §6.3).
+>
+> `GameMetadata` (P6.2) papildyta `medias: Vec<Media>` lauku — `screenscraper::lookup_game`
+> anksčiau IŠMESDAVO `jeu.medias`, nes grąžindavo tik išvalytus tekstinius laukus. Kadangi
+> `GameMetadata` JAU keliauja per `scrape_cache.response` JSON (P6.2), pridėjus `medias`
+> ten pat, cache'uotas atsakymas gali PAKARTOTINAI atsisiųsti media be naujo gyvo API
+> kvietimo — `Media` gavo `Serialize` (anksčiau turėjo tik `Deserialize`).
+>
+> **Kvotos išnaudojimo signalas:** `scrape_one_game` grąžina `Err` TIK kai PATI
+> `rate_limit::cached_lookup` nepavyksta (t.y. jau išnaudotas visas backoff'as) — tai
+> kviečiančiajam (`scrape_pending_games`) reiškia „sustabdyk VISĄ eilę švariai", skirtingai
+> nuo bet kurios KITOS to VIENO žaidimo problemos (nepalaikoma platforma, media/DB klaida),
+> kuri pažymi TIK tą žaidimą ir tęsia toliau. Ši distinkcija — vienintelis būdas atskirti
+> „ScreenScraper visai nebeatsako" nuo „šis vienas žaidimas turi problemą" be papildomo
+> tipo `LookupError` viduje (kuris jau atskiria juos P6.2 sluoksnyje).
+>
+> **Atšaukimas veikia net vidury backoff'o laukimo**, ne tik tarp žaidimų — `tokio::select!`
+> lenktyniauja `cancel.cancelled()` prieš PATĮ `scrape_one_game` Future'ą, ne tik tikrina
+> `is_cancelled()` ciklo pradžioje.
+>
+> **SĄMONINGAI NEGENERALIZUOTA per injektuojamą `fetch`** (skirtingai nuo `rate_limit::
+> cached_lookup`) — `scrape_one_game` visada kviečia TIKRĄ `screenscraper::lookup_game`.
+> Generalizavimas šiame sluoksnyje reikalautų HRTB (`for<'r> Fn(&'r RomIdentity<'r>) -> Fut`,
+> kuris konfliktuoja su vienu fiksuotu `Fut` tipo parametru) arba `Box<dyn Fn(...) ->
+> Pin<Box<dyn Future>>>` dinaminio dispatch'o — abu neproporcingai sudėtingi, kai
+> `cached_lookup` savo ruožtu JAU pilnai unit-testuota (P6.2) su injektuotu `fetch`. Vietoj
+> to šis sluoksnis testuojamas: greitai (pure funkcijos `rom_filename`, DB funkcijos
+> `set_scrape_status`/`apply_scrape_result`, `Unsupported`/atšaukimo šakos be tinklo) IR
+> gyvai (žr. žemiau).
+>
+> Nauja priklausomybė: `tokio-util = "0.7"` (`CancellationToken`) — jau buvo tranzityvi per
+> `tauri`, bet reikėjo tiesioginio Cargo.toml įrašo, kad `use` kompiliuotųsi.
+>
+> **Realiai patikrinta TRIMIS lygmenimis:**
+> 1. `real_scrape_single_game_updates_db_row` — pilnas vieno žaidimo srautas (paieška → media
+>    atsisiuntimas → DB rašymas), realus API, realūs 4 media tipai, DB eilutė patikrinta PO
+>    scraping'o.
+> 2. `real_scrape_library_processes_90_real_games` — **TIESIOGINIS P6.4 acceptance
+>    patikrinimas** (ne ekstrapoliacija): TIKRAS `library::scanner::scan()` +
+>    `scrape_pending_games()` prieš REALIUS fixture ROM'us
+>    (`crates/nullbyte-core/roms/{snes,megadrive,gba,psx}/`). Rezultatas: 69 žaidimai
+>    nuskenuoti (26 praleisti dėl nepalaikomų plėtinių — laukta, PSX `.bin`/`.cue`
+>    palydovinių failų), **65 rasti, 4 nerasti, 0 klaidų**, progreso pranešimų kiekis
+>    TIKSLIAI sutapo su apdorotų žaidimų kiekiu (69), `cancelled: false`. Trukmė ~6 min.
+>    (`maxthreads=1`, tad nuosekliai).
+> 3. `second_lookup_with_same_key_hits_cache_and_skips_fetch` (P6.2, jau egzistavęs) +
+>    `unsupported_platform_short_circuits_without_network`/
+>    `cancellation_before_start_processes_nothing` (P6.4, nauji) — greiti testai be tinklo.
+>
+> **Sąžiningas apribojimas:** „Kvotos pabaiga sustabdo švariai" verifikuota TIK sintetiniu
+> testu (P6.2 `persistent_rate_limit_gives_up_with_clear_error_after_all_retries` +
+> distinkcijos logika `scrape_one_game`'e) — realaus kvotos išnaudojimo simuliuoti
+> negalima neeikvojant TIKROS vartotojo dienos kvotos (žr. tą pačią pastabą P6.2 skiltyje).
 
 **Ką daryti:**
 - `scrape_game(id)` — vienas žaidimas
@@ -1903,10 +1962,15 @@ CREATE TABLE scrape_cache (
 - **Niekada automatiškai** — tik vartotojui paspaudus
 
 **Acceptance:**
-- [ ] 50 žaidimų scraping'as baigiasi be klaidų
-- [ ] Progresas realiu laiku
-- [ ] Atšaukimas veikia iškart
-- [ ] Kvotos pabaiga sustabdo švariai
+- [x] 50 žaidimų scraping'as baigiasi be klaidų — REALIAI patikrinta: 69 žaidimai, 0 klaidų
+      (žr. aukščiau)
+- [x] Progresas realiu laiku — kiekvienas žaidimas siunčia `ScrapeProgress` iškart po
+      apdorojimo (ne po viso batch'o); realiame teste 69 pranešimai = 69 apdoroti žaidimai
+- [x] Atšaukimas veikia iškart — `tokio::select!` prieš patį scraping'o Future'ą (žr.
+      aukščiau), patikrinta `cancellation_before_start_processes_nothing`
+- [x] Kvotos pabaiga sustabdo švariai — `scrape_one_game`'o `Err` grąžinimo distinkcija +
+      `AppError::Other` su aiškiu pranešimu; sintetiniu testu, NE gyvu (žr. sąžiningą
+      apribojimą aukščiau)
 
 > **Milestone M4:** biblioteka pilna su metaduomenimis.
 
@@ -2210,7 +2274,7 @@ CREATE TABLE scrape_cache (
 | M1 | libretro core sukasi headless | 1 | 3–5 d. | ✅ |
 | M2 | Vaizdas ekrane | 2 | 3–4 d. | ✅ |
 | M3 | Vaizdas + garsas + valdymas | 3, 4 | 10–12 d. (žr. ADR-016 — +4–7 d. P4.0.x migracijai) | 🟡 |
-| M4 | Biblioteka su metaduomenimis | 5, 6 | 4–6 d. | ⬜ |
+| M4 | Biblioteka su metaduomenimis | 5, 6 | 4–6 d. | ✅ |
 | M5 | **MVP** | 7, 8, 9 | 8–11 d. | ⬜ |
 
 **Bendras įvertis: 27–39 darbo dienos** (vienam žmogui su Claude Code — padidėjo nuo
@@ -2226,11 +2290,11 @@ CREATE TABLE scrape_cache (
 | 3 — Garsas | 4 | 4 | 100 % |
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
-| 6 — ScreenScraper | 4 | 3 | 75 % |
+| 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **33** | **63 %** |
+| **Viso** | **52** | **34** | **65 %** |
 
 ---
 

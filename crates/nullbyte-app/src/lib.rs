@@ -98,6 +98,9 @@ pub fn run() {
             commands::library::set_favorite,
             commands::library::record_play,
             commands::library::list_platforms,
+            commands::scraper::scrape_game,
+            commands::scraper::scrape_library,
+            commands::scraper::cancel_scrape,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
