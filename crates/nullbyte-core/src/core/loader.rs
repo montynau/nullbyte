@@ -231,14 +231,18 @@ impl CoreHandle {
             .map(str::to_string)
             .collect();
 
-        let is_archive = matches!(
-            rom_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(str::to_lowercase)
-                .as_deref(),
-            Some("zip") | Some("7z")
-        );
+        let rom_extension = rom_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+        // Jei core'as PATS deklaruoja archyvo plėtinį (`zip`/`7z`) tarp `valid_extensions`
+        // (pvz. MAME, FBNeo — jie patys tvarko daugiafailius romset'us viduje), archyvo
+        // NEIŠPAKUOJAM — paduodam jį core'ui tiesiogiai, kaip bet kurį kitą ROM'ą.
+        let core_accepts_archive_directly = rom_extension
+            .as_deref()
+            .is_some_and(|ext| valid_extensions.iter().any(|v| v.to_lowercase() == ext));
+        let is_archive = !core_accepts_archive_directly
+            && matches!(rom_extension.as_deref(), Some("zip") | Some("7z"));
 
         // path_cstring/data_owned privalo gyventi bent tiek, kiek `game_info` naudojamas
         // žemiau — abu laikomi šio bloko viduje iki pat retro_load_game() kvietimo.
