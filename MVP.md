@@ -1140,7 +1140,7 @@ yra primityvas, kurį tas sluoksnis kvies vėliau, ne pilnas Tauri komandų API.
 
 ---
 
-### P4.0.5 — `externalBin` packaging `[ ]`
+### P4.0.5 — `externalBin` packaging `[x]`
 
 **Priklausomybės:** P4.0.2
 
@@ -1151,31 +1151,52 @@ yra primityvas, kurį tas sluoksnis kvies vėliau, ne pilnas Tauri komandų API.
 > DABARTINIO HOSTO target-triple sufiksu. Tai reikėjo padaryti anksčiau, ne čia — priešingu
 > atveju `pnpm tauri dev` (P4.0.2/P4.0.3) ir net paprastas `cargo build --workspace` būtų
 > lūžę dar prieš pasiekiant šią užduotį (vištos-kiaušinio problema, žr. P4.0.3).
->
-> **Šiai užduočiai LIEKA:** vienintelio-hosto-triple atvejis PATIKRINTAS
-> (`aarch64-apple-darwin`, per `cargo clean` + pilną seką), bet MULTI-ARCH/universal build
-> (`pnpm tauri build --target universal-apple-darwin`) NEPATIKRINTAS — jam reikės ABIEJŲ
-> triple'ų sufiksuotų binarų (`nullbyte-emu-x86_64-apple-darwin` IR
-> `nullbyte-emu-aarch64-apple-darwin`) vienu metu, o dabartinis `build-sidecar.sh` stato tik
-> hosto triple. Taip pat tikras `.app`/`.dmg` bundle'as (release profilis, ne debug) dar
-> nepaleistas nė karto.
 
-**Failai:** `scripts/build-sidecar.sh` (universal build atveju — praplėsti abiem triple'ais)
+> **Baigta 2026-08-25.** Realiai patikrinta (ne vien skaitant kodą): `pnpm tauri build
+> --target universal-apple-darwin` sukūrė TIEK `.app`, TIEK `.dmg` (`target/
+> universal-apple-darwin/release/bundle/{macos/Nullbyte.app,dmg/Nullbyte_0.1.0_universal.dmg}`);
+> laikinu `.setup()` kabliu `lib.rs` (grąžintas po testo) paleidus `.app` iš tikro Finder/
+> `open` konteksto, `nullbyte-app` sėkmingai spawn'ino `Contents/MacOS/nullbyte-emu`
+> (universal binaras, `lipo -info` patvirtina abi architektūras), atliko IPC handshake'ą,
+> gavo `Loaded` → `Stopped` (`shutdown_gracefully()` per `EmuClient` Drop — netyčia papildomai
+> patvirtino ir P4.0.4 veikimą bundle kontekste), procesas baigėsi `code=Some(0)`.
+>
+> **Ankstesnė šio failo prielaida ŽEMIAU (bullet'as „Ką daryti") BUVO KLAIDINGA** — pati
+> pirma bandymo iteracija tai atskleidė realiu `tauri build --target universal-apple-darwin`
+> paleidimu: `failed to bundle project: Failed to copy external binaries: resource path
+> binaries/nullbyte-emu-universal-apple-darwin doesn't exist`. Tauri universal build'ui
+> ieško VIENO, JAU `lipo`'into binaro su `-universal-apple-darwin` sufiksu, NE dviejų
+> atskirų per-triple failų (tie du vis tiek reikalingi ATSKIRAI — juos naudoja PATYS
+> `cargo build --target <triple>` kvietimai universal `.app` sudarymo metu, tiesiog GALUTINIS
+> sidecar copy žingsnis nori trečio, jau sulieto failo). `scripts/build-sidecar.sh` dabar
+> macOS `release` profiliui stato VISUS TRIS: `nullbyte-emu-aarch64-apple-darwin`,
+> `nullbyte-emu-x86_64-apple-darwin`, IR `nullbyte-emu-universal-apple-darwin` (`lipo
+> -create`).
+>
+> **Pastebėta, bet NEliečiama (ne šios užduoties apimtis):** `tauri build` įspėja, kad
+> `"identifier": "fr.nullbyte.app"` (`tauri.conf.json`) baigiasi `.app` — tai konfliktuoja
+> su macOS bundle plėtiniu, CLI nerekomenduoja. Nekeista, nes identifikatoriaus pakeitimas
+> paveiktų code signing/notarization/app data izoliaciją vėliau — vartotojo sprendimas, ne
+> šios užduoties dalis.
+
+**Failai:** `scripts/build-sidecar.sh` (universal build atveju — praplėsti VISAIS TRIMIS
+triple'ais, žr. pastabą aukščiau)
 
 **Ką daryti:**
-- Universal build'ui: praplėsk `scripts/build-sidecar.sh`, kad statytų IR
+- ~~Universal build'ui: praplėsk `scripts/build-sidecar.sh`, kad statytų IR
   `x86_64-apple-darwin`, IR `aarch64-apple-darwin` (du atskiri `cargo build --target ...`
   kvietimai, du sufiksuoti binarai `crates/nullbyte-app/binaries/`) — Tauri universal build
   pats `lipo`'ina GALUTINĮ `.app` binarą, bet KIEKVIENAS externalBin sidecar'as turi būti
-  paduotas atskirai per triple, ne kaip vienas universal failas
+  paduotas atskirai per triple, ne kaip vienas universal failas~~ **NETEISINGA prielaida,
+  žr. pastabą aukščiau** — reikia dar ir trečio, jau `lipo`'into `-universal-apple-darwin`
+  failo.
 
 **Acceptance:**
 - [x] `pnpm tauri build` (vienam hostui, `aarch64-apple-darwin`) sėkmingai randa sidecar'ą
-      build.rs metu — netiesiogiai patikrinta per `cargo build --workspace` pilną seką
-      (P4.0.3 priešdarbis); PATS `pnpm tauri build` (release profilis, tikras bundle'as)
-      DAR NEPALEISTAS
-- [ ] `pnpm tauri build --target universal-apple-darwin` sėkmingai supakuoja abu triple'us
-- [ ] Supakuotas `.app`/`.dmg` paleidžia `nullbyte-emu` teisingai (iš bundle'o kelio, ne dev)
+      build.rs metu — realiai patikrinta `pnpm tauri build --target universal-apple-darwin`
+      paleidimu (2026-08-25, release profilis, tikras `.app`/`.dmg` bundle'as)
+- [x] `pnpm tauri build --target universal-apple-darwin` sėkmingai supakuoja abu triple'us
+- [x] Supakuotas `.app`/`.dmg` paleidžia `nullbyte-emu` teisingai (iš bundle'o kelio, ne dev)
 
 ---
 
@@ -1896,13 +1917,13 @@ CREATE TABLE scrape_cache (
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
-| 4 — Įvestis (+P4.0.x migracija) | 9 | 4 | 44 % |
+| 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 0 | 0 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **25** | **48 %** |
+| **Viso** | **52** | **26** | **50 %** |
 
 ---
 
