@@ -1445,6 +1445,10 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 > DVIPRASMIŠKAI) — ištaisyta NAUJA migracija `002_fix_archive_extensions.sql`, ne šio failo
 > redagavimu (CLAUDE.md §12 DoD). Žr. P5.3 pastabą dėl detalių.
 >
+> **Pastaba (P5.4, 2026-08-25):** `games_fts` (žr. schemą aukščiau) NETURĖJO sync trigerių —
+> external-content FTS5 lentelė be jų VISADA liktų tuščia, nepriklausomai nuo `games` turinio.
+> Ištaisyta NAUJA migracija `003_games_fts_sync_triggers.sql`. Žr. P5.4 pastabą dėl detalių.
+>
 > **Realiai patikrinta** (ne vien unit testais) — tikras `target/debug/nullbyte-app`
 > paleidimas DU kartus iš eilės: pirmą kartą sukūrė `nullbyte.db`/`-shm`/`-wal` faktiniame
 > `~/Library/Application Support/Nullbyte/` kelyje, `sqlite3` CLI (nepriklausomas nuo mūsų
@@ -1677,10 +1681,35 @@ CREATE TABLE scrape_cache (
 
 ---
 
-### P5.4 — Bibliotekos užklausos `[ ]`
+### P5.4 — Bibliotekos užklausos `[x]`
 
 **Priklausomybės:** P5.3
 **Failai:** `crates/nullbyte-app/src/db/games.rs`, `crates/nullbyte-app/src/commands/library.rs`
+
+> **Įgyvendinta 2026-08-25.** PIRMAS task'as, kuris realiai užpildo `commands/` sluoksnį ir
+> registruoja komandas `lib.rs` `generate_handler![]` — iki šiol frontend'as turėjo tik
+> `greet`/`get_app_info`. `db/games.rs` (grynas SQL, be Tauri) + `commands/library.rs`
+> (plonas — tik `state.db.lock()` + delegavimas, CLAUDE.md §6.3) atskirti, kaip ir kitur šiame
+> projekte. `list_games` sudaro SQL dinamiškai (`Vec<Box<dyn ToSql>>` parametrams) — FTS5
+> `JOIN` PRIDEDAMAS TIK kai `search` netuščias po išvalymo, kad tuščia paieška neuždėtų
+> nereikalingo JOIN'o. Paieškos terminas verčiamas į FTS5 prefikso sintaksę (`mario*`).
+>
+> **Rasta ir pataisyta reali spraga (dar viena, P5.1 metu praleista)**: `games_fts` yra
+> external-content FTS5 lentelė (`content='games'`) — SQLite JOS NESINCHRONIZUOJA
+> automatiškai, reikia eksplicitinių trigerių. Be jų `games_fts` visada liktų tuščia,
+> NEPRIKLAUSOMAI nuo `games` turinio — paieška tyliai negrąžintų NIEKO, jokios klaidos,
+> pavojingiausia klaidų rūšis. Ištaisyta NAUJA migracija (ne 001 redagavimas)
+> `003_games_fts_sync_triggers.sql` — standartinis SQLite external-content sync šablonas
+> (AFTER INSERT/UPDATE/DELETE trigeriai) + backfill esamiems įrašams. Patikrinta REALIU
+> testu (`deleted_game_disappears_from_search_too`), kad DELETE per trigerį pašalina įrašą
+> IR iš `games_fts`, ne tik iš `games`.
+>
+> **Realiai patikrinta**: FTS5 paieška 5000 sintetinių įrašų — **0.33ms** (limitas 50ms,
+> >100x atsarga). Migracijos 2+3 pritaikytos ant TIKRO, jau egzistuojančio DB failo
+> (`~/Library/Application Support/Nullbyte/nullbyte.db`, sukurto P5.1 metu su
+> `user_version=1`) — `user_version` teisingai pakilo į 3, PSX/Saturn/SegaCD/Neo Geo/Arcade
+> `extensions` teisingai pataisyti, visi 3 trigeriai realiai sukurti (`sqlite_master`
+> patvirtina) — tai realus ATNAUJINIMO kelias, ne švarus testas nuo nulio.
 
 **Ką daryti:**
 - `list_games(filter)` — filtras: platforma, paieška (FTS5), favorite, rūšiavimas, puslapiavimas
@@ -1689,9 +1718,11 @@ CREATE TABLE scrape_cache (
 - Tauri komandos plonos, grąžina `camelCase` JSON
 
 **Acceptance:**
-- [ ] Paieška „mario" randa visus Mario žaidimus < 50 ms su 5000 įrašų
-- [ ] Puslapiavimas veikia
-- [ ] TS tipai atitinka Rust struct'us
+- [x] Paieška „mario" randa visus Mario žaidimus < 50 ms su 5000 įrašų — 0.33ms realiai
+- [x] Puslapiavimas veikia — unit testas (`pagination_returns_correct_slice`)
+- [x] TS tipai atitinka Rust struct'us — `src/lib/types/index.ts` atnaujintas (`Game`,
+      `Platform`, `PlatformSummary`, `GameFilter`, `SortField`, `SortDirection`), `pnpm check`
+      švarus
 
 ---
 
@@ -2094,12 +2125,12 @@ CREATE TABLE scrape_cache (
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
-| 5 — DB / biblioteka | 4 | 3 | 75 % |
+| 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **29** | **56 %** |
+| **Viso** | **52** | **30** | **58 %** |
 
 ---
 

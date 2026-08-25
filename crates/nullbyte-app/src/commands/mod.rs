@@ -6,3 +6,4 @@
 //! Užpildoma vėlesnėse fazėse: `library`, `scraper`, `settings`.
 
 pub mod input;
+pub mod library;

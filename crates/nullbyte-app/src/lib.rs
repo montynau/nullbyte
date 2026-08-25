@@ -90,7 +90,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .manage(app_state)
-        .invoke_handler(tauri::generate_handler![greet, get_app_info])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            get_app_info,
+            commands::library::list_games,
+            commands::library::get_game,
+            commands::library::set_favorite,
+            commands::library::record_play,
+            commands::library::list_platforms,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

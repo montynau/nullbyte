@@ -24,7 +24,9 @@ pub struct Game {
     pub title: String,
     /// Be `"The "` prefikso, mažosiomis raidėmis — rikiavimui (P5.3 skeneris).
     pub sort_title: String,
-    /// SANTYKINIS kelias (CLAUDE.md §9.4 „DB laiko tik santykinius kelius").
+    /// ABSOLIUTUS kelias — SKIRTINGAI nuo media cache (CLAUDE.md §9.4), ROM katalogai gali
+    /// būti bet kur diske ir jų gali būti keli vienu metu, tad santykinis kelias būtų
+    /// dviprasmiškas be papildomo JOIN'o į `rom_directories` (žr. `library::scanner` doc).
     pub rom_path: String,
     pub rom_size: i64,
     /// Failas archyve (`.zip`/`.7z`), jei ROM'as suarchyvuotas.

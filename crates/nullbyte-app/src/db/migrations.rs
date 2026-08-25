@@ -13,6 +13,10 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
         2,
         include_str!("../../migrations/002_fix_archive_extensions.sql"),
     ),
+    (
+        3,
+        include_str!("../../migrations/003_games_fts_sync_triggers.sql"),
+    ),
 ];
 
 /// Atveria (arba sukuria, jei neegzistuoja — kartu su tėviniais katalogais) SQLite DB

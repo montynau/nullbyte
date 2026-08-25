@@ -2,5 +2,6 @@
 //!
 //! Užpildoma Fazėje 5 (P5.1–P5.4): `migrations`, `models`, `games`, `settings`.
 
+pub mod games;
 pub mod migrations;
 pub mod models;

@@ -24,7 +24,6 @@ pub struct AppState {
     pub db_path: PathBuf,
     /// `rusqlite::Connection` NĖRA `Sync` (CLAUDE.md §10 „SQLite") — `Mutex<Connection>` MVP
     /// metu pakanka (vienas ryšys, ne pool'as; `r2d2_sqlite` — post-MVP, jei tikrai reikės).
-    #[allow(dead_code)] // pilnai išnaudos P5.4 (bibliotekos užklausos) ir P5.2/P5.3 CRUD
     pub db: Mutex<Connection>,
 }
 
