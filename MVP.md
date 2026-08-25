@@ -1731,10 +1731,47 @@ CREATE TABLE scrape_cache (
 **Tikslas:** metaduomenys, viršeliai ir gameplay video.
 **Rizika:** 🟡 vidutinė (išorinis API, kvotos). **Įvertis:** 2–3 dienos.
 
-### P6.1 — API klientas `[ ]`
+### P6.1 — API klientas `[x]`
 
 **Priklausomybės:** P5.1
 **Failai:** `crates/nullbyte-app/src/scraper/screenscraper.rs`, `crates/nullbyte-app/src/scraper/types.rs`
+
+> **Įgyvendinta 2026-08-25.** Vartotojas turėjo TIKRUS ScreenScraper devid/devpassword IR
+> ssid/sspassword kredencialus — patvirtinti realiu `ssuserInfos.php` kvietimu PRIEŠ rašant
+> kodą (`success: true`, `maxrequestsperday: 20000`). `types.rs` struktūra NUSTATYTA REALIU
+> `jeuInfos.php` atsakymu (Super Metroid, SNES, `crc=AD2CBF9C`), ne spėta iš CLAUDE.md §9.1
+> aprašymo (žr. atminties taisyklę „Verify external API refs" — principas taikomas ir API
+> atsakymo FORMAI, ne tik atskiriems laukams).
+>
+> **Du realūs radiniai, kuriuos atskleidė TIK gyvas API kvietimas:**
+> 1. **Strategija supaprastinta** — CLAUDE.md aprašo „hash'ai → jei nerado, pavadinimas" kaip
+>    DU žingsnius, bet realus API PATS bando abu VIENOJE užklausoje (patikrinta: `crc` +
+>    `romnom` kartu grąžino teisingą atsakymą pirmu bandymu). `lookup_game()` siunčia visus
+>    turimus laukus VIENU HTTP kvietimu — antras raundas nereikalingas.
+> 2. **„Nerasta" = HTTP 404 su PAPRASTU TEKSTU** (`"Erreur : Rom/Iso/Dossier non trouvée !"`),
+>    NE JSON — net su `output=json`. Be šio patikrinimo PRIEŠ JSON parsinimą, KIEKVIENAS
+>    „nerasta" atvejis būtų klaidingai užkritęs kaip „blogas JSON", ne teisingai atpažintas
+>    kaip `NotFound`.
+>
+> **Reali klaida sugauta RAŠANT TESTUS, ne implementacijoje** (trečia tokia šią sesiją, žr.
+> P5.2/P5.3/P5.4 panašius radinius): `pick_available_region()` naiviai imdavo PIRMĄ `noms`
+> masyve esantį regioną, kuris BET KOKS priklauso prioriteto sąrašui — realiame atsakyme
+> `noms` atėjo tvarka `[ss, us, jp, eu]`, tad grąžindavo „ss", nors CLAUDE.md §9.2 prioritetas
+> aiškiai sako „eu" turėtų laimėti. Pataisyta iteruojant PER PRIORITETO sąrašą, ne per `noms`
+> (tas pats principas, kurį `pick_region_text`/`pick_lang_text` jau darė teisingai). Taip pat
+> testas, bandęs simuliuoti „SSID nenustatytas" per `env::remove_var`, KRITO REALIAME repo,
+> nes TIKRAS `.env` failas egzistuoja diske — `dotenvy::dotenv()` jį randa einant per
+> tėvinius katalogus ir užpildo „nenustatytą" kintamąjį TIKRA reikšme. Pataisyta: testas
+> nustato VISUS keturis kintamuosius eksplicitiškai, nesikliaudamas „nenustatyta" elgesiu.
+>
+> Nauja priklausomybė: `dotenvy = "0.15"` (`.env` skaitymui — CLAUDE.md §11.8 reikalauja
+> MVP.md įrašo naujoms priklausomybėms, tai jis). `.env.example` papildytas
+> `SCREENSCRAPER_SSID`/`SSPASSWORD` (neprivalomi, CLAUDE.md §9.3).
+>
+> **Realiai patikrinta** (ne vien fixture'u): `real_snes_rom_finds_metadata` — tikras SNES
+> ROM'as (Super Metroid) rado teisingus metaduomenis (developer/publisher „Nintendo", genre
+> „Platform", region „eu" po pataisymo) per GYVĄ API kvietimą. `real_unknown_rom_is_not_found`
+> — išgalvotas CRC/pavadinimas grąžino `NotFound`, ne klaidą.
 
 **Ką daryti:**
 - `reqwest` klientas į `https://www.screenscraper.fr/api2/jeuInfos.php`
@@ -1745,10 +1782,10 @@ CREATE TABLE scrape_cache (
 - Regionų ir kalbų prioritetai iš `CLAUDE.md` §9.2
 
 **Acceptance:**
-- [ ] Žinomas SNES ROM'as randa teisingus metaduomenis
-- [ ] Nežinomas ROM'as → `NotFound`, ne klaida
-- [ ] Blogas JSON nesulaužo (graceful degradation)
-- [ ] Credentials iš `.env` / nustatymų, ne hardcode
+- [x] Žinomas SNES ROM'as randa teisingus metaduomenis — patikrinta REALIU API kvietimu
+- [x] Nežinomas ROM'as → `NotFound`, ne klaida — patikrinta REALIU API kvietimu (HTTP 404)
+- [x] Blogas JSON nesulaužo (graceful degradation) — grąžina `Err`, ne panic'ina
+- [x] Credentials iš `.env` / nustatymų, ne hardcode — `ScreenScraperCredentials::from_env()`
 
 ---
 
@@ -2126,11 +2163,11 @@ CREATE TABLE scrape_cache (
 | 3 — Garsas | 4 | 4 | 100 % |
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
-| 6 — ScreenScraper | 4 | 0 | 0 % |
+| 6 — ScreenScraper | 4 | 1 | 25 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **30** | **58 %** |
+| **Viso** | **52** | **31** | **60 %** |
 
 ---
 
