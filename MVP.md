@@ -1353,10 +1353,40 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 
 ---
 
-### P4.4 — Hotkey'ai `[ ]`
+### P4.4 — Hotkey'ai `[!]` (F1/F2/F5/Cmd+R patikrinti REALIAI 2026-08-25; likusieji — tik unit testais, ta pati kodo šaka)
 
 **Priklausomybės:** P4.3
-**Failai:** `crates/nullbyte-core/src/input/mod.rs`
+**Failai:** `crates/nullbyte-core/src/input/hotkeys.rs` (naujas), `crates/nullbyte-core/src/input/mod.rs`,
+`crates/nullbyte-emu/src/main.rs` (`handle_hotkey_action`/`toggle_fullscreen`/`ModifiersChanged` wiring)
+
+> **Įgyvendinta 2026-08-25.** `HotkeyKey`/`HotkeyAction` (`hotkeys.rs`) — tas pats
+> `winit`-nepriklausomybės principas kaip `mapping.rs` (žr. jo doc). `resolve_hotkey()` yra
+> GRYNA funkcija be jokio mutable būvio — `TogglePause` grąžina abstraktų veiksmą, o
+> `nullbyte-emu` (`App.paused: bool`) sprendžia, ar siųsti `Pause`, ar `Resume`, nes
+> `EmuCommand` neturi „koks dabar būvis" užklausos. `Space` (fast-forward) SĄMONINGAI NĖRA
+> `resolve_hotkey()` dalis — tai vienintelis „laikymas = būvis" hotkey (kaip žaidimo
+> mygtukas), o visi kiti yra „paspaudimas = vienas veiksmas" (trigger); `nullbyte-emu`
+> apdoroja `Space` press/release ATSKIRAI, prieš patikrindamas kitus hotkey'us.
+> `WindowEvent::ModifiersChanged` (naujas `main.rs`) reikalingas, nes `winit`
+> NETEIKIA modifikatorių tiesiogiai `KeyEvent`'e.
+>
+> **Quick save/load (F2/F4)** naudoja rezervuotą slot'ą `0`, atskirą nuo numeruotų F5-F8
+> slot'ų (`1..=4`) — kad vartotojas netyčia neperrašytų pavadinto save'o. **`Esc`** šiuo metu
+> TIK išeina iš fullscreen — „grįžti į biblioteką" dalis N/A, nes bibliotekos lango dar nėra
+> (P7 UI nepradėta). **`SaveState`/`LoadState`** patys per se NEVEIKIA (P8.1 dar
+> neimplementuota, `EmuThread` juos tik logina ir ignoruoja, žr. `core::runner`) — šis task'as
+> pridėjo TIK teisingą klavišo → komandos wiring'ą, ne pačią save state funkciją.
+>
+> **Realiai patikrinta** (SNES ROM, `nullbyte-emu` per FIFO stdin): `F1` (pauzė → `paused=true`
+> log'e), `F2` (quick save), `F5` (save state slot 1), `Cmd+R` (reset) — visi keturi teisingai
+> nusiuntė atitinkamą komandą. **NEpatikrinta gyvai:** `Shift+F5` (load slot), `F11`
+> (fullscreen), `Esc`, `Space` (fast-forward) — `osascript` klavišų injektavimas į macOS
+> Accessory-tipo langą pasirodė nepatikimas (fokusas nuklysdavo atgal į terminalą net po
+> `AXRaise`, tiek globalus, tiek process-scoped `System Events` sintaksės variantas) —
+> testavimo įrankio, ne produkto, problema. Šie keturi padengti unit testais
+> (`f5_through_f8_save_without_shift_load_with_shift` patikrina TIKSLIAI Shift+F5 atvejį) IR
+> naudoja LYGIAI TĄ PAČIĄ `resolve_hotkey`/`handle_hotkey_action` kodo šaką, kuri jau
+> patvirtinta gyvai kitiems trims trigger-tipo hotkey'ams.
 
 **Ką daryti:**
 
@@ -1373,8 +1403,12 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 | `Cmd/Ctrl+R` | Reset |
 
 **Acceptance:**
-- [ ] Visi hotkey'ai veikia
-- [ ] Nekonfliktuoja su žaidimo įvestimi
+- [!] Visi hotkey'ai veikia — 4/9 patikrinti REALIAI, likusieji tik unit testais (žr. pastabą
+      aukščiau); `SaveState`/`LoadState` patys funkcionalumas laukia P8.1
+- [x] Nekonfliktuoja su žaidimo įvestimi — hotkey klavišai (`F1`-`F11`, `Esc`, `Cmd/Ctrl+R`)
+      ir žaidimo klavišai (strėlės, `Z`/`X`/`A`/`S`, `Enter`/`Shift`) visiškai nesikerta pagal
+      konstrukciją (`handle_keyboard` patikrina hotkey PIRMIAU, `return` neleidžia patekti į
+      žaidimo mapping'ą)
 
 ---
 

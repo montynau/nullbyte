@@ -16,8 +16,8 @@ use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
-use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::{Window, WindowId};
+use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
+use winit::window::{Fullscreen, Window, WindowId};
 
 #[cfg(target_os = "macos")]
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
@@ -27,6 +27,7 @@ use nullbyte_core::audio::ring::AudioConsumer;
 use nullbyte_core::core::runner::{EmuCommand, EmuThread, InputState};
 use nullbyte_core::error::CoreError;
 use nullbyte_core::input::gamepad::{GamepadEvent, GamepadThread};
+use nullbyte_core::input::hotkeys::{resolve_hotkey, HotkeyAction, HotkeyKey};
 use nullbyte_core::input::mapping::{
     default_gamepad_mapping, default_keyboard_mapping, joypad_bit, KeyboardKey,
 };
@@ -140,6 +141,14 @@ struct App {
     /// „žaidėjas 1" abiem įvesties būdais), antras — port'ą 1, ir t.t. Atsijungus, port'as
     /// ATLAISVINAMAS kitam gamepad'ui (žr. `drain_gamepad_events`).
     gamepad_ports: std::collections::HashMap<usize, usize>,
+    /// P4.4: dabartinė modifikatorių būsena (Shift/Ctrl/Alt/Cmd) — atnaujinama per
+    /// `WindowEvent::ModifiersChanged` (winit NETEIKIA modifikatorių tiesiogiai
+    /// `KeyEvent`'e, tai atskiras įvykis). Reikalinga F5-F8 vs Shift+F5-F8 ir
+    /// Cmd/Ctrl+R atskyrimui.
+    modifiers: ModifiersState,
+    /// P4.4: `F1` (pauzė/tęsti) TOGGLE — `EmuCommand` neturi „koks dabar būvis" užklausos,
+    /// tad `nullbyte-emu` pats laiko, ką paskutinį kartą nusiuntė.
+    paused: bool,
 }
 
 impl App {
@@ -157,14 +166,49 @@ impl App {
             keyboard_buttons: 0,
             gamepad_port_buttons: [0; 4],
             gamepad_ports: std::collections::HashMap::new(),
+            modifiers: ModifiersState::empty(),
+            paused: false,
         }
     }
 
-    /// P4.2: konvertuoja klavišo paspaudimą/atleidimą į `EmuCommand::SetInput` port'ui 0.
-    /// `event.repeat` (klaviatūros OS-lygio pakartojimas laikant nuspaustą) praleidžiamas —
-    /// bitas jau nustatytas nuo pirmo paspaudimo, pakartotinis OR yra no-op, tik nereikalingas
-    /// IPC eismas.
+    /// P4.2/P4.4: konvertuoja klavišo paspaudimą/atleidimą ARBA į hotkey veiksmą, ARBA į
+    /// `EmuCommand::SetInput` port'ui 0 — NIEKADA abu (žr. MVP.md P4.4 acceptance
+    /// „Nekonfliktuoja su žaidimo įvestimi": hotkey klavišai (`F1`-`F11`, `Esc`, `Cmd/Ctrl+R`)
+    /// visiškai nesikerta su žaidimo klavišais (strėlės, `Z`/`X`/`A`/`S`, `Enter`/`Shift`),
+    /// tad hotkey patikra PIRMIAU ir `return` užtikrina, kad viena netyčia neužgožtų kitos).
+    /// `Space` (fast-forward) apdorojama ATSKIRAI — tai VIENINTELIS hotkey su press/release
+    /// būviu, ne trigger'iu (žr. `hotkeys` modulio doc).
+    ///
+    /// `event.repeat` (klaviatūros OS-lygio pakartojimas laikant nuspaustą) praleidžiamas
+    /// trigger-tipo hotkey'ams IR žaidimo mygtukams — bitas/veiksmas jau įvykdytas nuo pirmo
+    /// paspaudimo, pakartotinis būtų arba no-op (žaidimo mygtukas), arba klaidingas
+    /// pasikartojantis veiksmas (pvz. F1 kelis kartus per sekundę laikant nuspaustą).
     fn handle_keyboard(&mut self, event: KeyEvent) {
+        if let PhysicalKey::Code(KeyCode::Space) = event.physical_key {
+            if !event.repeat {
+                self.send_emu_command(EmuCommand::SetFastForward(
+                    event.state == ElementState::Pressed,
+                ));
+            }
+            return;
+        }
+
+        if event.state == ElementState::Pressed && !event.repeat {
+            if let Some(hotkey) = physical_key_to_hotkey(event.physical_key) {
+                let primary_modifier = if cfg!(target_os = "macos") {
+                    self.modifiers.super_key()
+                } else {
+                    self.modifiers.control_key()
+                };
+                if let Some(action) =
+                    resolve_hotkey(hotkey, self.modifiers.shift_key(), primary_modifier)
+                {
+                    self.handle_hotkey_action(action);
+                    return;
+                }
+            }
+        }
+
         if event.repeat {
             return;
         }
@@ -298,6 +342,77 @@ impl App {
             tracing::warn!(%error, port, "nepavyko nusiųsti SetInput komandos");
         }
     }
+
+    /// P4.4: vykdo [`HotkeyAction`] — ARBA nusiunčia `EmuCommand` (dauguma atvejų), ARBA
+    /// atlieka lango lygmens veiksmą (`ToggleFullscreen`/`ExitFullscreenOrLibrary`), kurio
+    /// `nullbyte-core` net neturi kaip reprezentuoti (žr. `HotkeyAction` doc).
+    fn handle_hotkey_action(&mut self, action: HotkeyAction) {
+        match action {
+            HotkeyAction::TogglePause => {
+                self.paused = !self.paused;
+                let cmd = if self.paused {
+                    EmuCommand::Pause
+                } else {
+                    EmuCommand::Resume
+                };
+                tracing::info!(paused = self.paused, "hotkey: pauzė/tęsti");
+                self.send_emu_command(cmd);
+            }
+            HotkeyAction::QuickSave => {
+                tracing::info!("hotkey: quick save");
+                self.send_emu_command(EmuCommand::SaveState(0));
+            }
+            HotkeyAction::QuickLoad => {
+                tracing::info!("hotkey: quick load");
+                self.send_emu_command(EmuCommand::LoadState(0));
+            }
+            HotkeyAction::SaveStateSlot(slot) => {
+                tracing::info!(slot, "hotkey: save state slot");
+                self.send_emu_command(EmuCommand::SaveState(slot));
+            }
+            HotkeyAction::LoadStateSlot(slot) => {
+                tracing::info!(slot, "hotkey: load state slot");
+                self.send_emu_command(EmuCommand::LoadState(slot));
+            }
+            HotkeyAction::Reset => {
+                tracing::info!("hotkey: reset");
+                self.send_emu_command(EmuCommand::Reset);
+            }
+            HotkeyAction::ToggleFullscreen => self.toggle_fullscreen(),
+            HotkeyAction::ExitFullscreenOrLibrary => {
+                // „grįžti į biblioteką" dalis — P7 UI dar neegzistuoja (žr. `HotkeyAction`
+                // doc), tad kol kas TIK išeina iš fullscreen, jei jame esame.
+                if let Some(window) = &self.window {
+                    if window.fullscreen().is_some() {
+                        tracing::info!("hotkey: Esc — išeinama iš fullscreen");
+                        window.set_fullscreen(None);
+                    }
+                }
+            }
+        }
+    }
+
+    fn toggle_fullscreen(&self) {
+        let Some(window) = &self.window else {
+            return;
+        };
+        if window.fullscreen().is_some() {
+            tracing::info!("hotkey: F11 — išeinama iš fullscreen");
+            window.set_fullscreen(None);
+        } else {
+            tracing::info!("hotkey: F11 — įjungiamas fullscreen");
+            window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+        }
+    }
+
+    fn send_emu_command(&self, cmd: EmuCommand) {
+        let Some(emu_thread) = &self.emu_thread else {
+            return;
+        };
+        if let Err(error) = emu_thread.send(cmd) {
+            tracing::warn!(%error, "nepavyko nusiųsti EmuCommand (hotkey)");
+        }
+    }
 }
 
 /// `nullbyte-core` sąmoningai nepriklauso nuo `winit` (žr. `mapping` modulio doc) — šis
@@ -317,6 +432,27 @@ fn physical_key_to_mapping_key(key: PhysicalKey) -> Option<KeyboardKey> {
         KeyCode::KeyS => Some(KeyboardKey::KeyS),
         KeyCode::Enter => Some(KeyboardKey::Enter),
         KeyCode::ShiftRight => Some(KeyboardKey::ShiftRight),
+        _ => None,
+    }
+}
+
+/// `nullbyte-core` sąmoningai nepriklauso nuo `winit` (žr. `hotkeys` modulio doc) — tas pats
+/// konvertavimo principas kaip [`physical_key_to_mapping_key`].
+fn physical_key_to_hotkey(key: PhysicalKey) -> Option<HotkeyKey> {
+    let PhysicalKey::Code(code) = key else {
+        return None;
+    };
+    match code {
+        KeyCode::F1 => Some(HotkeyKey::F1),
+        KeyCode::F2 => Some(HotkeyKey::F2),
+        KeyCode::F4 => Some(HotkeyKey::F4),
+        KeyCode::F5 => Some(HotkeyKey::F5),
+        KeyCode::F6 => Some(HotkeyKey::F6),
+        KeyCode::F7 => Some(HotkeyKey::F7),
+        KeyCode::F8 => Some(HotkeyKey::F8),
+        KeyCode::F11 => Some(HotkeyKey::F11),
+        KeyCode::Escape => Some(HotkeyKey::Escape),
+        KeyCode::KeyR => Some(HotkeyKey::KeyR),
         _ => None,
     }
 }
@@ -477,6 +613,9 @@ impl ApplicationHandler<EmuUserEvent> for App {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.resize(size.width, size.height);
                 }
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers.state();
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 self.handle_keyboard(event);
