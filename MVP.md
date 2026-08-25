@@ -1255,11 +1255,12 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 
 ---
 
-### P4.2 — Įvesties mapping'as `[ ]`
+### P4.2 — Įvesties mapping'as `[ ]` (klaviatūra patikrinta REALIAI 2026-08-25; gamepad mygtukų mapping'as — tik testais, DualShock 4 nebuvo po ranka)
 
 **Priklausomybės:** P4.1, P4.0.2 (klaviatūros mapping'ui reikia realių winit `KeyboardInput`
 įvykių iš `nullbyte-emu` — Tauri `Window` jų neturėjo, žr. ADR-016)
-**Failai:** `crates/nullbyte-core/src/input/mapping.rs`
+**Failai:** `crates/nullbyte-core/src/input/mapping.rs`, `crates/nullbyte-emu/src/main.rs`
+(`handle_keyboard`/`drain_gamepad_events`/`send_port0_input` wiring)
 
 > **Pastaba (ADR-016, 2026-08-20):** šis task'as sustabdytas prieš pradedant kodą, kai
 > paaiškėjo, kad klaviatūros mapping'o įgyvendinti neįmanoma be proceso architektūros
@@ -1267,18 +1268,43 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 > pradėti nuo jos, kol P4.0.x vyksta. „Mapping'as saugomas DB" priklauso nuo P5.1 (SQLite
 > schema dar neegzistuoja) — iki tada laikyk in-memory (žr. sesijos susitarimą 2026-08-20).
 
+> **Įgyvendinta 2026-08-25.** VIENA lentelė visiems gamepad'ams (ne per-brand'inė) — `gilrs`
+> jau abstrahuoja Xbox/DualShock/8BitDo į tą patį `Button::South/East/North/West` enum'ą
+> pagal FIZINĘ poziciją (žr. P4.1), tad SNES `A`/`B` persidengimas (libretro `B` = apatinis
+> fizinis mygtukas) tvarkomas VIENĄ kartą, ne per gamintoją. `nullbyte-core` NEPRIKLAUSO nuo
+> `winit` (tas pats principas kaip `video::renderer`), tad klaviatūros mapping'as priima
+> lokalų `KeyboardKey` enum'ą — `nullbyte-emu` konvertuoja `winit::keyboard::KeyCode` → jį.
+> Port'o 0 bitmask'as laikomas DVIEM ATSKIRAIS laukais (`keyboard_buttons`/`gamepad_buttons`,
+> sujungiami TIK siunčiant `SetInput`) — vieno šaltinio mygtuko atleidimas kitaip galėtų
+> netyčia išvalyti bitą, kurį VIS DAR laiko kitas šaltinis.
+>
+> **Realiai patikrinta (ne vien testais):** paleista realiu SNES ROM'u (Super Punch-Out!!,
+> `nullbyte-emu` per FIFO stdin, `Run` komanda), langas rastas UŽ kitų langų (macOS
+> `ActivationPolicy::Accessory` niekada automatiškai neiškelia į priekį — `osascript`
+> `AXRaise` tai išsprendė; System Events `visible: false` pasirodė NEPATIKIMA accessory tipo
+> programoms, tikra būsena patvirtinta ekrano nuotrauka), vartotojas realiai žaidė
+> klaviatūra kelias minutes, patvirtino: „žaidžiu, viskas veikia". **Gamepad mygtukų
+> mapping'as NEPATVIRTINTAS realiu valdikliu** (DualShock 4 nebuvo po ranka šią sesiją, tas
+> pats apribojimas kaip P4.1 Xbox/8BitDo) — logika identiška klaviatūrai, 6 unit testais
+> padengta (`joypad_bit`, SNES layout swap, D-pad/shoulders, unmapped buttons), bet fizinis
+> patikrinimas lieka atviras.
+
 **Ką daryti:**
 - Fizinis mygtukas → `RETRO_DEVICE_ID_JOYPAD_*` (B,Y,SELECT,START,UP,DOWN,LEFT,RIGHT,A,X,L,R,L2,R2,L3,R3)
-- Numatytieji mapping'ai pagal valdiklio tipą
+- ~~Numatytieji mapping'ai pagal valdiklio tipą~~ — NETEISINGA PRIELAIDA: `gilrs` jau
+  abstrahuoja valdiklio tipą (žr. pastabą aukščiau), per-brand'inės lentelės nereikia.
 - **Dėmesio:** libretro `A`/`B` yra SNES išdėstyme — Xbox valdiklio `A` fiziškai atitinka
   libretro `B`. Numatytasis mapping'as turi tai gerbti.
 - Klaviatūros numatytieji: strėlės + `Z`/`X`/`A`/`S` + `Enter`/`Shift`
-- Mapping'as saugomas DB (per-vartotoją, per-platformą)
+- ~~Mapping'as saugomas DB (per-vartotoją, per-platformą)~~ — atidėta P5.1 (žr. ADR-016
+  pastabą aukščiau), hardkodintas numatytasis mapping'as kol kas VIENINTELIS.
 
 **Acceptance:**
-- [ ] SNES žaidimas valdomas gamepad'u teisingai
-- [ ] Klaviatūra veikia
-- [ ] Mapping'as išlieka po perkrovimo
+- [!] SNES žaidimas valdomas gamepad'u teisingai — logika + testai OK, REALUS valdiklis
+      NEPATIKRINTAS (nebuvo po ranka)
+- [x] Klaviatūra veikia — patikrinta REALIAI (žr. pastabą aukščiau)
+- [ ] Mapping'as išlieka po perkrovimo — N/A kol P5.1 neegzistuoja (žr. ADR-016 pastabą);
+      hardkodintas mapping'as savaime „išlieka", nes nėra ką prarasti perkrovus
 
 ---
 

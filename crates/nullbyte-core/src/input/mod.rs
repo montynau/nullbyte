@@ -3,3 +3,4 @@
 //! Užpildoma Fazėje 4 (P4.1–P4.4): `gamepad`, `keyboard`, `mapping`.
 
 pub mod gamepad;
+pub mod mapping;

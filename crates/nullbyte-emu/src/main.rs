@@ -24,9 +24,12 @@ use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 
 use nullbyte_core::audio::output::{default_config, AudioOutput};
 use nullbyte_core::audio::ring::AudioConsumer;
-use nullbyte_core::core::runner::{EmuCommand, EmuThread};
+use nullbyte_core::core::runner::{EmuCommand, EmuThread, InputState};
 use nullbyte_core::error::CoreError;
 use nullbyte_core::input::gamepad::{GamepadEvent, GamepadThread};
+use nullbyte_core::input::mapping::{
+    default_gamepad_mapping, default_keyboard_mapping, joypad_bit, KeyboardKey,
+};
 use nullbyte_core::ipc::StatusWriter;
 use nullbyte_core::video::frame_buffer::{FrameConsumer, VideoFrameData};
 use nullbyte_core::video::renderer::Renderer;
@@ -124,6 +127,10 @@ struct App {
     /// Laikoma gyva TIK tam, kad rašymo gija nebūtų nutraukta (žr. `nullbyte_core::ipc`
     /// modulio doc) — niekas tiesiogiai jos nekviečia po `resumed()`.
     _status_writer: Option<StatusWriter>,
+    /// P4.2: einamas port'o 0 mygtukų bitmask'as iš KIEKVIENO įvesties šaltinio ATSKIRAI
+    /// (žr. `send_port0_input` doc dėl KODĖL dviejų atskirų laukų, ne vieno bendro).
+    keyboard_buttons: u16,
+    gamepad_buttons: u16,
 }
 
 impl App {
@@ -138,37 +145,42 @@ impl App {
             gamepad_thread: None,
             gamepad_rx: None,
             _status_writer: None,
+            keyboard_buttons: 0,
+            gamepad_buttons: 0,
         }
     }
 
-    /// P4.0.2 acceptance: įrodo, kad winit `KeyboardInput` REALIAI pasiekia procesą — su
-    /// Tauri `Window` tai buvo neįmanoma (ADR-016, CLAUDE.md §10). Pilnas fizinio klavišo →
-    /// `RETRO_DEVICE_ID_JOYPAD_*` mapping'as yra atskira užduotis (P4.2); čia tik paprastas
-    /// test mapping'as (strėlė → log'as), kuris įrodo, kad įvykiai ateina.
-    fn handle_keyboard(&self, event: KeyEvent) {
-        if event.state != ElementState::Pressed || event.repeat {
+    /// P4.2: konvertuoja klavišo paspaudimą/atleidimą į `EmuCommand::SetInput` port'ui 0.
+    /// `event.repeat` (klaviatūros OS-lygio pakartojimas laikant nuspaustą) praleidžiamas —
+    /// bitas jau nustatytas nuo pirmo paspaudimo, pakartotinis OR yra no-op, tik nereikalingas
+    /// IPC eismas.
+    fn handle_keyboard(&mut self, event: KeyEvent) {
+        if event.repeat {
             return;
         }
-        let label = match event.physical_key {
-            PhysicalKey::Code(KeyCode::ArrowUp) => Some("UP"),
-            PhysicalKey::Code(KeyCode::ArrowDown) => Some("DOWN"),
-            PhysicalKey::Code(KeyCode::ArrowLeft) => Some("LEFT"),
-            PhysicalKey::Code(KeyCode::ArrowRight) => Some("RIGHT"),
-            _ => None,
+        let Some(key) = physical_key_to_mapping_key(event.physical_key) else {
+            return;
         };
-        if let Some(label) = label {
-            tracing::info!(button = label, "klaviatūros test mapping: strėlė paspausta");
+        let Some(joypad_id) = default_keyboard_mapping(key) else {
+            return;
+        };
+        let bit = joypad_bit(joypad_id);
+        match event.state {
+            ElementState::Pressed => self.keyboard_buttons |= bit,
+            ElementState::Released => self.keyboard_buttons &= !bit,
         }
+        self.send_port0_input();
     }
 
-    /// P4.0.2 acceptance (simetriškas klaviatūrai): įrodo, kad `GamepadThread` įvykiai
-    /// REALIAI pasiekia `nullbyte-emu`. Pilnas mapping'as (fizinis mygtukas →
-    /// `RETRO_DEVICE_ID_JOYPAD_*`) — P4.2, kol kas tik log'as. `try_recv()` — neblokuojantis,
-    /// nes kviečiama kas `about_to_wait()` ciklą, ne dedikuotoje gijoje.
+    /// P4.2: konvertuoja gamepad įvykius į `EmuCommand::SetInput` port'ui 0 (VIENAS žaidėjas
+    /// MVP metu — kelių port'ų priskyrimas atskiriems gamepad ID's yra P4.3 „polling ir input
+    /// bitmask" darbas, žr. MVP.md). `try_recv()` — neblokuojantis, nes kviečiama kas
+    /// `about_to_wait()` ciklą, ne dedikuotoje gijoje.
     fn drain_gamepad_events(&mut self) {
         let Some(rx) = self.gamepad_rx.as_ref() else {
             return;
         };
+        let mut input_changed = false;
         loop {
             match rx.try_recv() {
                 Ok(GamepadEvent::Connected { id, name }) => {
@@ -178,19 +190,21 @@ impl App {
                     tracing::info!(gamepad_id = id, "gamepad atjungtas");
                 }
                 Ok(GamepadEvent::ButtonChanged {
-                    id,
-                    button,
-                    pressed: true,
+                    button, pressed, ..
                 }) => {
-                    tracing::info!(gamepad_id = id, button = ?button, "gamepad mygtukas paspaustas");
-                }
-                Ok(GamepadEvent::ButtonChanged { pressed: false, .. }) => {
-                    // Atleidimo įvykiai kol kas neloginami — simetriška klaviatūros
-                    // handle_keyboard() elgesiui (žr. aukščiau).
+                    if let Some(joypad_id) = default_gamepad_mapping(button) {
+                        let bit = joypad_bit(joypad_id);
+                        if pressed {
+                            self.gamepad_buttons |= bit;
+                        } else {
+                            self.gamepad_buttons &= !bit;
+                        }
+                        input_changed = true;
+                    }
                 }
                 Ok(GamepadEvent::AxisChanged { .. }) => {
-                    // Per triukšminga log'inti kiekvieną ašies pokytį — mapping'as (P4.2)
-                    // juos naudos tiesiogiai, be log'o.
+                    // Analoginės ašys → skaitmeninis D-pad ekvivalentas NEĮTRAUKTA MVP metu —
+                    // MVP.md P4.2 „Ką daryti" prašo tik mygtukų mapping'o.
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -199,6 +213,46 @@ impl App {
                 }
             }
         }
+        if input_changed {
+            self.send_port0_input();
+        }
+    }
+
+    /// Siunčia SUJUNGTĄ (klaviatūra `|` gamepad) port'o 0 bitmask'ą. Du ATSKIRI laukai
+    /// (`keyboard_buttons`/`gamepad_buttons`), sujungiami TIK siunčiant — jei būtų vienas
+    /// bendras laukas su tiesioginiu set/clear iš abiejų šaltinių, vieno šaltinio mygtuko
+    /// ATLEIDIMAS galėtų netyčia išvalyti bitą, kurį VIS DAR laiko nuspaudęs kitas šaltinis
+    /// (pvz. laikai `UP` klaviatūra IR gamepad'u vienu metu, atleidi tik gamepad'ą — be šio
+    /// atskyrimo klaviatūros paspaudimas irgi dingtų).
+    fn send_port0_input(&self) {
+        let Some(emu_thread) = &self.emu_thread else {
+            return;
+        };
+        let buttons = self.keyboard_buttons | self.gamepad_buttons;
+        if let Err(error) = emu_thread.send(EmuCommand::SetInput(InputState { port: 0, buttons })) {
+            tracing::warn!(%error, "nepavyko nusiųsti SetInput komandos");
+        }
+    }
+}
+
+/// `nullbyte-core` sąmoningai nepriklauso nuo `winit` (žr. `mapping` modulio doc) — šis
+/// konvertavimas gyvena `nullbyte-emu` pusėje, kur `winit` tipai jau yra.
+fn physical_key_to_mapping_key(key: PhysicalKey) -> Option<KeyboardKey> {
+    let PhysicalKey::Code(code) = key else {
+        return None;
+    };
+    match code {
+        KeyCode::ArrowUp => Some(KeyboardKey::ArrowUp),
+        KeyCode::ArrowDown => Some(KeyboardKey::ArrowDown),
+        KeyCode::ArrowLeft => Some(KeyboardKey::ArrowLeft),
+        KeyCode::ArrowRight => Some(KeyboardKey::ArrowRight),
+        KeyCode::KeyZ => Some(KeyboardKey::KeyZ),
+        KeyCode::KeyX => Some(KeyboardKey::KeyX),
+        KeyCode::KeyA => Some(KeyboardKey::KeyA),
+        KeyCode::KeyS => Some(KeyboardKey::KeyS),
+        KeyCode::Enter => Some(KeyboardKey::Enter),
+        KeyCode::ShiftRight => Some(KeyboardKey::ShiftRight),
+        _ => None,
     }
 }
 
