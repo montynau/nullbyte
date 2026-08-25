@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
@@ -89,7 +89,18 @@ fn open_audio(mut consumer: AudioConsumer) -> Result<AudioOutput, CoreError> {
     })
 }
 
+/// Winit vartotojo įvykis — VIENINTELĖ paskirtis: pranešti main gijai (per
+/// [`EventLoopProxy`]), kad stdin skaitymo gija (kita gija, žr. `ipc::run_command_reader`)
+/// gavo `EOF`, tad reikia švariai išsijungti (P4.0.4). `ActiveEventLoop` NETURI
+/// `create_proxy()` (tik pati `EventLoop<T>`, PRIEŠ `run_app()`) — proxy sukuriamas `main()`
+/// ir laikomas `App` lauke, kad `resumed()` galėtų jį klonuoti į stdin giją.
+#[derive(Debug)]
+enum EmuUserEvent {
+    StdinClosed,
+}
+
 struct App {
+    event_loop_proxy: EventLoopProxy<EmuUserEvent>,
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     frame_consumer: Option<FrameConsumer>,
@@ -116,8 +127,9 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(event_loop_proxy: EventLoopProxy<EmuUserEvent>) -> Self {
         Self {
+            event_loop_proxy,
             window: None,
             renderer: None,
             frame_consumer: None,
@@ -190,7 +202,22 @@ impl App {
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<EmuUserEvent> for App {
+    /// P4.0.4: `stdin` EOF (žr. `ipc::run_command_reader` iškvietimą `resumed()` žemiau) reiškia,
+    /// kad tėvo procesas nutrūko (bet kokiu būdu, įskaitant `kill -9`) — Unix pipe semantika,
+    /// NE PID pollinimas (CLAUDE.md §10). `event_loop.exit()` sukelia `run_app()` grąžinimą
+    /// `main()`, kur `App` (taigi ir `self.emu_thread`) numetama — `EmuThread::Drop` PATS
+    /// nusiunčia `Stop` ir laukia `join()`, tad core'as švariai atlaisvinamas prieš procesui
+    /// pasibaigiant (žr. `exiting()` doc žemiau).
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: EmuUserEvent) {
+        match event {
+            EmuUserEvent::StdinClosed => {
+                tracing::info!("stdin EOF — tėvo procesas nutrūko, išsijungiame švariai (P4.0.4)");
+                event_loop.exit();
+            }
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             // `resumed()` gali suveikti pakartotinai (macOS aktyvacija, mobiliųjų suspend/
@@ -260,10 +287,17 @@ impl ApplicationHandler for App {
         // klonuota `Sender<EmuCommand>`, NE `&EmuThread`, kad nereikėtų 'static nuorodos
         // (žr. `EmuThread::command_sender()` doc).
         let command_sender = emu_thread.command_sender();
+        let event_loop_proxy = self.event_loop_proxy.clone();
         std::thread::Builder::new()
             .name("nullbyte-emu-stdin".to_string())
             .spawn(move || {
                 ipc::run_command_reader(std::io::stdin().lock(), command_sender);
+                // `run_command_reader` grįžta TIK kai stdin baigėsi (EOF — tėvas nutrūko,
+                // P4.0.4) arba įvyko neatstatoma skaitymo klaida — abiem atvejais tėvas
+                // nebepasiekiamas, tad švariai baikime VISĄ procesą (žr. `user_event` doc).
+                // `send_event` klaida reikštų, kad event loop JAU baigėsi — tada nėra ką
+                // daugiau daryti, procesas ir taip užsidaro.
+                let _ = event_loop_proxy.send_event(EmuUserEvent::StdinClosed);
             })
             .expect("nepavyko sukurti stdin skaitymo gijos");
 
@@ -369,7 +403,7 @@ impl ApplicationHandler for App {
 fn main() {
     init_tracing();
 
-    let mut builder = EventLoop::builder();
+    let mut builder = EventLoop::<EmuUserEvent>::with_user_event();
     // macOS: numatytai winit naudoja ActivationPolicy::Regular — vaiko procesas atsirastų
     // Dock'e kaip antra programa (CLAUDE.md §10).
     #[cfg(target_os = "macos")]
@@ -377,7 +411,7 @@ fn main() {
 
     let event_loop = builder.build().expect("nepavyko sukurti winit event loop");
 
-    let mut app = App::new();
+    let mut app = App::new(event_loop.create_proxy());
     event_loop
         .run_app(&mut app)
         .expect("winit event loop baigėsi klaida");

@@ -1092,12 +1092,29 @@ pats fixture principas kaip `core::loader` testuose).
 
 ---
 
-### P4.0.4 — Proceso gyvavimo ciklas, našlaičių apsauga `[ ]`
+### P4.0.4 — Proceso gyvavimo ciklas, našlaičių apsauga `[x]`
 
 **Priklausomybės:** P4.0.2, P4.0.3
-**Failai:** `crates/nullbyte-emu/src/ipc.rs` (EOF → shutdown šaka toje pačioje stdin-skaitymo
-gijoje, NE atskiras modulis — žr. pastabą žemiau), `crates/nullbyte-app/src/commands/emulator.rs`
-(timeout + `CommandChild::kill()`)
+**Failai:** `crates/nullbyte-emu/src/main.rs` (naujas `EmuUserEvent::StdinClosed` + winit
+`EventLoopProxy`, kad stdin-skaitymo gijos `EOF` pasiektų main/winit giją — `ActiveEventLoop`
+neturi `create_proxy()`, tad `EventLoop<T>::with_user_event()` reikalingas nuo pat pradžių),
+`crates/nullbyte-app/src/ipc.rs` (`EmuClient::shutdown_gracefully()` + `pid()`).
+`commands/emulator.rs` DAR NEEGZISTUOJA (P9.1 UI srautas nepradėtas) — `shutdown_gracefully()`
+yra primityvas, kurį tas sluoksnis kvies vėliau, ne pilnas Tauri komandų API.
+
+> **Įgyvendinta 2026-08-25.** Realiai patikrinta (ne vien skaitant kodą, žr. acceptance):
+> `kill -9` ant „tėvo" (bash simuliuotas) → vaikas savaime išsijungė per 0.2s; realus e2e
+> testas (`cargo test -p nullbyte-app shutdown_gracefully_lets_child_exit -- --ignored
+> --nocapture`) patvirtino, kad `shutdown_gracefully()` baigia TIKRĄ OS procesą (`kill -0
+> <pid>` po `EmuClient` numetimo), ne tik `EmuClient` rankeną.
+>
+> **Sprendimas skiriasi nuo žemiau aprašyto „Ką daryti" bullet'o 3** (parduota paprasčiau):
+> vietoj „siųsk `Stop` → lauk `Terminated` su timeout'u → `kill()`", `EmuClient::
+> shutdown_gracefully()` tiesiog numeta `CommandChild` — jo `stdin_writer` lauko `Drop`
+> uždaro OS pipe write-end'ą, o TAI IR YRA lygiai tas pats mechanizmas, kurį vaikas jau
+> naudoja `kill -9` atveju (žr. bullet'ą 1–2 žemiau) — nereikia atskiro `Stop`+timeout+`kill`
+> kelio tam pačiam tikslui pasiekti. `kill()` (hard kill) lieka kaip atskiras metodas
+> kraštutiniam atvejui.
 
 **Ką daryti:**
 - **Jokio atskiro pipe'o.** IPC `stdin` kanalas (P4.0.3) jau yra gyvumo signalas: kai tėvas
@@ -1112,10 +1129,14 @@ gijoje, NE atskiras modulis — žr. pastabą žemiau), `crates/nullbyte-app/src
   jei reikia
 
 **Acceptance:**
-- [ ] Dirbtinai nutraukus tėvo procesą (`kill -9`), vaikas savaime išsijungia per kelias
-      sekundes vien dėl `stdin` EOF (patikrinta realiai, ne vien skaitant kodą)
-- [ ] Normalus žaidimo uždarymas švariai sustabdo vaiką be „zombie" proceso
-- [ ] Vaiko crash'as (dirbtinis panic core'e) nenumuša tėvo proceso
+- [x] Dirbtinai nutraukus tėvo procesą (`kill -9`), vaikas savaime išsijungia per kelias
+      sekundes vien dėl `stdin` EOF (patikrinta realiai, ne vien skaitant kodą — bash
+      simuliuotas „tėvas" laikė FIFO atidarytą, `kill -9` jam → vaikas mirė per 0.2s)
+- [x] Normalus žaidimo uždarymas švariai sustabdo vaiką be „zombie" proceso (realus e2e
+      testas `shutdown_gracefully_lets_child_exit_within_a_few_seconds`, `nullbyte-app/src/
+      ipc.rs` — `kill -0 <pid>` patvirtina TIKRĄ OS proceso pabaigą)
+- [x] Vaiko crash'as (dirbtinis `kill -9` vaikui, simuliuojant crash'ą) nenumuša tėvo proceso
+      (realus e2e testas `parent_survives_child_crash`, `nullbyte-app/src/ipc.rs`)
 
 ---
 

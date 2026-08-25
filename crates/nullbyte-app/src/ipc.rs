@@ -189,15 +189,36 @@ impl EmuClient {
             .map_err(|e| AppError::Other(format!("nepavyko nusiųsti EmuCommand: {e}")))
     }
 
-    /// Priverstinai nutraukia `nullbyte-emu` procesą. Naudoti TIK kraštutiniu atveju —
-    /// normalus žaidimo sustabdymas vyksta per `send(EmuCommand::Stop)`, kuris NEBAIGIA
-    /// paties `nullbyte-emu` proceso (tik einamą žaidimą — vartotojas gali įkelti kitą
-    /// žaidimą tame pačiame lange, žr. `core::runner::run_loop`). Švarus VISO proceso
-    /// išjungimas (stdin uždarymas → vaiko EOF → savaiminis `process::exit()`) — P4.0.4,
-    /// dar neįgyvendinta; iki tol `CommandChild` numesti BE `kill()` paliktų vaiką kaip
-    /// orphan procesą (`CommandChild` neturi `Drop`, kuris jį automatiškai nutrauktų —
-    /// patikrinta prieš tauri-plugin-shell 2.3.5 šaltinį, ADR-016 sąmoningai NEpasitiki
-    /// automatiniu vaiko mirimu, žr. CLAUDE.md §10).
+    /// Švariai išjungia VISĄ `nullbyte-emu` procesą (P4.0.4) — naudoti normaliu atveju
+    /// (vartotojas uždaro emuliatoriaus langą/aplikaciją), NE tik einamo žaidimo sustabdymui
+    /// (tam skirta `send(EmuCommand::Stop)`, žr. `kill()` doc).
+    ///
+    /// `CommandChild` (tauri-plugin-shell 2.3.5 šaltinis) neturi eksplicitinio "uždaryk tik
+    /// stdin" metodo — bet `self.child` numetus ČIA (funkcijos pabaigoje, `self` sunaudotas
+    /// per value), jo `stdin_writer: PipeWriter` lauko `Drop` uždaro OS pipe write-end'ą, KO
+    /// vaikas nežudomas signalu, o pats pastebi kaip stdin `EOF`
+    /// (`nullbyte_emu::ipc::run_command_reader`) ir švariai išsijungia: unload'ina core'ą
+    /// (`EmuThread::Drop` → `Stop` → `join()`) ir tik tada `process::exit()`
+    /// (`nullbyte_emu::main` `user_event` handler'is). Tai IR YRA tas pats Unix pipe EOF
+    /// mechanizmas, kuris jau saugo nuo orphan'ų netikėto tėvo mirimo atveju (CLAUDE.md §10)
+    /// — čia tiesiog sąmoningai suveikia normaliu, ne `kill -9` atveju.
+    pub fn shutdown_gracefully(self) {
+        drop(self.child);
+    }
+
+    /// Vaiko proceso PID — naudoja `shutdown_gracefully_lets_child_exit_within_a_few_seconds`
+    /// testas (žr. žemiau), kad realiai patikrintų, jog procesas išnyko iš OS proceso
+    /// lentelės, ne tik kad `EmuClient` numestas.
+    pub fn pid(&self) -> u32 {
+        self.child.pid()
+    }
+
+    /// Priverstinai nutraukia `nullbyte-emu` procesą. Naudoti TIK kraštutiniu atveju (vaikas
+    /// nereaguoja į `shutdown_gracefully()` per protingą laiką) — normalus VISO proceso
+    /// išjungimas turėtų vykti per `shutdown_gracefully()`, o einamo žaidimo (ne viso
+    /// proceso) sustabdymas — per `send(EmuCommand::Stop)`, kuris NEBAIGIA paties
+    /// `nullbyte-emu` proceso (vartotojas gali įkelti kitą žaidimą tame pačiame lange, žr.
+    /// `core::runner::run_loop`).
     pub fn kill(self) -> Result<(), AppError> {
         self.child
             .kill()
@@ -249,9 +270,112 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
             // `Stop` NEBAIGIA nullbyte-emu proceso (žr. `EmuClient::kill` doc) — testas
-            // pats atsakingas išvalyti, kad nepaliktų orphan proceso (P4.0.4 švaraus
-            // proceso gyvavimo ciklo dar nėra).
-            client.kill().expect("kill() turėtų pavykti");
+            // pats atsakingas išvalyti. Nuo P4.0.4 tam skirta `shutdown_gracefully()`
+            // (žr. atskirą `shutdown_gracefully_lets_child_exit_within_a_few_seconds` testą
+            // žemiau dėl PILNO acceptance patikrinimo — čia tik švarus cleanup).
+            client.shutdown_gracefully();
+        });
+    }
+
+    /// P4.0.4 acceptance: „Normalus žaidimo uždarymas švariai sustabdo vaiką be „zombie"
+    /// proceso" — realiai patikrina (ne vien skaitant kodą), kad `shutdown_gracefully()`
+    /// (stdin uždarymas → vaiko EOF → `nullbyte_emu` `user_event` → `event_loop.exit()` →
+    /// `process::exit()`) baigia PATĮ OS procesą, ne tik numeta `EmuClient` rankeną. Naudoja
+    /// `kill -0 <pid>` (POSIX: siunčia signalą 0 — tikrina proceso egzistavimą, nieko
+    /// nežudo) kaip nepriklausomą, ne-`EmuClient`-vidinį patikrinimo šaltinį.
+    ///
+    /// `#[ignore]` dėl tos pačios priežasties kaip aukščiau (TIKRAS winit langas/wgpu/cpal).
+    /// Paleisti rankiniu būdu:
+    /// `cargo test --package nullbyte-app shutdown_gracefully_lets_child_exit -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn shutdown_gracefully_lets_child_exit_within_a_few_seconds() {
+        tauri::async_runtime::block_on(async {
+            let app = tauri::test::mock_builder()
+                .plugin(tauri_plugin_shell::init())
+                .build(tauri::test::mock_context(tauri::test::noop_assets()))
+                .expect("mock Tauri app turėtų susikurti");
+
+            let test_dir = std::env::temp_dir().join("nullbyte_shutdown_test");
+            let client = EmuClient::spawn(
+                &app.handle().clone(),
+                &test_dir.join("system"),
+                &test_dir.join("saves"),
+            )
+            .await
+            .expect("EmuClient turėtų sėkmingai spawn'intis ir atlikti handshake'ą");
+
+            let pid = client.pid();
+            client.shutdown_gracefully();
+
+            let mut still_alive = true;
+            for _ in 0..50 {
+                let status = std::process::Command::new("kill")
+                    .args(["-0", &pid.to_string()])
+                    .status();
+                still_alive = matches!(status, Ok(s) if s.success());
+                if !still_alive {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+
+            assert!(
+                !still_alive,
+                "nullbyte-emu (pid {pid}) turėjo savaime išsijungti per stdin EOF \
+                 (shutdown_gracefully) per ~5s, bet vis dar veikia"
+            );
+        });
+    }
+
+    /// P4.0.4 acceptance: „Vaiko crash'as (dirbtinis panic core'e) nenumuša tėvo proceso" —
+    /// simuliuoja crash'ą realiu `kill -9` ant VAIKO (ne ant `EmuClient`, kuris čia lieka
+    /// gyvas ir NEŽINO apie mirtį, kol negauna `CommandEvent::Terminated`) ir patikrina, kad
+    /// `drain_loop` (žr. modulio doc) tai apdoroja be panic'o — pati asercija yra tai, kad
+    /// šis testas apskritai baigiasi normaliai (ne crash'ina TESTO procesą), plius papildomas
+    /// patikrinimas, kad `send()` po vaiko mirties grąžina `Err`, ne panic'ina.
+    ///
+    /// `#[ignore]` dėl tos pačios priežasties kaip aukščiau. Paleisti rankiniu būdu:
+    /// `cargo test --package nullbyte-app parent_survives_child_crash -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn parent_survives_child_crash() {
+        tauri::async_runtime::block_on(async {
+            let app = tauri::test::mock_builder()
+                .plugin(tauri_plugin_shell::init())
+                .build(tauri::test::mock_context(tauri::test::noop_assets()))
+                .expect("mock Tauri app turėtų susikurti");
+
+            let test_dir = std::env::temp_dir().join("nullbyte_crash_test");
+            let mut client = EmuClient::spawn(
+                &app.handle().clone(),
+                &test_dir.join("system"),
+                &test_dir.join("saves"),
+            )
+            .await
+            .expect("EmuClient turėtų sėkmingai spawn'intis ir atlikti handshake'ą");
+
+            // `kill -9` TIESIOGIAI vaikui — `EmuClient`/`drain_loop` apie tai sužino TIK per
+            // ateinantį `CommandEvent::Terminated`, ne sinchroniškai, kaip realaus core'o
+            // panic'o atveju (core'as pats crash'intų vaiko PROCESĄ, ne EmuThread).
+            let pid = client.pid();
+            std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status()
+                .expect("kill -9 komanda turėtų pavykti paleisti");
+
+            // Duodam `drain_loop`'ui laiko realiai gauti `Terminated` — testas šitą tašką
+            // pasiekęs be panic'o JAU yra pagrindinė asercija (žr. doc aukščiau).
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+            // Tėvo pusė (šis testo procesas) turėtų likti visiškai sveika — tolimesni
+            // `EmuClient` metodų kvietimai grąžina klaidą, NE panic'ina, nes stdin pipe jau
+            // negyvas (vaikas nužudytas).
+            let send_result = client.send(EmuCommand::Stop);
+            assert!(
+                send_result.is_err(),
+                "send() po vaiko kill -9 turėjo grąžinti Err (negyvas pipe), ne pavykti tyliai"
+            );
         });
     }
 }
