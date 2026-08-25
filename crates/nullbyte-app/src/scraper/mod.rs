@@ -2,5 +2,6 @@
 //!
 //! Užpildoma Fazėje 6 (P6.1–P6.4): `screenscraper`, `types`, `media`, `rate_limit`.
 
+pub mod rate_limit;
 pub mod screenscraper;
 pub mod types;

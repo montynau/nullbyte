@@ -1789,10 +1789,38 @@ CREATE TABLE scrape_cache (
 
 ---
 
-### P6.2 — Rate limiting ir cache `[ ]`
+### P6.2 — Rate limiting ir cache `[x]`
 
 **Priklausomybės:** P6.1
 **Failai:** `crates/nullbyte-app/src/scraper/rate_limit.rs`, `scrape_cache` lentelė
+
+> **Įgyvendinta 2026-08-25.** `types.rs` papildytas `Serveurs`/`SsUser` struct'ais — REALIU
+> `jeuInfos.php` kvietimu patikrinta (2026-08-25), kad `serveurs`/`ssuser` blokai yra
+> KIEKVIENAME sėkmingame atsakyme, ne tik dedikuotame `ssuserInfos.php` endpoint'e (žr. P6.1
+> pastabą tuo pačiu principu). `screenscraper::lookup_game()` grąžina naują `LookupSuccess`
+> (`ScrapeOutcome` + `Option<QuotaInfo>`) per naują `LookupError` (`RateLimited` vs. `Failed`)
+> — atskirtas nuo bendro `AppError`, kad `rate_limit.rs` galėtų skirtingai reaguoti (backoff
+> vs. tiesiog klaida), nepažeidžiant CLAUDE.md §6.1 „vieno klaidų tipo" taisyklės (`LookupError`
+> lieka crate-vidinis, konvertuojamas į `AppError` TIK po išnaudotų bandymų).
+>
+> **Sąžiningas apribojimas:** 429/430/„API closed" šaka NĖRA patikrinta gyvu API atsakymu —
+> realaus limito pasiekimas reikalautų sąmoningai išeikvoti vartotojo TIKRĄ dienos kvotą, kas
+> nebūtų atsakingas dev kredencialų naudojimas. Ši šaka remiasi TIK MVP.md specifikacijos
+> tekstu (žr. kodo komentarą `screenscraper.rs::lookup_game`) — pažymėta aiškiai, kad
+> ateityje, jei elgesys pasirodys kitoks, būtų aišku KUR tikrinti pirmiausia.
+>
+> `RateLimiter` (semaforas, prasideda nuo 1 leidimo, auga TIK aukštyn per `update_maxthreads` —
+> tokio `Semaphore` neturi saugaus būdo atimti jau išduotus leidimus, MVP supaprastinimas).
+> `cached_lookup()` priima injektuojamą `fetch` closure'ą (ne tiesiogiai
+> `screenscraper::lookup_game`), kad greiti testai patikrintų cache/backoff logiką be tinklo.
+>
+> **Realiai patikrinta** (ne vien injektuotu `fetch`, žr. sesijos pastabą apie sluoksnių
+> sujungimo klaidas — P6.1 sukūrė HTTP+JSON sluoksnį, P6.2 jį PIRMĄ KARTĄ realiai panaudoja):
+> `real_lookup_populates_cache_then_second_call_is_cache_hit` — `cached_lookup` sujungtas su
+> TIKRU `screenscraper::lookup_game`, tikru `.env`, tikru SQLite failu (ne `:memory:`). Pirmas
+> kvietimas gavo realų Super Metroid atsakymą IR realią kvotą (`maxthreads: 1,
+> maxrequestsperday: 20000`), antras kvietimas su tuo pačiu raktu grąžino iš cache
+> (`from_cache: true`), be naujo tinklo kvietimo.
 
 **Ką daryti:**
 - Prieš užklausą — tikrink `scrape_cache`
@@ -1802,9 +1830,13 @@ CREATE TABLE scrape_cache (
 - Kvotos likutis iš atsako (`ssuser.requeststoday` / `maxrequestsperday`) → rodyk UI
 
 **Acceptance:**
-- [ ] Pakartotinė užklausa nesikreipia į tinklą
-- [ ] Kvotos viršijimas nesulaužo — sustoja su aiškiu pranešimu UI
-- [ ] Vienalaikių užklausų nedaugiau nei `maxthreads`
+- [x] Pakartotinė užklausa nesikreipia į tinklą — patikrinta REALIU API kvietimu pirmam,
+      cache'u antram (žr. aukščiau) IR sintetiniu testu (`fetch` iškviestas lygiai 1 kartą)
+- [x] Kvotos viršijimas nesulaužo — sustoja su aiškiu pranešimu UI (`AppError::Other` su
+      „kvota viršyta..." tekstu po backoff'o išnaudojimo) — 429/430 šaka NEVERIFIKUOTA gyvai
+      (žr. pastabą aukščiau), tik sintetiniais testais pagal MVP.md specifikaciją
+- [x] Vienalaikių užklausų nedaugiau nei `maxthreads` — `RateLimiter` semaforas, testas
+      `update_maxthreads_only_grows_and_adds_correct_permit_delta`
 
 ---
 
@@ -2163,11 +2195,11 @@ CREATE TABLE scrape_cache (
 | 3 — Garsas | 4 | 4 | 100 % |
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
-| 6 — ScreenScraper | 4 | 1 | 25 % |
+| 6 — ScreenScraper | 4 | 2 | 50 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **31** | **60 %** |
+| **Viso** | **52** | **32** | **62 %** |
 
 ---
 

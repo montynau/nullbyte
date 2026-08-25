@@ -65,6 +65,36 @@ pub struct Header {
 #[derive(Debug, Clone, Deserialize)]
 pub struct JeuInfosBody {
     pub jeu: Jeu,
+    /// PATIKRINTA REALIU `jeuInfos.php` atsakymu (2026-08-25, ne tik `ssuserInfos.php`) —
+    /// abu laukai yra KIEKVIENAME sėkmingame atsakyme, ne tik dedikuotame kvotos endpoint'e.
+    /// `Option`, ne privalomas — apsauga, jei API kada nors juos praleistų (P6.2 „blogas
+    /// JSON nesulaužo" principas taikomas ir čia).
+    #[serde(default)]
+    pub serveurs: Option<Serveurs>,
+    #[serde(default)]
+    pub ssuser: Option<SsUser>,
+}
+
+/// Serverio būvis — `closefornomember`/`closeforleecher` yra „API uždaryta" signalas
+/// (MVP.md P6.2 „Ką daryti": „429/430/`API closed`").
+#[derive(Debug, Clone, Deserialize)]
+pub struct Serveurs {
+    #[serde(default)]
+    pub closefornomember: String,
+    #[serde(default)]
+    pub closeforleecher: String,
+}
+
+/// Vartotojo kvota — `maxthreads` semaforo dydžiui, `requeststoday`/`maxrequestsperday`
+/// UI kvotos indikatoriui (MVP.md P6.2 „Ką daryti").
+#[derive(Debug, Clone, Deserialize)]
+pub struct SsUser {
+    #[serde(default)]
+    pub maxthreads: String,
+    #[serde(default)]
+    pub requeststoday: String,
+    #[serde(default)]
+    pub maxrequestsperday: String,
 }
 
 /// `{region, text}` — naudojama `noms`/`dates`.

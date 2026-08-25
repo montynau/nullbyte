@@ -11,7 +11,7 @@
 #![allow(dead_code)] // pilnai išnaudos P6.2/P6.4 (rate limiting, scraping orkestracija)
 
 use crate::error::AppError;
-use crate::scraper::types::{Genre, Jeu, JeuInfosResponse, LangText, RegionText};
+use crate::scraper::types::{Genre, Jeu, JeuInfosBody, JeuInfosResponse, LangText, RegionText};
 
 const API_URL: &str = "https://www.screenscraper.fr/api2/jeuInfos.php";
 
@@ -80,7 +80,10 @@ pub enum ScrapeOutcome {
 
 /// Švarūs, jau ištraukti (regiono/kalbos prioritetai pritaikyti) metaduomenys — tiesiogiai
 /// atitinka `games` lentelės stulpelius (P5.1 schema), paruošti P6.4 DB rašymui.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `Serialize`/`Deserialize` (nuo P6.2) — šis tipas keliauja per `scrape_cache.response`
+/// stulpelį kaip JSON tekstas (žr. `rate_limit::write_cache`/`read_cache`), ne tik per API.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GameMetadata {
     pub title: String,
     pub description: Option<String>,
@@ -93,6 +96,37 @@ pub struct GameMetadata {
     pub region: Option<String>,
 }
 
+/// Vartotojo kvota, ištraukta iš `response.ssuser`/`response.serveurs` (kiekviename
+/// sėkmingame `jeuInfos.php` atsakyme, žr. `types.rs` modulio doc) — MVP.md P6.2 „Kvotos
+/// likutis... → rodyk UI" ir „Semaforas pagal ssuser.maxthreads".
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct QuotaInfo {
+    pub maxthreads: u32,
+    pub requests_today: u64,
+    pub max_requests_per_day: u64,
+    pub closed_for_nonmember: bool,
+    pub closed_for_leecher: bool,
+}
+
+/// Sėkmingo `lookup_game` rezultatas — `quota` `None`, jei atsakymas (retai) neturėjo
+/// `ssuser` bloko (žr. `types.rs`: laukas apsaugotas `Option`, nes NĖRA garantuotas API
+/// kontraktu, tik PASTEBĖTAS visuose šios sesijos realiuose atsakymuose).
+#[derive(Debug)]
+pub struct LookupSuccess {
+    pub outcome: ScrapeOutcome,
+    pub quota: Option<QuotaInfo>,
+}
+
+/// Skiria „reikia palaukti ir bandyti vėl" nuo „tikra klaida" — MVP.md P6.2 acceptance
+/// reikalauja atskiro elgesio (exponential backoff vs. tiesiog `Err`).
+#[derive(Debug, thiserror::Error)]
+pub enum LookupError {
+    #[error("ScreenScraper kvota viršyta arba API laikinai uždaryta (HTTP {status})")]
+    RateLimited { status: reqwest::StatusCode },
+    #[error(transparent)]
+    Failed(#[from] AppError),
+}
+
 /// Ieško žaidimo metaduomenų ScreenScraper'yje. Vienas HTTP kvietimas su visais turimais
 /// identifikatoriais (žr. modulio doc dėl strategijos).
 ///
@@ -100,11 +134,17 @@ pub struct GameMetadata {
 /// nesuradus — patikrinta realiu užklausimu (2026-08-25). Tai tikrinama PRIEŠ bandant JSON
 /// parsinimą, kitaip kiekvienas „nerasta" atvejis būtų klaidingai traktuojamas kaip sugadintas
 /// atsakymas.
+///
+/// **429/430 = rate limit** (MVP.md P6.2 „Ką daryti": „429/430/`API closed`"). **NEVERIFIKUOTA
+/// gyvu atsakymu šią sesiją** — realaus limito pasiekimas reikalautų sąmoningai išeikvoti
+/// vartotojo dienos kvotą, kas nebūtų atsakinga naudoti dev kredencialus, tad ši šaka remiasi
+/// TIK MVP.md specifikacijos tekstu, ne stebėtu API elgesiu (skirtingai nuo likusios šio
+/// failo logikos — žr. modulio doc apie kitas, TIKRAI patikrintas ypatybes).
 pub async fn lookup_game(
     client: &reqwest::Client,
     credentials: &ScreenScraperCredentials,
     rom: &RomIdentity<'_>,
-) -> Result<ScrapeOutcome, AppError> {
+) -> Result<LookupSuccess, LookupError> {
     let mut query: Vec<(&str, String)> = vec![
         ("devid", credentials.devid.clone()),
         ("devpassword", credentials.devpassword.clone()),
@@ -135,33 +175,76 @@ pub async fn lookup_game(
         query.push(("romtaille", size.to_string()));
     }
 
-    let response = client.get(API_URL).query(&query).send().await?;
+    let response = client
+        .get(API_URL)
+        .query(&query)
+        .send()
+        .await
+        .map_err(AppError::from)?;
+    let status = response.status();
 
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(ScrapeOutcome::NotFound);
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 430 {
+        return Err(LookupError::RateLimited { status });
     }
-    if !response.status().is_success() {
-        return Err(AppError::Other(format!(
-            "ScreenScraper HTTP {}",
-            response.status()
-        )));
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(LookupSuccess {
+            outcome: ScrapeOutcome::NotFound,
+            quota: None,
+        });
+    }
+    if !status.is_success() {
+        return Err(LookupError::Failed(AppError::Other(format!(
+            "ScreenScraper HTTP {status}"
+        ))));
     }
 
-    let body = response.text().await?;
-    parse_response(&body)
+    let body = response.text().await.map_err(AppError::from)?;
+    parse_response(&body, status)
 }
 
 /// Atskirta nuo `lookup_game` tam, kad būtų testuojama be tinklo (žr. `tests` modulį).
-fn parse_response(body: &str) -> Result<ScrapeOutcome, AppError> {
-    let parsed: JeuInfosResponse = serde_json::from_str(body).map_err(|error| {
-        AppError::Other(format!("ScreenScraper JSON parsinimo klaida: {error}"))
-    })?;
-
-    let Some(response_body) = parsed.response else {
-        return Ok(ScrapeOutcome::NotFound);
+/// `status` reikalingas TIK „API closed" tekstinio atsakymo šakai (žr. `lookup_game` doc) —
+/// ten HTTP kodas realiai yra 200, bet MVP.md traktuoja tai kaip rate-limit signalą.
+fn parse_response(body: &str, status: reqwest::StatusCode) -> Result<LookupSuccess, LookupError> {
+    let parsed: JeuInfosResponse = match serde_json::from_str(body) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            if body.to_lowercase().contains("api closed") {
+                return Err(LookupError::RateLimited { status });
+            }
+            return Err(LookupError::Failed(AppError::Other(format!(
+                "ScreenScraper JSON parsinimo klaida: {error}"
+            ))));
+        }
     };
 
-    Ok(ScrapeOutcome::Found(extract_metadata(&response_body.jeu)))
+    let Some(response_body) = parsed.response else {
+        return Ok(LookupSuccess {
+            outcome: ScrapeOutcome::NotFound,
+            quota: None,
+        });
+    };
+
+    let quota = extract_quota(&response_body);
+    Ok(LookupSuccess {
+        outcome: ScrapeOutcome::Found(extract_metadata(&response_body.jeu)),
+        quota,
+    })
+}
+
+/// `None`, jei atsakymas neturėjo `ssuser` bloko — apsauga, ne spėjama numatytoji reikšmė
+/// (žr. `QuotaInfo` doc).
+fn extract_quota(body: &JeuInfosBody) -> Option<QuotaInfo> {
+    let ssuser = body.ssuser.as_ref()?;
+    let serveurs = body.serveurs.as_ref();
+
+    Some(QuotaInfo {
+        maxthreads: ssuser.maxthreads.parse().unwrap_or(1),
+        requests_today: ssuser.requeststoday.parse().unwrap_or(0),
+        max_requests_per_day: ssuser.maxrequestsperday.parse().unwrap_or(0),
+        closed_for_nonmember: serveurs.is_some_and(|s| s.closefornomember == "1"),
+        closed_for_leecher: serveurs.is_some_and(|s| s.closeforleecher == "1"),
+    })
 }
 
 fn pick_region_text(items: &[RegionText]) -> Option<String> {
@@ -271,14 +354,16 @@ mod tests {
                     "rommd5": "3D64F89499A403D17D530388854A7DA5",
                     "romfilename": "Super Metroid (Europe) (En,Fr,De).sfc"
                 }
-            }
+            },
+            "serveurs": {"closefornomember": "0", "closeforleecher": "0"},
+            "ssuser": {"maxthreads": "1", "requeststoday": "0", "maxrequestsperday": "20000"}
         }
     }"#;
 
     #[test]
     fn parses_real_snes_response_shape_and_extracts_correct_metadata() {
-        let outcome = parse_response(REAL_SNES_RESPONSE).unwrap();
-        let ScrapeOutcome::Found(metadata) = outcome else {
+        let success = parse_response(REAL_SNES_RESPONSE, reqwest::StatusCode::OK).unwrap();
+        let ScrapeOutcome::Found(metadata) = success.outcome else {
             panic!("tikėtasi Found, gauta NotFound");
         };
 
@@ -291,20 +376,45 @@ mod tests {
         assert_eq!(metadata.rating, Some(16.0));
         assert_eq!(metadata.region.as_deref(), Some("eu"));
         assert!(metadata.description.unwrap().starts_with("Join forces"));
+
+        // P6.2: kvota ištraukta iš to PAČIO atsakymo (žr. `types.rs` modulio doc — `serveurs`/
+        // `ssuser` yra kiekviename sėkmingame `jeuInfos.php` atsakyme, ne tik dedikuotame
+        // kvotos endpoint'e).
+        let quota = success.quota.unwrap();
+        assert_eq!(quota.maxthreads, 1);
+        assert_eq!(quota.requests_today, 0);
+        assert_eq!(quota.max_requests_per_day, 20000);
+        assert!(!quota.closed_for_nonmember);
+        assert!(!quota.closed_for_leecher);
     }
 
     /// MVP.md P6.1 acceptance: „Blogas JSON nesulaužo (graceful degradation)" — grąžina
     /// `Err`, NE panic'ina.
     #[test]
     fn malformed_json_returns_err_not_panic() {
-        let result = parse_response("{ šitas JSON sąmoningai sugadintas");
+        let result = parse_response(
+            "{ šitas JSON sąmoningai sugadintas",
+            reqwest::StatusCode::OK,
+        );
         assert!(result.is_err());
+    }
+
+    /// MVP.md P6.2: „429/430/API closed" → `LookupError::RateLimited`, ne bendra klaida —
+    /// tikrina TEKSTINIO (ne JSON) „API closed" atsakymo šaką (žr. `lookup_game` doc dėl
+    /// šio unverifikuoto elgesio statuso).
+    #[test]
+    fn api_closed_text_body_is_rate_limited_not_generic_error() {
+        let result = parse_response("API closed for now", reqwest::StatusCode::OK);
+        assert!(matches!(result, Err(LookupError::RateLimited { .. })));
     }
 
     #[test]
     fn valid_json_missing_response_key_is_not_found() {
-        let result = parse_response(r#"{"header": {"success": "false", "error": "kažkas"}}"#);
-        assert!(matches!(result.unwrap(), ScrapeOutcome::NotFound));
+        let result = parse_response(
+            r#"{"header": {"success": "false", "error": "kažkas"}}"#,
+            reqwest::StatusCode::OK,
+        );
+        assert!(matches!(result.unwrap().outcome, ScrapeOutcome::NotFound));
     }
 
     /// Vienas elementas — patikrina, kad `OneOrMany` priima IR pavienį objektą ten, kur
@@ -322,11 +432,12 @@ mod tests {
                 }
             }
         }"#;
-        let outcome = parse_response(json).unwrap();
-        let ScrapeOutcome::Found(metadata) = outcome else {
+        let success = parse_response(json, reqwest::StatusCode::OK).unwrap();
+        let ScrapeOutcome::Found(metadata) = success.outcome else {
             panic!("tikėtasi Found");
         };
         assert_eq!(metadata.title, "Solo Game");
+        assert!(success.quota.is_none()); // atsakymas be `ssuser` bloko — None, ne spėta reikšmė.
     }
 
     #[test]
@@ -400,13 +511,15 @@ mod tests {
                 systemeid: 4, // SNES (P5.1 seed, patikrinta)
             };
 
-            let outcome = lookup_game(&client, &credentials, &rom).await.unwrap();
-            let ScrapeOutcome::Found(metadata) = outcome else {
+            let success = lookup_game(&client, &credentials, &rom).await.unwrap();
+            let ScrapeOutcome::Found(metadata) = success.outcome else {
                 panic!("tikėtasi Found realiam Super Metroid CRC'ui");
             };
             eprintln!("gauta: {metadata:?}");
+            eprintln!("kvota: {:?}", success.quota);
             assert_eq!(metadata.title, "Super Metroid");
             assert_eq!(metadata.developer.as_deref(), Some("Nintendo"));
+            assert!(success.quota.is_some()); // P6.2: realiame atsakyme visada yra `ssuser`.
         });
     }
 
@@ -430,8 +543,8 @@ mod tests {
                 systemeid: 4,
             };
 
-            let outcome = lookup_game(&client, &credentials, &rom).await.unwrap();
-            assert!(matches!(outcome, ScrapeOutcome::NotFound));
+            let success = lookup_game(&client, &credentials, &rom).await.unwrap();
+            assert!(matches!(success.outcome, ScrapeOutcome::NotFound));
         });
     }
 }
