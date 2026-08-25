@@ -1840,10 +1840,37 @@ CREATE TABLE scrape_cache (
 
 ---
 
-### P6.3 — Media atsisiuntimas `[ ]`
+### P6.3 — Media atsisiuntimas `[x]`
 
 **Priklausomybės:** P6.2
 **Failai:** `crates/nullbyte-app/src/scraper/media.rs`
+
+> **Įgyvendinta 2026-08-25.** `download_game_media()` sąmoningai priima `&[Media]` (žaliavinį
+> `types.rs` tipą), NE `screenscraper::Jeu` ar `GameMetadata` — media.rs nežino nieko apie
+> ScreenScraper užklausos formavimą, tik apie tai, kaip iš duotų media įrašų pasirinkti
+> geriausią kiekvienam tipui (regionų prioritetas kaip §9.2) ir saugiai atsisiųsti. Kas paduos
+> `medias` iš tikro `jeu` atsakymo — P6.4 orkestracijos sprendimas, dar nepriimtas.
+>
+> Atominis rašymas: `{final}.tmp` → `rename` (POSIX `rename` tame pačiame FS taške yra
+> atominis). Pavienio media įrašo klaida (bloga nuoroda, nutrūkęs ryšys, viršytas dydžio
+> limitas) NIEKADA negrąžina `Err` iš `download_game_media` — tik `None` tam vienam laukui
+> (`tracing::warn!` paliekamas pėdsakas), nes vieno viršelio nepavykimas neturėtų sužlugdyti
+> viso žaidimo scraping'o. `Err` grąžinamas TIK jei pats `media_dir` katalogas nesukuriamas.
+>
+> **Saugumo taisyklė, pritaikyta testams (žr. `types.rs`/P6.1 pastabą):** realaus
+> ScreenScraper atsakymo `medias[].url` turi devid/devpassword ATVIRU TEKSTU — gyvas testas
+> TIESIOGIAI negalėjo naudoti `screenscraper::lookup_game()` (jis grąžina tik `GameMetadata`,
+> be `medias`), todėl pats daro tiesioginį `jeuInfos.php` kvietimą IR jokiu būdu neužrašo
+> gauto media URL kaip konstantos — jis egzistuoja TIK vykdymo metu.
+>
+> **Realiai patikrinta:** `real_cover_downloads_from_live_screenscraper_response` — realus
+> `jeuInfos.php` kvietimas (Super Metroid), realūs `medias` (visi keturi tipai atsakyme buvo),
+> `download_game_media()` sėkmingai atsisiuntė visus keturis (`covers/999999.png`,
+> `screenshots/999999.png`, `wheels/999999.png`, `videos/999999.mp4`), be `.tmp` liekanų.
+> 13 greitų unit testų (regionų prioritetas, `video-normalized` vs `video`, plėtinio
+> nustatymas iš `format`/URL/numatytosios reikšmės, dydžio limito viršijimas, egzistuojančio
+> failo praleidimas) naudoja vietinį HTTP serverį (`tokio::net::TcpListener`) — NE realų
+> ScreenScraper hostą, kad testai liktų greiti ir neišeikvotų kvotos.
 
 **Ką daryti:**
 - Atsisiųsk `box-2D`, `ss`, `wheel`, `video-normalized` (fallback `video`)
@@ -1853,9 +1880,13 @@ CREATE TABLE scrape_cache (
 - Video dydžio limitas (numatytasis 10 MB) — didesnius praleisk
 
 **Acceptance:**
-- [ ] Viršeliai ir video atsisiunčia
-- [ ] Nutrūkęs atsisiuntimas nepalieka sugadinto failo (rašyk į `.tmp`, tada `rename`)
-- [ ] Pakartotinis scraping'as nesiunčia to paties dar kartą
+- [x] Viršeliai ir video atsisiunčia — patikrinta REALIU API kvietimu (visi 4 tipai)
+- [x] Nutrūkęs atsisiuntimas nepalieka sugadinto failo (rašyk į `.tmp`, tada `rename`) —
+      `oversized_media_is_skipped_and_leaves_no_files` patvirtina: nei `.tmp`, nei galutinis
+      failas neišlieka
+- [x] Pakartotinis scraping'as nesiunčia to paties dar kartą —
+      `existing_nonempty_file_is_skipped_without_new_request` (nepasiekiamas URL + nepakitęs
+      turinys įrodo, kad tinklas neliestas)
 
 ---
 
@@ -2195,11 +2226,11 @@ CREATE TABLE scrape_cache (
 | 3 — Garsas | 4 | 4 | 100 % |
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
-| 6 — ScreenScraper | 4 | 2 | 50 % |
+| 6 — ScreenScraper | 4 | 3 | 75 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **32** | **62 %** |
+| **Viso** | **52** | **33** | **63 %** |
 
 ---
 
