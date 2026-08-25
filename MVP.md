@@ -1417,10 +1417,36 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 **Tikslas:** ROM skenavimas ir saugojimas SQLite.
 **Rizika:** 🟢 maža. **Įvertis:** 2–3 dienos.
 
-### P5.1 — SQLite schema ir migracijos `[ ]`
+### P5.1 — SQLite schema ir migracijos `[x]`
 
 **Priklausomybės:** P0.3
 **Failai:** `crates/nullbyte-app/migrations/001_initial.sql`, `crates/nullbyte-app/src/db/migrations.rs`, `db/models.rs`
+
+> **Įgyvendinta 2026-08-25.** Migracijos per `PRAGMA user_version` (`const MIGRATIONS: &[(u32,
+> &str)]`, `include_str!` — vieninteliai SQL failai, ne runtime katalogo skenavimas, nes
+> bundle'inta app'a negarantuoja `migrations/` katalogo egzistavimo runtime metu).
+> `foreign_keys = ON` nustatoma PRIE KIEKVIENO `Connection::open()` kvietimo, NE migracijos
+> SQL faile — SQLite tai laiko per-connection nustatymu (numatytai OFF), CLAUDE.md §10 tai
+> eksplicitiškai reikalauja. `AppState.db: Mutex<Connection>` (rusqlite `Connection` NĖRA
+> `Sync`).
+>
+> **Seed platformos (23, ne tik minimalūs 20):** README.md „Works during the MVP" sąrašas,
+> `screenscraper_id` PATIKRINTA prieš community-sourced ScreenScraper systemeid lentelę
+> (`gist.github.com/dollerbill/86162c5cb249d79ef01a9ad2c691d29d`, patikrinta per `WebFetch`
+> 2026-08-25) — TAI NĖRA oficialus ScreenScraper API atsakas (reikalauja `devid`/
+> `devpassword`, P6.1 dar nepradėtas). 14 platformų su REALIU, patikrintu ID; 9, kurių
+> nepavyko patikrinti šiame šaltinyje (Atari 7800/800/5200, Neo Geo, Arcade, Intellivision,
+> Odyssey²), turi `screenscraper_id = NULL` — SĄMONINGAI, ne spėjama reikšmė (žr. CLAUDE.md
+> atminties taisyklę „Verify external API refs"). P6.1 API klientas juos patvirtins/pataisys
+> prieš tikrą API atsakymą.
+>
+> **Realiai patikrinta** (ne vien unit testais) — tikras `target/debug/nullbyte-app`
+> paleidimas DU kartus iš eilės: pirmą kartą sukūrė `nullbyte.db`/`-shm`/`-wal` faktiniame
+> `~/Library/Application Support/Nullbyte/` kelyje, `sqlite3` CLI (nepriklausomas nuo mūsų
+> kodo) patvirtino `PRAGMA user_version = 1`, `PRAGMA journal_mode = wal`, 23 eilutes
+> `platforms`, teisingus ID (`snes→4`, `genesis→1`, `psx→57`, `nes→3`, `arcade→NULL`), visas
+> lenteles (įskaitant `games_fts` FTS5 vidines lenteles). Antras paleidimas — VIS DAR 23
+> eilutės (jokio dubliavimo).
 
 **Schema:**
 
@@ -1531,9 +1557,12 @@ CREATE TABLE scrape_cache (
 - `AppState` laiko `Mutex<Connection>`
 
 **Acceptance:**
-- [ ] DB sukuriama pirmą kartą paleidus
-- [ ] Migracijos idempotentiškos (paleisk 3 kartus)
-- [ ] Seed platformos įrašytos
+- [x] DB sukuriama pirmą kartą paleidus — patikrinta REALIU `nullbyte-app` paleidimu, ne
+      vien testu (žr. pastabą aukščiau)
+- [x] Migracijos idempotentiškos (paleisk 3 kartus) — unit testas (3x `run_migrations`) IR
+      realus 2x `nullbyte-app` paleidimas, abu be dubliavimo
+- [x] Seed platformos įrašytos — 23 (README „Works during the MVP" sąrašas), 14 su realiu
+      patikrintu ScreenScraper ID, 9 su sąmoningu `NULL`
 
 ---
 
@@ -1997,12 +2026,12 @@ CREATE TABLE scrape_cache (
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
-| 5 — DB / biblioteka | 4 | 0 | 0 % |
+| 5 — DB / biblioteka | 4 | 1 | 25 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **26** | **50 %** |
+| **Viso** | **52** | **27** | **52 %** |
 
 ---
 
