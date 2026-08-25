@@ -45,6 +45,9 @@ pub struct RomHashes {
     /// Realiai hash'uotų baitų kiekis (PO archyvo išpakavimo IR header skip'o) —
     /// `games.rom_size`/ScreenScraper `romtaille` parametrui (CLAUDE.md §9.1).
     pub size: u64,
+    /// Archyvo VIDINIO failo pavadinimas (`games.archive_inner`), `None` neaarchyvuotiems
+    /// ROM'ams. Naudoja P5.3 skeneris.
+    pub archive_inner: Option<String>,
 }
 
 /// Apskaičiuoja CRC32/MD5/SHA1 vienu perėjimu. `path` — ROM'o (arba jo archyvo) kelias;
@@ -64,8 +67,10 @@ pub fn hash_rom(
     );
 
     if is_archive {
-        let (_, data) = archive::extract_first_match(path, archive_extensions)?;
-        return Ok(hash_bytes(&data));
+        let (inner_name, data) = archive::extract_first_match(path, archive_extensions)?;
+        let mut hashes = hash_bytes(&data);
+        hashes.archive_inner = Some(inner_name);
+        return Ok(hashes);
     }
 
     let metadata = std::fs::metadata(path)?;
@@ -96,6 +101,7 @@ fn hash_bytes(data: &[u8]) -> RomHashes {
         md5: hex_lower(&Md5::digest(data)),
         sha1: hex_lower(&Sha1::digest(data)),
         size: data.len() as u64,
+        archive_inner: None,
     }
 }
 
@@ -129,6 +135,7 @@ fn hash_file_streaming(path: &std::path::Path) -> Result<RomHashes, AppError> {
         md5: hex_lower(&md5.finalize()),
         sha1: hex_lower(&sha1.finalize()),
         size: total,
+        archive_inner: None,
     })
 }
 
@@ -223,6 +230,7 @@ mod tests {
         // hash'uotas VIDINIS failas, ne pats .zip.
         assert_eq!(hashes.crc32, "352441C2");
         assert_eq!(hashes.md5, "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(hashes.archive_inner.as_deref(), Some("Game.sfc"));
     }
 
     /// P5.2 acceptance: „Hash'ai sutampa su sha1sum/md5sum komandinės eilutės rezultatais" —

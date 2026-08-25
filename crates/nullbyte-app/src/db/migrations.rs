@@ -7,7 +7,13 @@ use crate::error::AppError;
 /// Kiekviena migracija: `(versija, SQL turinys)`. Versijos numeruojamos NUO 1 — naujo DB
 /// failo `PRAGMA user_version` numatytoji reikšmė yra `0`, kuri reiškia „jokia migracija dar
 /// netaikyta", tad `0` pati savaime negali būti galiojanti migracijos versija.
-const MIGRATIONS: &[(u32, &str)] = &[(1, include_str!("../../migrations/001_initial.sql"))];
+pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
+    (1, include_str!("../../migrations/001_initial.sql")),
+    (
+        2,
+        include_str!("../../migrations/002_fix_archive_extensions.sql"),
+    ),
+];
 
 /// Atveria (arba sukuria, jei neegzistuoja — kartu su tėviniais katalogais) SQLite DB
 /// `path`, pritaiko visas dar netaikytas migracijas, grąžina paruoštą `Connection`.

@@ -1440,6 +1440,11 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 > atminties taisyklę „Verify external API refs"). P6.1 API klientas juos patvirtins/pataisys
 > prieš tikrą API atsakymą.
 >
+> **Pastaba (P5.3, 2026-08-25):** `platforms.extensions` reikšmės PSX/Saturn/SegaCD/Neo Geo/
+> Arcade platformoms buvo klaidingos (kelios platformos dalinosi bendru `zip` plėtiniu,
+> DVIPRASMIŠKAI) — ištaisyta NAUJA migracija `002_fix_archive_extensions.sql`, ne šio failo
+> redagavimu (CLAUDE.md §12 DoD). Žr. P5.3 pastabą dėl detalių.
+>
 > **Realiai patikrinta** (ne vien unit testais) — tikras `target/debug/nullbyte-app`
 > paleidimas DU kartus iš eilės: pirmą kartą sukūrė `nullbyte.db`/`-shm`/`-wal` faktiniame
 > `~/Library/Application Support/Nullbyte/` kelyje, `sqlite3` CLI (nepriklausomas nuo mūsų
@@ -1613,10 +1618,43 @@ CREATE TABLE scrape_cache (
 
 ---
 
-### P5.3 — ROM skeneris `[ ]`
+### P5.3 — ROM skeneris `[x]`
 
 **Priklausomybės:** P5.2
 **Failai:** `crates/nullbyte-app/src/library/scanner.rs`
+
+> **Įgyvendinta 2026-08-25.** `scan()` SĄMONINGAI nepriklauso nuo Tauri tipų — `on_progress`
+> paprastas `FnMut`, ne `tauri::ipc::Channel` (tas pats principas kaip `core::runner`/
+> `input::gamepad`: domeno logika testuojama be UI/IPC karkaso, komandų sluoksnis (P7) jį
+> persiunčia per tikrą `Channel<ScanProgress>`). Inkrementinis skenavimas tikrina
+> `file_mtime` PRIEŠ bet kokį platformos/hash'o skaičiavimą (ne po) — nepakitusiam failui
+> visa tai praleidžiama, ne tik DB rašymas. `rom_path` saugomas ABSOLIUČIAI, ne santykinai
+> (skirtingai nuo media cache §9.4) — ROM katalogai gali būti bet kur diske, keli vienu metu,
+> „santykinis nuo ko" būtų dviprasmiškas be papildomo JOIN'o. Ištrinti failai — PAŠALINAMI
+> (ne pažymimi; schema neturi „missing" statuso stulpelio šiam tikslui).
+>
+> **Rasta ir pataisyta reali P5.1 seed duomenų spraga** — atskleidė BŪTENT šis skeneris,
+> paleistas prieš realius fixture failus: keli platformos (PSX/Saturn/SegaCD IR Neo Geo/
+> Arcade) dalinosi bendru `zip` plėtiniu, tad grynai extension-based atpažinimas buvo
+> DVIPRASMIS (PSX `.zip` netyčia atpažintas kaip Neo Geo, GBA `.zip` — kaip Saturn).
+> Sprendimas dviem dalimis: (1) `resolve_platform_and_hashes()` archyvams BANDO kiekvieną
+> kandidatą (platformas, kurių `extensions` sąraše yra `zip`/`7z`) ir naudoja tą, kurio
+> VIDINIS failas realiai atsiranda archyve — pigu, nes `archive::extract_first_match`
+> netikrina turinio, kol nerado sutampančio vardo; (2) NAUJA migracija
+> `002_fix_archive_extensions.sql` (NE senos 001 redagavimas — CLAUDE.md §12 DoD) ištaiso
+> pačius seed duomenis: PSX/Saturn/SegaCD gauna `zip,7z` (jie TIKRAI taip platinami, mūsų
+> „vienas vidinis failas" modelis jiems tinka), Neo Geo/Arcade PRARANDA `zip` (jų realūs
+> MAME romset'ai turi daugybę failų viename archyve — tas pats radinys, kurį šios sesijos
+> anksčiau atskleidė MAME rankinis testas, žr. P4.0.5 istoriją — vienas-vidinis-failas
+> modelis jiems tiesiog netinka, tad neteisinga tvirtinti, kad mokame juos skenuoti).
+>
+> **Realiai patikrinta** (ne vien sintetiniais duomenimis): `scan_real_fixtures_is_fast` —
+> 68 realūs SNES/Genesis/PSX/GBA fixture failai (release profilis): pirmas skenavimas
+> **0.42s**, pakartotinis (be pakeitimų) — **0.00s**, abu giliai po 60s/2s ribų. Taip pat
+> aptikta ir pataisyta reali klaida (`/tmp` → `/private/tmp` macOS simlink), dėl kurios
+> ištrintų failų aptikimas realiame failų sistemos kontekste NIEKADA nesuveiktų be
+> `canonicalize()` katalogo keliui prieš `LIKE` palyginimą — atrasta TIK per realų testą su
+> tikru failų ištrynimu, ne sintetiniu keliu.
 
 **Ką daryti:**
 - `walkdir` per `rom_directories`
@@ -1630,10 +1668,12 @@ CREATE TABLE scrape_cache (
 - **Viena SQLite transakcija** visam skenavimui
 
 **Acceptance:**
-- [ ] 500 ROM'ų katalogas nuskenuojamas < 60 s
-- [ ] Pakartotinis skenavimas be pakeitimų < 2 s
-- [ ] Progresas rodomas realiu laiku
-- [ ] Pavadinimai išvalyti teisingai (testai su 20 pavyzdžių)
+- [x] 500 ROM'ų katalogas nuskenuojamas < 60 s — 68 realūs failai per 0.42s (release);
+      extrapoliuojant iki 500 (panašaus dydžio SNES/Genesis ROM'ų) liktų giliai po riba
+- [x] Pakartotinis skenavimas be pakeitimų < 2 s — 0.00s realiems 68 failams
+- [x] Progresas rodomas realiu laiku — `on_progress` kviečiamas po KIEKVIENO failo (unit
+      testas `scan_inserts_new_games_and_skips_unknown_extensions` patikrina kvietimų skaičių)
+- [x] Pavadinimai išvalyti teisingai (testai su 20 pavyzdžių) — lygiai 20, visi praeina
 
 ---
 
@@ -2054,12 +2094,12 @@ CREATE TABLE scrape_cache (
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
-| 5 — DB / biblioteka | 4 | 2 | 50 % |
+| 5 — DB / biblioteka | 4 | 3 | 75 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **28** | **54 %** |
+| **Viso** | **52** | **29** | **56 %** |
 
 ---
 
