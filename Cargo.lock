@@ -3131,11 +3131,14 @@ dependencies = [
 name = "nullbyte-app"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
+ "md-5",
  "nullbyte-core",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha1",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
@@ -3146,6 +3149,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "walkdir",
+ "zip",
 ]
 
 [[package]]

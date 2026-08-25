@@ -1566,10 +1566,35 @@ CREATE TABLE scrape_cache (
 
 ---
 
-### P5.2 — ROM hash'avimas `[ ]`
+### P5.2 — ROM hash'avimas `[x]`
 
 **Priklausomybės:** P5.1
 **Failai:** `crates/nullbyte-app/src/library/hasher.rs`
+
+> **Įgyvendinta 2026-08-25.** `crc32fast`/`md-5`/`sha1` pridėta prie `nullbyte-app`
+> Cargo.toml (jos jau buvo `nullbyte-core` priklausomybės, bet hash'avimo LOGIKA neturi tos
+> pačios „reikia abiem pusėms" priežasties kaip `archive.rs` — tik `nullbyte-app`'o
+> bibliotekos skeneriui, tad gyvena čia, ne bendrame crate'e). Archyvams naudoja
+> `nullbyte_core::archive::extract_first_match` (bendra su `core::loader`), paduodant
+> PLATFORMOS `extensions` stulpelį (ne core'o `valid_extensions`) kaip „ko ieškoti viduje".
+> Streaming (>64MB) įgyvendintas NEARCHYVUOTIEMS failams — `nullbyte_core::archive` API jau
+> skaito visą vidinį failą į atmintį (esama riba, bendra su core'o krovimu), tad archyvų
+> streaming'as liko NEĮGYVENDINTAS (dokumentuota `hasher.rs` doc). NES (iNES) header skip
+> įgyvendintas per MAGIC baitus (`4E 45 53 1A`), veikia nepriklausomai nuo plėtinio; SNES
+> copier header (512B, be patikimo magic baito) ATIDĖTAS.
+>
+> **Rasta klaida SAVO test vektoriuose, ne implementacijoje** — pirmi CRC32/SHA1 „žinomi"
+> test vektoriai `"abc"` tekstui buvo transkribuoti klaidingai iš atminties (CRC32 `...C1`
+> vietoj `...C2`, SHA1 trūko paskutinio `d` simbolio). Patikrinta NEPRIKLAUSOMU šaltiniu
+> (Python `hashlib`/`zlib`, ne mūsų kodas) PRIEŠ taisant testus — implementacija buvo
+> teisinga nuo pat pradžių, testai — ne (žr. atminties taisyklę „Verify external API refs" —
+> tas pats principas taikomas ir kriptografiniams test vektoriams, ne tik API atsakymams).
+>
+> **Realiai patikrinta** (ne vien sintetiniais duomenimis): `real_rom_hash_matches_system_tools`
+> (naujas `#[ignore]` testas) — tikras SNES ROM'as, MD5/SHA1 sutapo su macOS `md5`/
+> `shasum -a 1` komandomis (nepriklausomu šaltiniu, ne mūsų `md-5`/`sha1` crate'ais).
+> `hashing_100_files_under_30_seconds` (release profilis) — 91 realus test fixture failas
+> (SNES/Genesis/PSX/GBA, 1.53 GB) hash'uota per **14.12s** (< 30s riba su atsarga).
 
 **Ką daryti:**
 - CRC32 (`crc32fast`), MD5 (`md-5`), SHA1 (`sha1`) — vienu perėjimu per failą
@@ -1579,9 +1604,12 @@ CREATE TABLE scrape_cache (
   (NES iNES 16 baitų, SNES 512 baitų copier header) — implementuok bent NES atvejį
 
 **Acceptance:**
-- [ ] Hash'ai sutampa su `sha1sum`/`md5sum` komandinės eilutės rezultatais
-- [ ] 100 failų (~2 GB) hash'avimas < 30 s SSD'e
-- [ ] `.zip` vidinis failas hash'uojamas teisingai
+- [x] Hash'ai sutampa su `sha1sum`/`md5sum` komandinės eilutės rezultatais — patikrinta
+      REALIAI (tikras SNES ROM'as vs macOS `md5`/`shasum -a 1`)
+- [x] 100 failų (~2 GB) hash'avimas < 30 s SSD'e — 91 realus failas (1.53 GB) per 14.12s
+      (release profilis)
+- [x] `.zip` vidinis failas hash'uojamas teisingai — unit testas IR realus PSX `.zip`
+      (400-500MB kiekvienas, `hashing_100_files_under_30_seconds` sudėtyje)
 
 ---
 
@@ -2026,12 +2054,12 @@ CREATE TABLE scrape_cache (
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
-| 5 — DB / biblioteka | 4 | 1 | 25 % |
+| 5 — DB / biblioteka | 4 | 2 | 50 % |
 | 6 — ScreenScraper | 4 | 0 | 0 % |
 | 7 — UI | 6 | 0 | 0 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **27** | **52 %** |
+| **Viso** | **52** | **28** | **54 %** |
 
 ---
 

@@ -2,4 +2,6 @@
 //!
 //! Archyvų skaitymas (`archive`) persikėlė į `nullbyte-core` (P4.0.1, ADR-016) — jo reikia
 //! IR `core::loader` (ROM įkėlimui), IR čia; kadangi `nullbyte-core` negali priklausyti nuo
-//! `nullbyte-app`, jis gyvena bendrame crate'e. `scanner` ir `hasher` — Fazėje 5 (P5.2–P5.3).
+//! `nullbyte-app`, jis gyvena bendrame crate'e. `scanner` — P5.3.
+
+pub mod hasher;

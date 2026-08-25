@@ -34,8 +34,14 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 walkdir = "2"
+crc32fast = "1"
+md-5 = "0.10"
+sha1 = "0.10"
 
 [dev-dependencies]
 # "test" atrakina tauri::test::{mock_builder, mock_context, noop_assets} — naudoja
 # ipc.rs #[ignore]'intas realaus sidecar spawn'inimo testas.
 tauri = { version = "2.11", features = ["test"] }
+# hasher.rs testui, kuris sukonstruoja .zip archyvą in-memory (ta pati versija kaip
+# nullbyte-core, kur `zip` yra runtime priklausomybė archyvų skaitymui).
+zip = "2"
