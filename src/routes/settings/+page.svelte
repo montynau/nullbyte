@@ -1,10 +1,12 @@
 <script lang="ts">
   import { resolve } from "$app/paths";
   import * as Tabs from "$lib/components/ui/tabs/index.js";
+  import AudioPanel from "$lib/components/settings/AudioPanel.svelte";
   import CoresPanel from "$lib/components/settings/CoresPanel.svelte";
   import InputPanel from "$lib/components/settings/InputPanel.svelte";
   import PathsPanel from "$lib/components/settings/PathsPanel.svelte";
   import ScraperPanel from "$lib/components/settings/ScraperPanel.svelte";
+  import VideoPanel from "$lib/components/settings/VideoPanel.svelte";
   import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
 
   let activeTab = $state("paths");
@@ -39,10 +41,10 @@
         <CoresPanel />
       </Tabs.Content>
       <Tabs.Content value="video">
-        <p class="text-muted-foreground text-sm">Video settings — coming soon.</p>
+        <VideoPanel />
       </Tabs.Content>
       <Tabs.Content value="audio">
-        <p class="text-muted-foreground text-sm">Audio settings — coming soon.</p>
+        <AudioPanel />
       </Tabs.Content>
       <Tabs.Content value="input">
         <InputPanel />

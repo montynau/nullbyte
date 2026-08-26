@@ -3143,6 +3143,7 @@ dependencies = [
 name = "nullbyte-app"
 version = "0.1.0"
 dependencies = [
+ "cpal",
  "crc32fast",
  "dotenvy",
  "md-5",

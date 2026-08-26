@@ -168,6 +168,138 @@ pub fn set_preferred_cores(
     settings::set(&conn, PREFERRED_CORES_KEY, &json)
 }
 
+/// P7.6 Video panelė — CLAUDE.md §7.3 (camelCase). `filter`/`scaleMode` reikšmės TIKSLIAI
+/// atitinka `nullbyte_core::video::renderer::{FilterMode, ScaleMode}` variantus (žemyn
+/// suserializuotus kaip `"nearest"|"linear"` / `"fit"|"integer"`) — kad P9.1 wiring metu
+/// nereikėtų perkelti reikšmių, tik parse'inti į jau egzistuojantį enum'ą. **TIK
+/// persistencija** — `Renderer::set_filter`/`set_scale_mode` JAU EGZISTUOJA ir veikia, bet
+/// nėra JOKIO IPC kanalo (naujas `EmuCommand` variantas) šiai reikšmei nuo `nullbyte-app`
+/// pasiekti `nullbyte-emu` vaiko procesą — tas pats P9.1 apribojimas kaip Input/Cores.
+/// `vsync`/`startFullscreen` neturi JOKIO esamo runtime hook'o net Rust pusėje (vsync
+/// „baked" į `SurfaceConfiguration` kūrimo metu, fullscreen tik F11 toggle) — abu reikalautų
+/// naujo kodo net PRIEŠ P9.1 wiring'ą.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoSettings {
+    pub filter: String,
+    pub scale_mode: String,
+    pub vsync: bool,
+    pub start_fullscreen: bool,
+}
+
+impl Default for VideoSettings {
+    /// Atitinka `FilterMode`/`ScaleMode` `#[default]` variantus (`renderer.rs`) — kad UI
+    /// numatytoji reikšmė pirmą kartą atidarius sutaptų su tuo, ką core'as REALIAI naudotų,
+    /// jei šis pasirinkimas šiandien turėtų P9.1 vamzdyną.
+    fn default() -> Self {
+        Self {
+            filter: "nearest".to_string(),
+            scale_mode: "fit".to_string(),
+            vsync: true,
+            start_fullscreen: false,
+        }
+    }
+}
+
+const VIDEO_SETTINGS_KEY: &str = "video.settings";
+
+#[tauri::command]
+pub fn get_video_settings(state: State<'_, AppState>) -> Result<VideoSettings, AppError> {
+    let conn = state.db.lock().expect("Mutex poisoned");
+    match settings::get(&conn, VIDEO_SETTINGS_KEY)? {
+        Some(json) => serde_json::from_str(&json)
+            .map_err(|error| AppError::Other(format!("sugadintas video.settings JSON: {error}"))),
+        None => Ok(VideoSettings::default()),
+    }
+}
+
+#[tauri::command]
+pub fn set_video_settings(
+    state: State<'_, AppState>,
+    value: VideoSettings,
+) -> Result<(), AppError> {
+    let json = serde_json::to_string(&value).map_err(|error| {
+        AppError::Other(format!("nepavyko serializuoti video.settings: {error}"))
+    })?;
+    let conn = state.db.lock().expect("Mutex poisoned");
+    settings::set(&conn, VIDEO_SETTINGS_KEY, &json)
+}
+
+/// P7.6 Audio panelė. **`device`/`volume`/`bufferMs` visi TIK persistencija** — skirtingai
+/// nuo Video (kur bent `filter`/`scaleMode` jau turi veikiantį Rust API), garso pusėje
+/// (`audio/output.rs`) NĖRA JOKIO esamo mechanizmo pasirinktam įrenginiui atidaryti (dabar
+/// visada `host.default_output_device()`), garsumui taikyti (sample'ai keliauja
+/// nekeisti), ar buferio dydžiui keisti be perkompiliavimo (`TARGET_LATENCY_MS` — hardkodinta
+/// konstanta) — VISI trys reikalautų naujo kodo `nullbyte-core`/`nullbyte-emu` pusėje, NE
+/// vien P9.1 IPC wiring'o.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioSettings {
+    /// `None` = numatytasis sistemos įrenginys. Kitaip — TIKSLUS `cpal` įrenginio
+    /// pavadinimas (žr. `list_audio_devices`).
+    pub device: Option<String>,
+    /// 0.0..=1.0, apkerpama `set_audio_settings` viduje.
+    pub volume: f32,
+    /// Milisekundės — atitinka `nullbyte_core::audio::output::TARGET_LATENCY_MS` (dabar
+    /// hardkodinta `50`).
+    pub buffer_ms: u32,
+}
+
+impl Default for AudioSettings {
+    fn default() -> Self {
+        Self {
+            device: None,
+            volume: 1.0,
+            buffer_ms: 50,
+        }
+    }
+}
+
+const AUDIO_SETTINGS_KEY: &str = "audio.settings";
+
+#[tauri::command]
+pub fn get_audio_settings(state: State<'_, AppState>) -> Result<AudioSettings, AppError> {
+    let conn = state.db.lock().expect("Mutex poisoned");
+    match settings::get(&conn, AUDIO_SETTINGS_KEY)? {
+        Some(json) => serde_json::from_str(&json)
+            .map_err(|error| AppError::Other(format!("sugadintas audio.settings JSON: {error}"))),
+        None => Ok(AudioSettings::default()),
+    }
+}
+
+#[tauri::command]
+pub fn set_audio_settings(
+    state: State<'_, AppState>,
+    mut value: AudioSettings,
+) -> Result<(), AppError> {
+    value.volume = value.volume.clamp(0.0, 1.0);
+    let json = serde_json::to_string(&value).map_err(|error| {
+        AppError::Other(format!("nepavyko serializuoti audio.settings: {error}"))
+    })?;
+    let conn = state.db.lock().expect("Mutex poisoned");
+    settings::set(&conn, AUDIO_SETTINGS_KEY, &json)
+}
+
+/// Realiai veikiantis (jokio P9.1 blokerio) sistemos garso išvesties įrenginių sąrašas —
+/// `cpal` enumeracija VEIKIA nepriklausomai nuo to, ar koks nors garso srautas šiuo metu
+/// atidarytas (tai tik OS užklausa, ne aktyvi srauto operacija), tad `nullbyte-app` gali ją
+/// kviesti tiesiogiai, NEATIDARANT jokio srauto ir NELAUKIANT `nullbyte-emu` vaiko proceso.
+/// Tuščias sąrašas (NE panic/klaida) klaidos atveju — loginama, bet UI tiesiog rodo „Default
+/// only".
+#[tauri::command]
+pub fn list_audio_devices() -> Vec<String> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    let host = cpal::default_host();
+    match host.output_devices() {
+        Ok(devices) => devices.filter_map(|d| d.name().ok()).collect(),
+        Err(error) => {
+            tracing::warn!(%error, "nepavyko išvardinti garso išvesties įrenginių");
+            Vec::new()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +385,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `VideoSettings::default()` TURI atitikti `nullbyte_core::video::renderer::{FilterMode,
+    /// ScaleMode}` `#[default]` variantus — kitaip UI pirmą kartą rodytų kitokią reikšmę nei
+    /// core'as REALIAI naudotų, jei šiandien turėtų P9.1 vamzdyną.
+    #[test]
+    fn video_settings_default_matches_renderer_defaults() {
+        assert_eq!(
+            VideoSettings::default().filter,
+            format!(
+                "{:?}",
+                nullbyte_core::video::renderer::FilterMode::default()
+            )
+            .to_lowercase()
+        );
+        assert_eq!(
+            VideoSettings::default().scale_mode,
+            format!("{:?}", nullbyte_core::video::renderer::ScaleMode::default()).to_lowercase()
+        );
+    }
+
+    #[test]
+    fn video_settings_roundtrips_through_json() {
+        let original = VideoSettings {
+            filter: "linear".to_string(),
+            scale_mode: "integer".to_string(),
+            vsync: false,
+            start_fullscreen: true,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: VideoSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.filter, original.filter);
+        assert_eq!(parsed.scale_mode, original.scale_mode);
+        assert_eq!(parsed.vsync, original.vsync);
+        assert_eq!(parsed.start_fullscreen, original.start_fullscreen);
+    }
+
+    #[test]
+    fn audio_settings_default_is_system_default_device_full_volume() {
+        let default = AudioSettings::default();
+        assert_eq!(default.device, None);
+        assert_eq!(default.volume, 1.0);
+        assert_eq!(default.buffer_ms, 50);
     }
 }

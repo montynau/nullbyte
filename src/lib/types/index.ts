@@ -192,3 +192,26 @@ export interface PlatformCorePreference {
   platformSlug: string;
   corePath: string;
 }
+
+/** Atitinka `VideoSettings` (crates/nullbyte-app/src/commands/settings.rs, P7.6). `filter`/
+ * `scaleMode` sutampa su Rust `FilterMode`/`ScaleMode` variantais (žr. Rust pusės doc). `vsync`/
+ * `startFullscreen` — **TIK persistencija**, dar NEVEIKIA (jokio esamo runtime hook'o net Rust
+ * pusėje, ne tik P9.1 IPC). */
+export interface VideoSettings {
+  /** `"nearest" | "linear"`. */
+  filter: string;
+  /** `"fit" | "integer"`. */
+  scaleMode: string;
+  vsync: boolean;
+  startFullscreen: boolean;
+}
+
+/** Atitinka `AudioSettings` (crates/nullbyte-app/src/commands/settings.rs, P7.6) — **TIK
+ * persistencija**, jokio esamo runtime hook'o (žr. Rust pusės doc). */
+export interface AudioSettings {
+  /** `null` = numatytasis sistemos įrenginys. */
+  device: string | null;
+  /** 0.0..=1.0. */
+  volume: number;
+  bufferMs: number;
+}

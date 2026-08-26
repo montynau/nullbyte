@@ -117,6 +117,11 @@ pub fn run() {
             commands::settings::get_preferred_cores,
             commands::settings::set_preferred_cores,
             commands::settings::get_core_priority,
+            commands::settings::get_video_settings,
+            commands::settings::set_video_settings,
+            commands::settings::get_audio_settings,
+            commands::settings::set_audio_settings,
+            commands::settings::list_audio_devices,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

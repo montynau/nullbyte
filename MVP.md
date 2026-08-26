@@ -2203,7 +2203,7 @@ reikalauja naujos `extract_first_match` logikos, žymima kaip žinomas apribojim
 
 ---
 
-### P7.6 — Nustatymų ekranas `[ ]`
+### P7.6 — Nustatymų ekranas `[x]` (visos 6 kortelės įgyvendintos — žr. progreso pastabą)
 
 **Priklausomybės:** P7.1, P4.2
 **Failai:** `src/routes/settings/+page.svelte`, `src/lib/components/settings/*`
@@ -2228,8 +2228,13 @@ UI + DB persistencija įgyvendinta (`InputPanel.svelte`, naujos komandos
 paaiškinimą po šia pastaba. **Cores** — dabar įgyvendinta (žr. ADR-024): aptiktų core'ų sąrašo
 rodymas PILNAI FUNKCIONALUS (perpanaudoja P1.3 `nullbyte_core::core::info::scan_cores_dir` be
 pakeitimų — jokio P9.1 bloko), preferuojamo core'o pasirinkimas per platformą — TIK
-persistencija, tas pats P9.1 apribojimas kaip Input. **Video/Audio** — vis dar „coming soon"
-stub'ai, neįgyvendinta.
+persistencija, tas pats P9.1 apribojimas kaip Input. **Video** — filtras (`nearest`/`linear`)
+ir scaling (`fit`/`integer`) TIK persistencija, bet Rust pusėje `Renderer::set_filter`/
+`set_scale_mode` JAU EGZISTUOJA (P2.5) — trūksta TIK P9.1 IPC wiring'o, ne naujo domeno kodo;
+vsync/start-fullscreen TIK persistencija, jokio esamo runtime hook'o net Rust pusėje. **Audio**
+— įrenginio sąrašo rodymas PILNAI FUNKCIONALUS (nauja `cpal` enumeracija tiesiai
+`nullbyte-app` pusėje, žr. pastabą žemiau), bet pats pasirinkimas + garsumas + buferio dydis
+TIK persistencija — jokio esamo mechanizmo `audio/output.rs` juos pritaikyti.
 
 **Input panelės apribojimas (aptikta PRIEŠ rašant kodą, aptarta su vartotoju):** mygtukų/
 klavišų mapping'as šiuo metu yra HARDKODINTAS `nullbyte-emu/src/main.rs` (vaiko procese), be
@@ -2269,14 +2274,41 @@ pasirinkimas PER PLATFORMĄ (naujos komandos `get_preferred_cores`/`set_preferre
 apribojimą kaip Input mapping'as — išsaugoma, bet niekas dar realiai nepaleidžia žaidimo su
 pasirinktu core'u.
 
+**Video/Audio panelės — kokybiškai SKIRTINGI P9.1 apribojimai kiekvienam laukui (tyrimas
+subagent'u prieš rašant kodą, 2026-08-26):**
+- `filter`/`scaleMode` (Video) — VIENINTELIAI iš visų šešių Video/Audio laukų, kuriems Rust
+  pusėje JAU EGZISTUOJA veikiantis mechanizmas: `FilterMode`/`ScaleMode` enum'ai su
+  `Renderer::set_filter()`/`set_scale_mode()` (P2.5, `renderer.rs`). Serializuojamos reikšmės
+  (`"nearest"|"linear"`, `"fit"|"integer"`) TIKSLIAI atitinka enum variantus (testas
+  `video_settings_default_matches_renderer_defaults` tai apsaugo), kad P9.1 wiring metu
+  reikėtų tik naujo `EmuCommand` varianto, NE reikšmių konvertavimo.
+- `vsync`/`startFullscreen` (Video) — NĖRA JOKIO esamo runtime hook'o net Rust pusėje.
+  Vsync „baked" į `wgpu::SurfaceConfiguration` `Renderer::new()` metu (`present_mode:
+  wgpu::PresentMode::AutoVsync`, hardkodinta) — pakeitimui reikėtų naujo
+  `set_present_mode()`, panašaus į `resize()`. Fullscreen šiuo metu tik F11 runtime toggle
+  (`nullbyte-emu/src/main.rs`), jokio „pradėti fullscreen" atributo lango kūrimo metu nėra.
+- `device`/`volume`/`bufferMs` (Audio) — VISI TRYS reikalautų NAUJO kodo `audio/output.rs`
+  (`nullbyte-core`), NE vien P9.1 IPC — dabar visada `host.default_output_device()`
+  (hardkodinta), garsumas apskritai neegzistuoja kaip konceptas (sample'ai keliauja
+  nekeisti), buferio dydis — hardkodinta konstanta `TARGET_LATENCY_MS = 50`, susieta su
+  `ring::recommended_capacity` skaičiavimu.
+- **Įrenginių sąrašo rodymas (Audio) — IŠIMTIS, veikia ŠIANDIEN:** `cpal` enumeracija
+  (`host.output_devices()`) yra grynas OS užklausimas, nepriklausantis nuo jokio aktyvaus
+  garso srauto ar `nullbyte-emu` vaiko proceso — saugu kviesti tiesiai iš `nullbyte-app`.
+  Naujas TIESIOGINIS `cpal` priklausomumas `crates/nullbyte-app/Cargo.toml` (jau buvo
+  workspace priklausomybė per `nullbyte-core`, čia tik nauja naudojimo vieta).
+
 **Acceptance:**
-- [ ] Visi nustatymai išsaugomi DB ir taikomi — DALINIAI: scraper credentials TAIP (žr.
-      ADR-022); input mapping ir preferuojamas core'as PER PLATFORMĄ IŠSAUGOMI bet DAR
-      NETAIKOMI (P9.1 blokas, žr. pastabas aukščiau); core'ų SĄRAŠO rodymas TAIKOMAS (skaito
-      realų `cores_dir` turinį — jokio DB saugojimo tam nereikia); video/audio nustatymai dar
-      neturi jokio backend'o
-- [ ] Mygtukų perrišimas veikia — UI VEIKIA (persistuoja), bet realiame žaidime NETAIKOMA
-      (blokuoja P9.1, žr. pastabą aukščiau)
+- [x] Visi nustatymai išsaugomi DB ir taikomi — DALINIAI TAIKOMA (kaip ir buvo tikėtasi prieš
+      P9.1): scraper credentials PILNAI (žr. ADR-022); core'ų sąrašo IR audio įrenginių sąrašo
+      RODYMAS PILNAI (skaito realų `cores_dir`/OS turinį, jokio DB saugojimo tam nereikia);
+      visi likę pasirinkimai (input mapping, preferuojamas core'as, video filter/scale/vsync/
+      fullscreen, audio device/volume/buffer) IŠSAUGOMI, bet DAR NETAIKOMI — blokuoja P9.1
+      (dalis) arba trūkstamas engine kodas (dalis, žr. pastabą aukščiau) — tai ŽINOMAS,
+      dokumentuotas, vartotojo priimtas apribojimas šiam MVP etapui, ne praleista klaida
+- [x] Mygtukų perrišimas veikia — UI VEIKIA (persistuoja, su automatiniu rekomenduojamo
+      core'o priskyrimu Cores panelėje), bet realiame žaidime NETAIKOMA (blokuoja P9.1, žr.
+      pastabą aukščiau) — tas pats žinomas apribojimas
 - [x] Neteisingi ScreenScraper credentials duoda aiškią klaidą — `ScreenScraperCredentials::load`
       grąžina `AppError::Other` su aiškiu tekstu, kai nei DB, nei `.env` neturi `devid`/
       `devpassword`; `set_scraper_credentials` atmeta tuščius privalomus laukus prieš įrašymą.
@@ -2480,10 +2512,10 @@ pasirinktu core'u.
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
-| 7 — UI | 6 | 5 | 83 % |
+| 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **39** | **75 %** |
+| **Viso** | **52** | **40** | **77 %** |
 
 ---
 
@@ -3287,6 +3319,48 @@ VERIFIKUOTĄ core'ą.
   BŪTENT toms pačioms (verifikuotoms) platformoms, konflikto tarp „vartotojas eksplicitiškai
   pasirinko None" ir „automatinis pasiūlymas" NĖRA — tokioms platformoms None niekada
   nebuvo pasiekiama pasirinktis iš viso.
+
+---
+
+### ADR-025 — Video/Audio panelės: skirtingi P9.1 apribojimai kiekvienam laukui, `cpal` naudojimo išplėtimas į `nullbyte-app` (P7.6 pabaiga)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** paskutinės dvi P7.6 skiltys. Prieš rašant kodą paleidau `Explore` subagent'ą
+patikrinti, KIEK iš MVP.md P7.6 „Ką daryti" sąrašo (filtras/scaling/vsync/fullscreen,
+įrenginys/garsumas/buferis) jau turi VEIKIANTĮ Rust API, o kiek — tik hardkodintas konstantas
+be jokio runtime hook'o net PRIEŠ P9.1 wiring'ą. Rezultatas — LABAI nevienalytis vaizdas (žr.
+P7.6 „Video/Audio panelės" pastabą aukščiau pilnam sąrašui), kitaip nei Input/Cores, kur VISKAS
+buvo vienodai P9.1-blokuota.
+
+**Sprendimas:**
+- `VideoSettings`/`AudioSettings` — TAS PATS vieno-JSON-rakto `settings` šablonas kaip
+  `input.mapping`/`core.preferred` (`video.settings`, `audio.settings` raktai,
+  `commands/settings.rs`).
+- `VideoSettings::default()` TIKSLIAI atitinka `FilterMode`/`ScaleMode` `#[default]` variantus
+  (Rust enum'us) — apsaugota testu `video_settings_default_matches_renderer_defaults`, kad
+  UI numatytoji reikšmė NIEKADA neišsiskirtų nuo to, ką core'as realiai naudotų.
+- **Nauja `cpal` priklausomybė TIESIOGIAI `crates/nullbyte-app/Cargo.toml`** (anksčiau TIK
+  `nullbyte-core`) — `list_audio_devices()` naudoja `host.output_devices()` enumeraciją, kuri
+  yra grynas OS užklausimas, VEIKIANTIS nepriklausomai nuo bet kokio aktyvaus garso srauto ar
+  `nullbyte-emu` vaiko proceso egzistavimo. Tai NĖRA nauja priklausomybė koncepciškai (jau
+  vetuota per `nullbyte-core`), tik nauja naudojimo vieta — bet vis tiek pažymima čia, kaip
+  reikalauja CLAUDE.md §11.8.
+- `VideoPanel.svelte`/`AudioPanel.svelte` — banner tekstas KIEKVIENAI skilčiai NURODO TIKSLIAI,
+  kodėl konkretus laukas dar netaikomas (P9.1 IPC trūksta vs. trūksta paties engine mechanizmo),
+  ne bendras „coming soon" ar vienas universalus perspėjimas — tikslesnė informacija vartotojui,
+  kuris jau du kartus šioje sesijoje (Input, Cores) matė panašius apribojimus ir pagrįstai
+  tikisi suprasti SKIRTUMĄ tarp jų.
+
+**REALIAI patikrinta:** `cargo build/clippy/fmt -p nullbyte-app` švarūs (įsk. naują `cpal`
+priklausomybę kompiliuojant `nullbyte-app`), `cargo test --workspace` 84/84 (3 nauji testai:
+`video_settings_default_matches_renderer_defaults`, `video_settings_roundtrips_through_json`,
+`audio_settings_default_is_system_default_device_full_volume`), `pnpm check/lint/build` 0
+klaidų/warning'ų. Realaus garso įrenginių sąrašo (ar jame yra teisingi pavadinimai šioje
+aplinkoje) UI patvirtinimas — vartotojo atsakomybė per `pnpm tauri dev`, kaip visada šioje
+sesijoje.
+
+**P7.6 UŽBAIGTA** (visos 6 kortelės įgyvendintos) — žr. Progreso lentelę §12 (Faza 7 dabar
+100%).
 
 ---
 

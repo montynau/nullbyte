@@ -4,6 +4,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   AppInfo,
+  AudioSettings,
   CoreInfo,
   Game,
   GameFilter,
@@ -17,6 +18,7 @@ import type {
   ScraperCredentialStatus,
   ScrapeProgress,
   ScrapeSummary,
+  VideoSettings,
 } from "$lib/types";
 
 export function getAppInfo(): Promise<AppInfo> {
@@ -135,4 +137,24 @@ export function setPreferredCores(preferences: PlatformCorePreference[]): Promis
 /** Platformos `slug` -> rekomenduojamų core'o pavadinimų tvarka (pirmas rastas laimi). */
 export function getCorePriority(): Promise<Record<string, string[]>> {
   return invoke("get_core_priority");
+}
+
+export function getVideoSettings(): Promise<VideoSettings> {
+  return invoke("get_video_settings");
+}
+
+export function setVideoSettings(value: VideoSettings): Promise<void> {
+  return invoke("set_video_settings", { value });
+}
+
+export function getAudioSettings(): Promise<AudioSettings> {
+  return invoke("get_audio_settings");
+}
+
+export function setAudioSettings(value: AudioSettings): Promise<void> {
+  return invoke("set_audio_settings", { value });
+}
+
+export function listAudioDevices(): Promise<string[]> {
+  return invoke("list_audio_devices");
 }

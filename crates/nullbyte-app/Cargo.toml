@@ -46,6 +46,11 @@ dotenvy = "0.15"
 # `use tokio_util::...` kompiliuotųsi (Cargo neduoda `use` prieigos vien dėl to, kad kažkas
 # kitas jį tranzityviai atsivelka).
 tokio-util = "0.7"
+# P7.6 Audio panelė: `list_audio_devices` komandai — TIK enumeracija (`host.output_devices()`),
+# jokio garso srauto TĖVO procese (garso atkūrimas lieka `nullbyte-core`/`nullbyte-emu` pusėje,
+# CLAUDE.md §3.4). Jau vetuota workspace priklausomybė (naudojama `nullbyte-core`), čia tik
+# nauja NAUDOJIMO vieta, ne nauja priklausomybė kaip tokia.
+cpal = "0.16"
 
 [dev-dependencies]
 # "test" atrakina tauri::test::{mock_builder, mock_context, noop_assets} — naudoja
