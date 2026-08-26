@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createVirtualizer } from "@tanstack/svelte-virtual";
+  import { get } from "svelte/store";
   import GameCard from "./GameCard.svelte";
   import type { Game } from "$lib/types";
 
@@ -33,12 +34,18 @@
     overscan: 4,
   });
 
+  // KRITIŠKA: `get()`, NE `$rowVirtualizer` — pastarasis būtų reaktyvus skaitymas, o
+  // `setOptions()`/`measure()` PATYS priverčia store'ą pranešti apie pasikeitimą (measure
+  // perskaičiuoja dydžius). `$`-prefiksas čia sukurtų begalinę kilpą: effect skaito store'ą →
+  // store pasikeičia → effect vėl paleidžiamas → ir taip toliau (realiai patikrinta, žr.
+  // MVP.md ADR-019 — Svelte `effect_update_depth_exceeded`, „updated at GameGrid.svelte:41").
   $effect(() => {
-    $rowVirtualizer.setOptions({
+    const virtualizer = get(rowVirtualizer);
+    virtualizer.setOptions({
       count: rowCount,
       estimateSize: () => cardHeight + GAP,
     });
-    $rowVirtualizer.measure();
+    virtualizer.measure();
   });
 </script>
 

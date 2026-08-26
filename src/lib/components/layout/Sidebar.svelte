@@ -1,9 +1,18 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
   import { library } from "$lib/stores/library.svelte";
   import LibraryIcon from "@lucide/svelte/icons/library";
   import StarIcon from "@lucide/svelte/icons/star";
   import ClockIcon from "@lucide/svelte/icons/clock";
   import Gamepad2Icon from "@lucide/svelte/icons/gamepad-2";
+
+  // Sidebar rodomas ir ne-bibliotekos maršrutuose (Settings, žaidimo detalės) — pasirinkimas
+  // visada turi grąžinti į biblioteką, kitaip vartotojas mato pasikeitusį filtrą, bet ne rezultatą.
+  function selectAndGo(action: () => void) {
+    action();
+    goto(resolve("/"));
+  }
 
   const isAllActive = $derived(
     library.filter.platformId == null &&
@@ -24,7 +33,7 @@
     <li>
       <button
         type="button"
-        onclick={() => library.selectAll()}
+        onclick={() => selectAndGo(() => library.selectAll())}
         aria-current={isAllActive}
         class="hover:bg-sidebar-accent aria-[current=true]:bg-sidebar-accent aria-[current=true]:text-sidebar-primary flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors"
       >
@@ -36,7 +45,7 @@
     <li>
       <button
         type="button"
-        onclick={() => library.selectFavorites()}
+        onclick={() => selectAndGo(() => library.selectFavorites())}
         aria-current={isFavoritesActive}
         class="hover:bg-sidebar-accent aria-[current=true]:bg-sidebar-accent aria-[current=true]:text-sidebar-primary flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors"
       >
@@ -47,7 +56,7 @@
     <li>
       <button
         type="button"
-        onclick={() => library.selectRecentlyPlayed()}
+        onclick={() => selectAndGo(() => library.selectRecentlyPlayed())}
         aria-current={isRecentActive}
         class="hover:bg-sidebar-accent aria-[current=true]:bg-sidebar-accent aria-[current=true]:text-sidebar-primary flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors"
       >
@@ -70,7 +79,7 @@
           <li>
             <button
               type="button"
-              onclick={() => library.selectPlatform(platform.id)}
+              onclick={() => selectAndGo(() => library.selectPlatform(platform.id))}
               aria-current={library.filter.platformId === platform.id}
               class="hover:bg-sidebar-accent aria-[current=true]:bg-sidebar-accent aria-[current=true]:text-sidebar-primary flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors"
             >

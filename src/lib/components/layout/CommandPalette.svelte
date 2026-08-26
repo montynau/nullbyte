@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
   import * as Command from "$lib/components/ui/command/index.js";
   import { library } from "$lib/stores/library.svelte";
   import LibraryIcon from "@lucide/svelte/icons/library";
@@ -18,6 +20,7 @@
   function pick(action: () => void) {
     action();
     open = false;
+    goto(resolve("/"));
   }
 </script>
 

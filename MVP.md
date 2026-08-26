@@ -2016,7 +2016,7 @@ visiems būsimiems `.svelte.ts` store'ams (`emulator.svelte.ts`, `settings.svelt
 
 ---
 
-### P7.2 — Žaidimų grid'as ir kortelės `[x]` (architektūra patvirtinta veikianti, ⚠️ viršeliai/60 FPS dar nepatikrinti su realiais duomenimis)
+### P7.2 — Žaidimų grid'as ir kortelės `[x]` (patvirtinta su realiais duomenimis, ⚠️ tikri viršeliai dar nepatikrinti — reikia scraping'o)
 
 **Priklausomybės:** P7.1
 **Failai:** `src/lib/components/library/GameCard.svelte`, `GameGrid.svelte`,
@@ -2037,28 +2037,30 @@ virtualizatoriaus `count`/`estimateSize` (žr. ADR-017). Įjungtas Tauri `assetP
 NIEKADA nebūtų pasiekiami. Placeholder — platformos `chart-*` spalva (CLAUDE.md §7.5, jokių
 hardcode'intų hex) + pavadinimas.
 
-**Patikrinimo istorija:** agento automatizuota sesija (fono `bash` procesas) negalėjo realiai
-paspausti mygtukų/patvirtinti timer'ių — native lango OS input tokioje aplinkoje nepasiekia
-webview'o (žr. ADR-017 pilną diagnostiką: `list_platforms` Rust pusėje grąžindavo teisingus
-duomenis per kelias milisekundes, patvirtinta `tracing` log'ais, bet JS pažadas niekada
-neišsisprędavo agento sesijoje). **2026-08-26 vartotojas paleido `pnpm tauri dev` REALIOJE
-sesijoje ir patvirtino:** platformų sąrašas Sidebar'e rodomas teisingai, tuščios bibliotekos
-būsena („No games found...") rodoma teisingai, paieška/`Cmd+K`/paspaudimai veikia normaliai.
-Tai PATVIRTINA, kad ADR-017 diagnozė buvo teisinga (agento aplinkos apribojimas, ne kodo
-klaida) — `list_platforms`/IPC/interaktyvumas realiai veikia.
+**Patikrinimo istorija (ATNAUJINTA 2026-08-26, žr. ADR-019):** iš pradžių maniau, kad agento
+automatizuota sesija tiesiog negali paspausti mygtukų (žr. senesnę ADR-017 nuorodą žemiau) —
+TAI BUVO IŠ DALIES KLAIDINGA IŠVADA. Kai vartotojas realiai paskenavo 30 SNES ROM'ų (P7.5),
+visa aplikacija užstrigo (jokie paspaudimai/`Cmd+K` nebeveikė) — tikroji priežastis buvo
+begalinė reaktyvi kilpa `GameGrid.svelte` (žr. ADR-019 pilnai), kuri egzistavo NUO ŠIOS P7.2
+užduoties, tiesiog nebuvo suveikusi anksčiau. Ištaisyta ir PATVIRTINTA vartotojo REALIOJE
+sesijoje 2026-08-26: Sidebar platformų sąrašas teisingas, `Cmd+K`/Favorites/Settings
+navigacija veikia, 30 realių SNES žaidimų (ActRaiser, Chrono Trigger, Donkey Kong Country...)
+atvaizduoti grid'e su teisingais pavadinimais IR tvarkingu placeholder'iu (nė vienas dar
+neturi viršelio, nes scraping'as nedarytas), grid'as slenka sklandžiai.
 
-**Kas DAR nepatikrinta** (biblioteka kol kas tuščia, joks ROM katalogas nenuskenuotas):
-viršelių rodymas (`convertFileSrc` + `assetProtocol` su tikru scrape'intu vaizdu) ir 5000
-žaidimų grid'o slinkimo sklandumas. Šiuos du punktus reikės patikrinti, kai bibliotekoje bus
-realių (ar bent testinių) žaidimų su viršeliais — natūraliai atsiras kartu su P7.5
-(Skenavimo/scraping'o UI) arba anksčiau paskenavus ROM katalogą rankiniu būdu.
+**Kas DAR nepatikrinta:** tikrų viršelių rodymas (`convertFileSrc` su realiu ScreenScraper
+atsisiųstu paveiksliuku — reikia realaus scraping'o paleidimo, žr. P7.5 PathsPanel „Scrape
+library metadata"), IR pilnas 5000 žaidimų 60 FPS testas (patvirtinta sklandu su 30 žaidimų,
+bet ne su tokiu masteliu).
 
 **Acceptance:**
 - [x] Sidebar rodo tikras platformas iš DB, IPC/paspaudimai veikia — patvirtinta vartotojo
-      2026-08-26
-- [ ] 5000 žaidimų grid'as slenka 60 FPS — reikia realių duomenų bibliotekoje
-- [ ] Viršeliai rodomi — reikia realių duomenų bibliotekoje
-- [ ] Be viršelio — tvarkingas placeholder — reikia realių duomenų bibliotekoje
+      2026-08-26 (PO begalinės kilpos pataisymo, žr. ADR-019)
+- [x] Be viršelio — tvarkingas placeholder — patvirtinta vartotojo 2026-08-26 (30 realių
+      SNES žaidimų, visi be viršelio, visi su tvarkingu placeholder'iu)
+- [ ] 5000 žaidimų grid'as slenka 60 FPS — patvirtinta sklandu su 30 realių žaidimų, pilnas
+      5000 mastelio testas dar nedarytas
+- [ ] Viršeliai rodomi — reikia realaus scraping'o paleidimo (P7.5 „Scrape library")
 
 ---
 
@@ -2134,7 +2136,7 @@ apribojimas kaip P7.2/P7.3, natūraliai išsispręs kartu su P7.5 (skenavimo UI)
 
 ---
 
-### P7.5 — Skenavimo ir scraping'o UI `[x]` (kodas baigtas, ⚠️ reikia vartotojo rankinio patvirtinimo)
+### P7.5 — Skenavimo ir scraping'o UI `[x]` (patvirtinta REALIU skenavimu — 30 SNES žaidimų)
 
 **Priklausomybės:** P5.3, P6.4, P7.1
 **Failai:** `src/lib/components/settings/PathsPanel.svelte`, `src/routes/settings/+page.svelte`
@@ -2154,20 +2156,27 @@ parašytą P5.3 `scanner::scan()` į `Channel<ScanProgress>`, minimalus `/settin
 panelė būtų pasiekiama). Rezultatų santrauka rodoma po skenavimo/scraping'o (added/updated/
 removed/unchanged; found/notFound/errored). Atšaukimas — perpanaudoja P6.4 `cancel_scrape`.
 
-**⚠️ Patikrinimo apribojimas:** `cargo fmt`/`clippy -D warnings`/`test --workspace` (62 testai,
-+3 nauji `rom_directories` testai) IR `pnpm check`/`lint`/`build` švarūs. `pnpm tauri dev`
-paleista realiai, biblioteka rodo be regresijos. BET pačios funkcijos (katalogo pasirinkimo
-dialogas, „Skenuoti"/„Scrape library" mygtukai) NEPATIKRINTOS interaktyviai — agento sesijoje
-paspaudimai native lange nepasiekia webview'o (žr. ADR-017). Repo jau turi realių test ROM'ų
-(`crates/nullbyte-core/roms/{snes,megadrive,gba,psx}`) — **paprašyk vartotojo**: atidaryti
-Nustatymus, pridėti vieną iš tų katalogų, paspausti „Scan library", patikrinti ar žaidimai
-atsiranda bibliotekoje su teisingais pavadinimais/platforma.
+**Patikrinta REALIAI 2026-08-26:** vartotojas atidarė Nustatymus, pridėjo
+`crates/nullbyte-core/roms/snes` per katalogo pasirinkimo dialogą, paspaudė „Scan library" —
+30 SNES žaidimų (ActRaiser, Chrono Trigger, Contra III, Donkey Kong Country 1/2, EarthBound,
+F-Zero, Final Fantasy IV/VI, Zelda ALTTP, ...) atsirado bibliotekoje su teisingais, švariai
+išvalytais pavadinimais (P5.3 `clean_title`) po skenavimo. Tai VISO pipeline'o (dialog plugin →
+`add_rom_directory` → `scan_library` → `scanner::scan()` → `list_games`) realus patvirtinimas.
+
+Skenavimo METU aptikta IR IŠTAISYTA rimta klaida — žr. ADR-019 (begalinė kilpa
+`GameGrid.svelte`, sukėlusi VISOS aplikacijos „užstrigimą" po skenavimo). Papildomai, vartotojo
+pastebėjimu, ištaisyta UX spraga: Sidebar/`Cmd+K` pasirinkimai (platforma/Favorites/...)
+ANKSČIAU tik keisdavo filtrą, bet neišvesdavo iš Settings/žaidimo puslapio atgal į biblioteką —
+dabar `Sidebar.svelte`/`CommandPalette.svelte` visada iškviečia `goto(resolve("/"))` po
+pasirinkimo.
 
 **Acceptance:**
-- [ ] Katalogo pridėjimas veikia abiejose platformose — reikia vartotojo patvirtinimo (macOS
-      dabar; Linux dar netestuota nė vienoje sesijoje, žr. §11.5 apribojimą)
-- [ ] Progresas sklandus, be UI užšalimo — reikia vartotojo patvirtinimo
-- [ ] Atšaukimas veikia — reikia vartotojo patvirtinimo (perpanaudoja jau patikrintą P6.4
+- [x] Katalogo pridėjimas veikia — patvirtinta vartotojo 2026-08-26 (macOS; Linux dar
+      netestuota nė vienoje sesijoje, žr. §11.5 apribojimą)
+- [x] Progresas sklandus, be UI užšalimo — skenavimas realiai baigėsi teisingu rezultatu
+      (30 pridėta); pats UI užšalimas, kurį vartotojas pastebėjo PO skenavimo, buvo ADR-019
+      klaida (nesusijusi su `scan_library`/progreso mechanizmu), dabar ištaisyta
+- [ ] Atšaukimas veikia — dar nepatikrinta interaktyviai (perpanaudoja jau patikrintą P6.4
       `cancel_scrape`, tad rizika maža)
 
 ---
@@ -2731,6 +2740,12 @@ scraping'u, UI).
 
 ### ADR-017 — `@tanstack/svelte-virtual` grid'o virtualizacijai + Tauri `assetProtocol` viršeliams (P7.2)
 **Data:** 2026-08-26 · **Statusas:** priimta
+
+> ⚠️ **PATAISYTA ADR-019** (žr. žemiau): šio ADR apačioje esanti diagnozė („agento aplinkos
+> apribojimas, ne kodo klaida") buvo iš dalies klaidinga. Tikroji `list_platforms`
+> kabėjimo/bendro neveiksnumo priežastis buvo begalinė reaktyvi kilpa `GameGrid.svelte`
+> (žemiau šiame ADR aprašytame kode), suveikianti tik kai grid'as realiai atvaizduoja
+> žaidimus. Skaityk ADR-019 pirma, jei domina tikroji priežastis.
 **Sprendimas:** `@tanstack/svelte-virtual` (jau numatyta MVP.md P7.2 spec'e) žaidimų grid'o
 virtualizacijai — virtualizuojamos EILUTĖS (ne pavieniai kortų elementai), kolonų skaičius
 skaičiuojamas reaktyviai iš konteinerio pločio (`bind:clientWidth`) ir minimalaus kortos pločio.
@@ -2805,6 +2820,70 @@ lieka P7.6. `TopBar` nustatymų mygtukas atrištas nuo „coming soon" stub'o (P
 nuorodą. `Button` komponentas turi `href` prop'ą (render'ina `<a>` vietoj `<button>`) — naudota
 vietoj įprasto `<a><Button /></a>` apvyniojimo, kad neatsirastų invalid HTML (button nested
 inside anchor).
+
+---
+
+### ADR-019 — `GameGrid` begalinės kilpos taisymas — `get()`, NE `$store`, virtualizatoriaus `$effect` viduje; **ADR-017 diagnozė buvo IŠ DALIES KLAIDINGA**
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kas atsitiko:** P7.5 metu vartotojas REALIAI paskenavo 30 SNES ROM'ų (žr. P7.5), grid'as
+teisingai atvaizdavo žaidimus — BET iškart po to VISA aplikacija „užstrigo": jokie paspaudimai
+(Sidebar, `Cmd+K`, Settings nuoroda) nebereagavo, `list_platforms` niekada neišsisprendė.
+Vartotojas atidarė Safari/WebKit dev tools (per right-click → Inspect Element, kuris VEIKĖ, nes
+tai native kontekstinis meniu, ne JS) ir rado tikrąją klaidą Console'e:
+
+```
+[Error] Svelte error: effect_update_depth_exceeded
+Maximum update depth exceeded. This typically indicates that an effect reads and writes
+the same piece of state
+    ...GameGrid.svelte:41 ($rowVirtualizer.measure())
+```
+
+**Šaknis:** `GameGrid.svelte` (P7.2) `$effect` bloke:
+```js
+$effect(() => {
+  $rowVirtualizer.setOptions({ count: rowCount, estimateSize: () => cardHeight + GAP });
+  $rowVirtualizer.measure();
+});
+```
+`$rowVirtualizer` — Svelte `Readable` store (`@tanstack/svelte-virtual`). `$`-prefiksas ČIA
+sukuria reaktyvią prenumeratą — bet `setOptions()`/`measure()` PATYS priverčia virtualizatorių
+perskaičiuoti dydžius ir PRANEŠTI apie pasikeitimą (store emituoja naują reikšmę). Rezultatas:
+effect skaito store'ą (prenumeruoja) → viduje iškviečia metodus, kurie priverčia store'ą
+emituoti → Svelte mato pasikeitusią priklausomybę → effect PALEIDŽIAMAS IŠ NAUJO → vėl kviečia
+tuos pačius metodus → begalinė sinchroninė kilpa, kuri visiškai užblokuoja JS single-threaded
+event loop'ą. Tai paaiškina VISUS anksčiau stebėtus simptomus vienu metu: `invoke()` pažadai
+niekada neišsisprendžia (event loop'as nespėja apdoroti native→JS callback'o), `setTimeout`/
+`setInterval` niekada nesuveikia, paspaudimai neregistruojami — VISKAS, ko reikia event loop'o
+tolimesniam ciklui.
+
+**Sprendimas:** imperatyviems `setOptions()`/`measure()` kvietimams naudoti `get(rowVirtualizer)`
+(iš `svelte/store`) vietoj `$rowVirtualizer` — `get()` perskaito DABARTINĘ reikšmę BE
+prenumeratos, nesukurdamas priklausomybės. `$rowVirtualizer` reaktyvus naudojimas PALIEKAMAS
+template'e (`getTotalSize()`, `getVirtualItems()`), kur prenumerata tikrai reikalinga UI
+atnaujinimui.
+
+**⚠️ KRITIŠKAI SVARBI PATAISA ADR-017 diagnozei:** ADR-017 (P7.1/P7.2) padarė IŠVADĄ, kad
+`list_platforms` amžinai kabantis pažadas ir bendras neveiksnumas agento sesijoje buvo VIEN
+agento aplinkos apribojimas (GUI procesas paleistas per fono `bash`, negauna OS input). Ta
+diagnozė buvo **NETEISINGA arba bent jau NEPILNA** — tikroji (ar bent PAGRINDINĖ) priežastis
+buvo ŠI begalinė kilpa, kuri egzistavo kode NUO P7.2 (kai buvo parašytas `GameGrid.svelte`) ir
+tiesiog nebuvo suveikusi anksčiau, nes agento testavimas ARBA visai neturėjo realių žaidimų
+(tuščia biblioteka → `GameGrid` niekada nesumontuojamas), ARBA sintetinių 5000 įrašų testas
+(P7.2 ADR-017 pastaba) sukėlė TĄ PATĮ bug'ą, bet buvo klaidingai priskirtas „aplinkos
+apribojimui", nes agento pačio `cliclick`-pagrįstas testavimas VISADA buvo nepatikimas
+(nepavyko net teisingomis koordinatėmis), todėl nebuvo aiškaus skirtumo tarp „aplinka
+netikima" ir „app tikrai užstrigęs". **Pamoka:** kai kas nors atrodo „visiškai neveikia" (net
+paprasčiausi paspaudimai/timer'iai), PIRMIAUSIA reikia patikrinti webview Console dėl JS
+klaidų (per Inspect Element, jei įmanoma), NE iš karto priskirti aplinkos apribojimui — net jei
+aplinkos apribojimas (agento `cliclick` nepatikimumas) IR YRA realus atskirai (tebelieka
+patvirtintas — user's šios sesijos testas irgi patvirtino, kad savarankiškas agento
+paspaudimų testavimas nepatikimas), jis gali UŽMASKUOTI arba SUSIMAIŠYTI su tikra klaida.
+Atitinkamai atnaujinta atmintis (`feedback_native_window_no_input_in_agent_session.md`).
+
+**Pasekmės:** P7.2/P7.3/P7.4/P7.5 acceptance punktai, kurie anksčiau buvo pažymėti „reikia
+vartotojo patvirtinimo", DABAR realiai patvirtinti — žr. atitinkamas sekcijas aukščiau,
+atnaujinta 2026-08-26 po šio pataisymo.
 
 ---
 
