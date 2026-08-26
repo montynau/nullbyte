@@ -1,8 +1,15 @@
 // Tipizuoti Tauri `invoke` wrapper'iai (CLAUDE.md §7.3) — vienas failas per domeną,
 // kai jų prisikaups daugiau; kol kas viskas telpa čia.
 
-import { invoke } from "@tauri-apps/api/core";
-import type { AppInfo, Game, GameFilter, PlatformSummary } from "$lib/types";
+import { Channel, invoke } from "@tauri-apps/api/core";
+import type {
+  AppInfo,
+  Game,
+  GameFilter,
+  PlatformSummary,
+  ScrapeProgress,
+  ScrapeSummary,
+} from "$lib/types";
 
 export function getAppInfo(): Promise<AppInfo> {
   return invoke("get_app_info");
@@ -26,4 +33,13 @@ export function recordPlay(id: number, seconds: number): Promise<void> {
 
 export function listPlatforms(): Promise<PlatformSummary[]> {
   return invoke("list_platforms");
+}
+
+export function scrapeGame(
+  id: number,
+  onProgress: (progress: ScrapeProgress) => void,
+): Promise<ScrapeSummary> {
+  const channel = new Channel<ScrapeProgress>();
+  channel.onmessage = onProgress;
+  return invoke("scrape_game", { id, progress: channel });
 }

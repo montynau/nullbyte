@@ -2097,10 +2097,11 @@ niekas nepatikrino. Tas pats apribojimas kaip P7.2 viršeliams — natūraliai p
 
 ---
 
-### P7.4 — Žaidimo detalių puslapis `[ ]`
+### P7.4 — Žaidimo detalių puslapis `[x]` (kodas baigtas, ⚠️ dar nepatikrinta su realiais duomenimis)
 
 **Priklausomybės:** P7.2
-**Failai:** `src/routes/game/[id]/+page.svelte`
+**Failai:** `src/routes/game/[id]/+page.svelte`, `src/routes/game/[id]/+page.ts` (naujas —
+`prerender = false`), `src/lib/utils/format.ts` (naujas), `src/lib/api/index.ts` (`scrapeGame`)
 
 **Ką daryti:**
 - Hero: screenshot fone (blur + gradientas), wheel logotipas viršuje
@@ -2109,10 +2110,27 @@ niekas nepatikrino. Tas pats apribojimas kaip P7.2 viršeliams — natūraliai p
 - Save states sąrašas su preview paveiksliukais
 - Statistika: paskutinį kartą žaista, kiek kartų, kiek laiko
 
+**Įgyvendinta:** `GameCard` dabar `<a href={resolve("/game/[id]", ...)}>` — visas grid'as
+naviguojamas. „Mėgstamas" ir „Scrape iš naujo" — REALIAI veikiantys mygtukai (`set_favorite`,
+`scrape_game` per Tauri `Channel<ScrapeProgress>`, abu jau parašyti P5.4/P6.4). „Žaisti" —
+sąmoningai `disabled` su tooltip „coming soon (P9.1)", nes `nullbyte-emu` paleidimo IPC klientas
+dar neparašytas (žr. P9.1). Save states sekcija — tuščios būsenos placeholder'is („coming in
+P8.1"), nes joks backend'as tam dar neegzistuoja — sąmoningai NEBUVO kurta pilna UI be duomenų
+šaltinio (CLAUDE.md „nekurk pusiau baigtų implementacijų"). Trūkstami duomenys (aprašymas,
+kūrėjas ir t.t.) tvarkomi filtruojant `null`/tuščias reikšmes iš `metaRows` prieš atvaizduojant —
+layout nelūžta, tiesiog tas badge'as nerodomas.
+
+**⚠️ Patikrinimo apribojimas:** `pnpm check`/`lint`/`build` švarūs (įskaitant prerender
+sprendimą dinaminiam maršrutui — SPA fallback per `adapter-static`), REALIAI paleista
+`pnpm tauri dev`, biblioteka rodo teisingai be regresijos. BET pats detalių puslapis (mygtukai,
+metaduomenys, hero) dar nepatikrintas su realiu žaidimu, nes biblioteka tuščia — tas pats
+apribojimas kaip P7.2/P7.3, natūraliai išsispręs kartu su P7.5 (skenavimo UI).
+
 **Acceptance:**
-- [ ] Visi metaduomenys rodomi
-- [ ] „Žaisti" paleidžia žaidimą
-- [ ] Trūkstami duomenys nesulaužo layout'o
+- [ ] Visi metaduomenys rodomi — reikia realių duomenų
+- [ ] „Žaisti" paleidžia žaidimą — priklauso nuo P9.1 (dar neparašyta), sąmoningai atidėta
+- [ ] Trūkstami duomenys nesulaužo layout'o — kodas tam paruoštas (filtruoja `null`), reikia
+      realaus patikrinimo
 
 ---
 
@@ -2351,10 +2369,10 @@ niekas nepatikrino. Tas pats apribojimas kaip P7.2 viršeliams — natūraliai p
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
-| 7 — UI | 6 | 3 | 50 % |
+| 7 — UI | 6 | 4 | 67 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **37** | **71 %** |
+| **Viso** | **52** | **38** | **73 %** |
 
 ---
 

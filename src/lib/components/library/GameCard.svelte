@@ -1,5 +1,6 @@
 <script lang="ts">
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { resolve } from "$app/paths";
   import { app } from "$lib/stores/app.svelte";
   import { platformAccentClass } from "$lib/utils/platforms";
   import Gamepad2Icon from "@lucide/svelte/icons/gamepad-2";
@@ -16,7 +17,8 @@
   const showPlaceholder = $derived(!coverSrc || imgFailed);
 </script>
 
-<div
+<a
+  href={resolve("/game/[id]", { id: String(game.id) })}
   class="border-border bg-card group relative flex aspect-[3/4] w-full flex-col overflow-hidden rounded-lg border transition-transform duration-150 hover:-translate-y-1 hover:shadow-lg"
 >
   {#if showPlaceholder}
@@ -47,4 +49,4 @@
   >
     <p class="truncate text-xs font-medium text-white">{game.title}</p>
   </div>
-</div>
+</a>
