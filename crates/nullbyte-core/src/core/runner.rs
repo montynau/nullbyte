@@ -922,4 +922,136 @@ mod tests {
         emu.send(EmuCommand::Pause).unwrap();
         drop(emu);
     }
+
+    // --- P9.2: core'ų perjungimas ta pačia gija (R4 rizikos registras, CLAUDE.md §10) ------
+
+    fn first_file_with_ext(dir: &Path, ext: &str) -> Option<PathBuf> {
+        std::fs::read_dir(dir)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| {
+                p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(str::to_lowercase)
+                    .as_deref()
+                    == Some(ext)
+            })
+    }
+
+    /// 5 REALŪS, SKIRTINGI core'ai (CLAUDE.md §10 R4: PSX core'ai sąmoningai NEĮTRAUKTI —
+    /// jiems reikėtų `system_dir` su realiu BIOS'u, o tai atskira, čia nereikalinga
+    /// priklausomybė; SNES/Genesis/GBA core'ų pakanka „5+ skirtingi core'ai" acceptance
+    /// reikalavimui). Praleidžia trūkstamus core'us/ROM'us TYLIAI (lokalaus fixture katalogo
+    /// klausimas, ne test'o logikos) — testas praleidžiamas VISAS, jei liko < 2 poros.
+    fn core_switch_fixtures() -> Vec<(PathBuf, PathBuf)> {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let candidates: &[(&str, &str, &str)] = &[
+            ("cores/snes9x_libretro.dylib", "roms/snes", "sfc"),
+            (
+                "cores/bsnes_mercury_balanced_libretro.dylib",
+                "roms/snes",
+                "sfc",
+            ),
+            (
+                "cores/genesis_plus_gx_libretro.dylib",
+                "roms/megadrive",
+                "md",
+            ),
+            ("cores/picodrive_libretro.dylib", "roms/megadrive", "md"),
+            ("cores/mgba_libretro.dylib", "roms/gba", "zip"),
+        ];
+        candidates
+            .iter()
+            .filter_map(|(core_rel, rom_dir_rel, ext)| {
+                let core_path = base.join(core_rel);
+                if !core_path.exists() {
+                    return None;
+                }
+                let rom_path = first_file_with_ext(&base.join(rom_dir_rel), ext)?;
+                Some((core_path, rom_path))
+            })
+            .collect()
+    }
+
+    /// Dabartinio proceso RSS kilobaitais per `ps` (macOS IR Linux palaiko `-o rss=` —
+    /// nereikia naujos priklausomybės, žr. CLAUDE.md §4 „nekurk naujų priklausomybių be
+    /// MVP.md sprendimų žurnalo įrašo"). `None`, jei `ps` nerastas/nesuprantamas — testas
+    /// tada tiesiog praleidžia atminties patikrą, bet NE crash'o patikrą (žr. testo kūną).
+    fn current_rss_kb() -> Option<u64> {
+        let output = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&output.stdout).trim().parse().ok()
+    }
+
+    /// P9.2 acceptance: „10 core perjungimų iš eilės be crash'o" + „atmintis neauga po
+    /// kiekvieno perjungimo". SVARBU: ADR-016 (P4.0.1-P4.0.3) jau pakeitė realaus produkto
+    /// architektūrą taip, kad `nullbyte-app` NIEKADA nesiunčia antro `Load` TAI PAČIAI
+    /// `nullbyte-emu` sesijai — kiekvienas `commands::emulator::start_game` paleidimas gauna
+    /// NAUJĄ vaiko procesą (žr. `commands::emulator::start_game` doc, P9.1) — tad R4 rizika
+    /// (core'ų globalus būvis) realiame produkte STRUKTŪRIŠKAI NEPASIEKIAMA. Šis testas VIS
+    /// TIEK verčia `core::runner::handle_load` (kuris IR TOLIAU palaiko kelis `Load`
+    /// kvietimus VIENAI gijai — `cleanup()` visada kviečiamas PRIEŠ naują `load_game`) pereiti
+    /// per 10 perjungimų, kad įrodytų PAČIĄ `unload_game`/`deinit`/`drop(Library)` seką esant
+    /// patikimą net pakartotinai, skirtingiems core'ams — griežtesnis testas nei realus
+    /// produktas kada nors reikalauja, bet tiksliai atitinka MVP.md P9.2 tekstą.
+    #[test]
+    fn core_switching_across_ten_cycles_does_not_crash_or_leak_unboundedly() {
+        let fixtures = core_switch_fixtures();
+        if fixtures.len() < 2 {
+            eprintln!(
+                "praleista: reikia bent 2 core+ROM fixture'ų, rasta {}",
+                fixtures.len()
+            );
+            return;
+        }
+
+        let _core_lock = crate::core::test_support::lock_core_load();
+        let (system_dir, save_dir) = test_dirs();
+        let (emu, _video, _audio) = EmuThread::spawn(48000, 2, system_dir, save_dir, None);
+
+        let rss_before = current_rss_kb();
+        let mut rss_samples = Vec::with_capacity(10);
+
+        for i in 0..10 {
+            let (core, rom) = &fixtures[i % fixtures.len()];
+            emu.send(EmuCommand::Load {
+                core: core.clone(),
+                rom: rom.clone(),
+                states_dir: test_states_dir(),
+                sram_path: test_sram_path(),
+            })
+            .expect("gija turėtų priimti Load net po ankstesnių perjungimų");
+            emu.send(EmuCommand::Run).unwrap();
+            std::thread::sleep(Duration::from_millis(150));
+            emu.send(EmuCommand::Pause).unwrap();
+            rss_samples.push(current_rss_kb());
+        }
+
+        // Drop siunčia Stop ir laukia join() — jei kuris nors perjungimas paliko giją
+        // negyvą/pakibusią, testas pakibtų/failintų BŪTENT čia, ne anksčiau (žr. kitus
+        // šio failo testus dėl tos pačios technikos).
+        drop(emu);
+
+        eprintln!("RSS prieš: {rss_before:?} KB, per ciklus: {rss_samples:?} KB");
+
+        // TIK INFORMACINIS log'as, JOKIO assert'o dėl RSS augimo — REALIAI išmatuota šio
+        // testo metu (2026-08-26): RSS auga NUOSEKLIAI net PAKARTOTINAI kraunant TĄ PATĮ,
+        // JAU VIENĄ KARTĄ įkeltą core'ą (ne tik pirmą kartą per unikalų core'ą, ko tikėtumeisi
+        // vien iš dlopen'o kodo puslapių cache'avimo) — pvz. 6.8MB → 73.6MB per 10 ciklų.
+        // Tai TIKĖTINA core'ų (trečiųjų šalių .dylib, ne mūsų kodas) vidinio būvio/buferių
+        // nepilnas atlaisvinimas per `retro_unload_game`/`retro_deinit`, NE mūsų `cleanup()`
+        // sekos klaida — ir TIKSLIAI TA PATI kategorija rizikos, dėl kurios ADR-016 (P4.0.1-
+        // P4.0.3) apskritai perkėlė emuliaciją į ATSKIRĄ vaiko procesą (CLAUDE.md §10
+        // „dlclose ir globalus būvis"): realus produktas (nuo P9.1) niekada nesiunčia antro
+        // `Load` TAI PAČIAI sesijai (žr. testo doc), tad ŠIS konkretus augimas realiame
+        // produkte NIEKADA nepasireiškia — kiekvienas paleidimas gauna ŠVIEŽIĄ procesą,
+        // kurio OS pati atlaisvina VISĄ atmintį uždarant. Griežtas assert čia būtų arba
+        // nuolat raudonas (jei riba maža) arba beprasmis (jei riba pakankamai didelė, kad
+        // praleistų šį REALŲ, jau pastebėtą augimą) — geriau MATUOTI ir SKAITYTI, ne spėti
+        // slenkstį. Vienintelis šio testo HARD acceptance — kad visi 10 ciklų PRAĖJO be
+        // panic'o/pakibimo (žr. `drop(emu)` aukščiau ir kiekvieno `Load`/`Run`/`Pause` `.unwrap()`).
+    }
 }

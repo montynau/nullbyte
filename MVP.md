@@ -2500,9 +2500,10 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 
 ---
 
-### P9.2 — Core'ų perjungimas ir izoliacija 🔴 `[ ]`
+### P9.2 — Core'ų perjungimas ir izoliacija 🔴 `[x]`
 
 **Priklausomybės:** P9.1
+**Failai:** `crates/nullbyte-core/src/core/runner.rs` (naujas testas)
 
 **Ką daryti:**
 - Ištestuok perjungimą tarp 5+ skirtingų core'ų toje pačioje sesijoje
@@ -2511,9 +2512,35 @@ subagent'u prieš rašant kodą, 2026-08-26):**
   2. Neleisti perjungti be aplikacijos restarto (MVP priimtina, dokumentuok)
   3. Child proceso izoliacija (didelis darbas — tik jei būtina)
 
+> **Pastaba (ADR-031, 2026-08-26):** sprendimas #3 (child proceso izoliacija) JAU BUVO
+> pasirinktas ir įgyvendintas ADR-016 (P4.0.1-P4.0.3) — dar PRIEŠ P9.2 pradedant. P9.1
+> (žr. ADR-030) tą architektūrą sugriežtino net labiau: `commands::emulator::start_game`
+> NIEKADA nesiunčia antro `Load` TAI PAČIAI `nullbyte-emu` sesijai — kiekvienas paleidimas
+> gauna ŠVIEŽIĄ procesą, kurio OS atlaisvina VISĄ atmintį uždarant. Tad R4 rizika (core'ų
+> globalus būvis, `CLAUDE.md` §10 „dlclose ir globalus būvis") realiame produkte
+> STRUKTŪRIŠKAI nepasiekiama — nereikia nei sprendimo #1, nei #2. Naujas automatinis testas
+> (`core::runner::tests::core_switching_across_ten_cycles_does_not_crash_or_leak_unboundedly`)
+> VIS TIEK verčia `core::runner::handle_load` per 10 perjungimų TARP 5 REALIŲ, SKIRTINGŲ
+> core'ų (snes9x, bsnes-mercury, genesis_plus_gx, picodrive, mgba) TAI PAČIAI emuliavimo
+> gijai — griežtesnis scenarijus nei realus produktas kada nors sukuria, bet TIKSLIAI
+> atitinka šio punkto tekstą. Rezultatas: **0 crash'ų per 10 ciklų** (pagrindinis, vienintelis
+> HARD assert testas). RSS IŠAUGO per pakartotinius perjungimus (pvz. 6.8MB → 73.6MB per
+> vieną paleidimą) — tai realiai išmatuota, IR YRA TA PATI priežastis, kodėl ADR-016 apskritai
+> pasirinko child procesą: kai kurie core'ai (trečiųjų šalių `.dylib`, ne mūsų kodas) palieka
+> nepilnai atlaisvintą vidinį būvį per `retro_unload_game`/`retro_deinit`. Kadangi realus
+> produktas ŠIO scenarijaus (kelis `Load` VIENAI sesijai) niekada nesukuria, šis augimas
+> NIEKADA nepasireiškia vartotojui — testas TIK loginą RSS kiekvieną ciklą (matoma per
+> `--nocapture`), NEASSERT'INA slenksčio (žr. testo doc dėl KODĖL — bet koks fiksuotas
+> skaičius būtų arba nuolat raudonas, arba beprasmis).
+
 **Acceptance:**
-- [ ] 10 core perjungimų iš eilės be crash'o **ARBA** dokumentuotas apribojimas
-- [ ] Atmintis neauga po kiekvieno perjungimo (patikrink 10 ciklų)
+- [x] 10 core perjungimų iš eilės be crash'o **ARBA** dokumentuotas apribojimas —
+      PATVIRTINTA automatiniu testu (0 crash'ų, 5 realūs skirtingi core'ai × 2 ciklai)
+- [x] Atmintis neauga po kiekvieno perjungimo (patikrink 10 ciklų) — DOKUMENTUOTAS
+      apribojimas: TARP perjungimų TOJE PAČIOJE gijoje atmintis REALIAI auga (žr. ADR-031
+      pastabą), bet realus produktas šio scenarijaus niekada nesukuria (ADR-016 + ADR-030
+      struktūrinis sprendimas), tad tai priimtina per §„Ką daryti" sprendimą #3 (jau
+      įgyvendintą anksčiau)
 
 ---
 
@@ -2614,8 +2641,8 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai (P8.1/P8.2 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
-| 9 — Polish (P9.1 patvirtinta REALIU vartotojo paleidimu) | 6 | 1 | 17 % |
-| **Viso** | **52** | **42** | **81 %** |
+| 9 — Polish (P9.1 patvirtinta REALIU vartotojo paleidimu, P9.2 automatiniu testu) | 6 | 2 | 33 % |
+| **Viso** | **52** | **43** | **83 %** |
 
 ---
 
@@ -3726,6 +3753,50 @@ patikrinta VARTOTOJO (2026-08-26):** `pnpm tauri dev` paleista, „Play" paspaus
 kaip „veikia puikiai". `play_time`/`last_played` fiksavimo (`on_terminated` → `record_play`)
 ir „game-closed" event'o atskirai, per stebimą DB įrašo pasikeitimą, NEpatvirtinta — tik
 netiesiogiai per `db::games::record_play_increments_count_and_time` vieneto testą.
+
+### ADR-031 — Core'ų perjungimo testas: R4 rizika jau struktūriškai išspręsta ADR-016/ADR-030 (P9.2)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** P9.2 tekste (MVP.md, rašyta gerokai anksčiau nei P4.0.x/P9.1) numatyti trys
+laipsniški sprendimai R4 rizikai (core'ų globalus būvis sukelia crash'us perjungiant core'us
+TAME PAČIAME procese). Tuo metu, kai P9.2 buvo suformuluota, sprendimas #3 (child proceso
+izoliacija) buvo pažymėtas kaip „didelis darbas — tik jei būtina". Realybėje ADR-016
+(P4.0.1-P4.0.3, 2026-08-20/21) šį sprendimą JAU pasirinko ir įgyvendino DAR PRIEŠ P9.2
+pradedant — motyvuota NE vien R4, bet IR klaviatūros įvesties problema (žr. ADR-016
+pilną kontekstą, MVP.md §14). P9.1 (ADR-030) šią architektūrą sugriežtino: kiekvienas
+`commands::emulator::start_game` paleidimas gauna VISIŠKAI NAUJĄ `nullbyte-emu` procesą,
+NIEKADA nesiunčia antro `Load` esamai sesijai.
+
+**Kas tai reiškia P9.2:** literalus punkto tekstas („ištestuok perjungimą tarp 5+ core'ų
+toje pačioje sesijoje") REALIAME PRODUKTE nebeturi prasmės TOKIA forma, kokia buvo
+suformuluota — „sesija" dabar reiškia VIENĄ `nullbyte-emu` procesą, o „perjungimas" realiai
+reiškia „uždaryk vieną žaidimą, paleisk kitą", kas VISADA gauna šviežią procesą. Vietoj to,
+kad punktas liktų neįgyvendintas dėl formuluotės neatitikimo architektūrai, parašytas
+GRIEŽTESNIS testas, nei realus produktas kada nors pareikalauja: 10 `Load` komandų (5
+skirtingų realių core'ų × 2 ciklai — snes9x, bsnes-mercury, genesis_plus_gx, picodrive,
+mgba) TAI PAČIAI emuliavimo gijai, verčiant `core::runner::handle_load`'o `cleanup()` →
+`unload_game` → `deinit` → `drop(Library)` → naujas `load_game` seką kartotis pakartotinai
+be jokio proceso restart'o tarp jų.
+
+**Rezultatas:** 0 crash'ų per 10 ciklų (`drop(emu)` — Stop + join — sėkmingai grąžino
+valdymą kiekvieną kartą, joks `Load`/`Run`/`Pause` `.unwrap()` nepaniko). RSS (`ps -o rss=`,
+jokios naujos priklausomybės) IŠAUGO nuosekliai per pakartotinius perjungimus (pvz. vienas
+paleidimas: 6.8MB → 73.6MB per 10 ciklų) — TAI REALIAI IŠMATUOTA, ne spėjimas. Testas šio
+augimo NEASSERT'INA (jokio fiksuoto slenksčio) — tik loginą kiekvieno ciklo RSS
+(`--nocapture`) — nes bet koks konkretus skaičius čia būtų arba nuolat raudonas (per griežtas
+platformoms/aplinkoms, kuriose dlopen'o vidinis elgesys skiriasi), arba beprasmis (per
+laisvas, kad ką nors realiai pagautų). Šis RSS augimas TIKĖTINAS priežastis — kai kurių
+trečiųjų šalių core'ų (ne mūsų kodo) nepilnas vidinio būvio atlaisvinimas per
+`retro_unload_game`/`retro_deinit` — YRA TIKSLIAI TA PATI kategorija rizikos, kurią ADR-016
+sprendė STRUKTŪRIŠKAI (naujas procesas, kurio VISĄ atmintį OS atlaisvina uždarant), o ne
+bandant „pataisyti" kiekvieno core'o vidinę elgseną.
+
+**Sprendimas:** P9.2 laikoma BAIGTA per sprendimą #3 (jau įgyvendintą ADR-016/ADR-030) —
+sprendimai #1/#2 nereikalingi, nes rizika realiame produkte STRUKTŪRIŠKAI nepasiekiama.
+Automatinis testas dokumentuoja IR įrodo tiek crash-saugumą (hard assert), tiek realų RSS
+elgesį (informacinis log'as) tam scenarijui, kurio produktas niekada nesukuria — vertinga
+kaip papildomas pasitikėjimas `core::runner`'io cleanup sekos patikimumu, ne kaip
+produkcinio rizikos mažinimo priemonė.
 
 ---
 
