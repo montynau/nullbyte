@@ -2016,7 +2016,7 @@ visiems būsimiems `.svelte.ts` store'ams (`emulator.svelte.ts`, `settings.svelt
 
 ---
 
-### P7.2 — Žaidimų grid'as ir kortelės `[x]` (patvirtinta su realiais duomenimis, ⚠️ tikri viršeliai dar nepatikrinti — reikia scraping'o)
+### P7.2 — Žaidimų grid'as ir kortelės `[x]` (pilnai patvirtinta su realiais duomenimis, įsk. viršelius)
 
 **Priklausomybės:** P7.1
 **Failai:** `src/lib/components/library/GameCard.svelte`, `GameGrid.svelte`,
@@ -2048,19 +2048,24 @@ navigacija veikia, 30 realių SNES žaidimų (ActRaiser, Chrono Trigger, Donkey 
 atvaizduoti grid'e su teisingais pavadinimais IR tvarkingu placeholder'iu (nė vienas dar
 neturi viršelio, nes scraping'as nedarytas), grid'as slenka sklandžiai.
 
-**Kas DAR nepatikrinta:** tikrų viršelių rodymas (`convertFileSrc` su realiu ScreenScraper
-atsisiųstu paveiksliuku — reikia realaus scraping'o paleidimo, žr. P7.5 PathsPanel „Scrape
-library metadata"), IR pilnas 5000 žaidimų 60 FPS testas (patvirtinta sklandu su 30 žaidimų,
-bet ne su tokiu masteliu).
+**Toliau scrape'inus 88 žaidimus (4 platformos) paaiškėjo, kad fiksuota `aspect-[3/4]` dėžė
+apkerpa viršelius su kitokia proporcija (PSX kvadratas) — žr. ADR-021 pilnam sprendimui.**
+`GameGrid` perrašytas į „packed row" layout'ą (fiksuota aukštis, tikras plotis pagal REALIUS
+DB'je saugomus `cover_width`/`cover_height`, ADR-021), `GameCard` nebeturi savo fiksuotos
+proporcijos. Patikrinta screenshot'ais — PSX kvadratiniai, SNES platūs, Genesis aukšti, visi
+BE apkirpimo.
+
+**Kas DAR nepatikrinta:** pilnas 5000 žaidimų 60 FPS testas (patvirtinta sklandu su 88 realiais
+žaidimais, bet ne su tokiu masteliu).
 
 **Acceptance:**
 - [x] Sidebar rodo tikras platformas iš DB, IPC/paspaudimai veikia — patvirtinta vartotojo
       2026-08-26 (PO begalinės kilpos pataisymo, žr. ADR-019)
-- [x] Be viršelio — tvarkingas placeholder — patvirtinta vartotojo 2026-08-26 (30 realių
-      SNES žaidimų, visi be viršelio, visi su tvarkingu placeholder'iu)
-- [ ] 5000 žaidimų grid'as slenka 60 FPS — patvirtinta sklandu su 30 realių žaidimų, pilnas
-      5000 mastelio testas dar nedarytas
-- [ ] Viršeliai rodomi — reikia realaus scraping'o paleidimo (P7.5 „Scrape library")
+- [x] Be viršelio — tvarkingas placeholder — patvirtinta vartotojo 2026-08-26
+- [x] Viršeliai rodomi — patvirtinta 2026-08-26 su 88 realiai scrape'intais žaidimais (4
+      platformos), įsk. „packed row" pataisymą skirtingoms proporcijoms (ADR-021)
+- [ ] 5000 žaidimų grid'as slenka 60 FPS — patvirtinta sklandu su 88 realiais žaidimais,
+      pilnas 5000 mastelio testas dar nedarytas
 
 ---
 
@@ -2949,6 +2954,60 @@ MVP sąmoningas supaprastinimas) reiškia BET KOKS ilgai trunkantis DB veiksmas 
 kitus. Tikras sprendimas — nelaikyti lock'o per PATĮ hash'avimą (tik trumpiems DB read/write
 žingsniams), reikalautų `scan()` pertvarkymo. **Palikta kaip žinoma spraga, ne pataisyta —
 vartotojo sprendimas 2026-08-26**, kad būtų galima tęsti prie scraping'o testavimo.
+
+---
+
+### ADR-021 — Tikri viršelio matmenys DB'je + „packed row" GameGrid layout'as (P7.2 patobulinimas)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** po realaus scraping'o (88 žaidimai, 4 platformos) vartotojas pastebėjo, kad
+PSX viršeliai grid'e apkirpti — matėsi tik dalis „PlayStation" logotipo. Priežastis:
+`GameCard` naudojo fiksuotą `aspect-[3/4]` dėžę su `object-cover`. Patikrinus REALIUS
+atsisiųstus failus (`sips -g pixelWidth -g pixelHeight`) paaiškėjo, kad viršelių proporcijos
+LABAI skiriasi tarp platformų: PSX 680×680 (kvadratas), SNES 680×497 (platus), Genesis
+484×680 (aukštas), GBA 705×700 (beveik kvadratas). Jokia bendra ar platformos-lygio prielaida
+netiktų visiems atvejais.
+
+**Du keliai apsvarstyti su vartotoju:** (A) tikri matmenys saugomi DB'je scraping'o metu,
+GameGrid perrašomas į layout'ą su tiksliais pločiais; (B) matuoti `<img>` elementą kliento
+pusėje po užsikrovimo (jokių backend pakeitimų, bet vizualus „šuoliukas" perkraunant ir
+sudėtingesnė virtualizacija su kintamu pločiu). **Vartotojas pasirinko (A).**
+
+**Backend įgyvendinimas:**
+- Migracija 006: `games.cover_width`/`cover_height` (nullable INTEGER).
+- Naujas `scraper/image_dimensions.rs` — minimalus PNG/JPEG header'io parseris (TIK plotis/
+  aukštis, be dekodavimo) — SĄMONINGAI NE `image` crate (per sunku vien šiai reikmei, žr.
+  CLAUDE.md §11.8 — nauja priklausomybė reikalautų atskiro ADR pagrindimo, o minimalus
+  parseris — < 100 eilučių, pilnai testuojamas). PNG: signatūra + IHDR chunk fiksuotame
+  offset'e. JPEG: markerių skenavimas iki SOF0-SOF15.
+- `media.rs` `download_game_media()` po viršelio atsisiuntimo (ar radimo jau esančio disko) IŠ
+  KARTO nuskaito matmenis iš PAČIO failo diske — veikia abiem atvejais (naujai atsisiųstam IR
+  jau esančiam), nes abiem failas realiai egzistuoja disko.
+- **REALIAI patikrinta** `#[ignore]`'intu tinklo testu (`real_cover_downloads_from_live_screenscraper_response`):
+  tikras SNES viršelis → `cover_width: Some(680), cover_height: Some(497)` — TIKSLIAI sutampa
+  su rankiniu `sips` patikrinimu.
+
+**Frontend įgyvendinimas:**
+- `GameGrid.svelte` visiškai perrašytas: vietoj vienodo stulpelių tinklelio (fiksuotas plotis,
+  `Math.ceil(games.length / columns)` eilučių) — „packed row" algoritmas: fiksuota `ROW_HEIGHT`
+  (220px), kiekvienos kortos plotis = `ROW_HEIGHT * (coverWidth / coverHeight)`, kortos dedamos
+  „iš eilės kol tilpsta" (ragged-right, NE edge-to-edge justify — vartotojas prašė TIK
+  „fiksuota aukštis, plotis kad tilptų", ne tobulo išlyginimo). Žaidimams be žinomų matmenų
+  (dar nescrape'inti) — numatytoji `3/4` proporcija placeholder'iui.
+- Virtualizacija IŠLIEKA (ta pati `@tanstack/svelte-virtual` + ADR-019 `get()` pataisa) —
+  `rows` (masyvas masyvų) apskaičiuojamas kaip `$derived.by()`, virtualizuojama pagal EILUTĖS
+  indeksą kaip anksčiau, tiesiog kiekviena eilutė dabar turi KINTAMĄ kortų skaičių/pločius.
+- `GameCard.svelte` — pašalintas fiksuotas `aspect-[3/4]`, dydis dabar ateina iš TĖVINIO
+  `GameGrid` apskaičiuoto `style:width`/`style:height` (pikseliais).
+
+**Jau esančių 88 žaidimų (scrape'intų PRIEŠ šį pakeitimą) atgalinis užpildymas:** rankiniu
+būdu per `sips` perskaityti JAU atsisiųstų viršelių matmenys ir tiesiogiai UPDATE'inti DB —
+NEREIKĖJO pakartotinio ScreenScraper API kvietimo (kvotos netaupymas), nes failai jau buvo
+diske. Ateities scraping'ai automatiškai užpildys naujus žaidimus per `media.rs` pakeitimą.
+
+**REALIAI patikrinta 2026-08-26** (vartotojo ir mano screenshot'ais): PSX viršeliai dabar
+kvadratiniai su pilnai matomu „PlayStation" logotipu, SNES platūs, Genesis aukšti — visi BE
+apkirpimo, fiksuoto aukščio eilutėse, kaip prašyta.
 
 ---
 

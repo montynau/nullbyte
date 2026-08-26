@@ -99,7 +99,7 @@ const GAME_COLUMNS: &str = "g.id, g.platform_id, g.title, g.sort_title, g.rom_pa
      g.archive_inner, g.crc32, g.md5, g.sha1, g.description, g.developer, g.publisher, \
      g.genre, g.players, g.release_date, g.rating, g.region, g.cover_path, g.screenshot_path, \
      g.wheel_path, g.video_path, g.scrape_status, g.scraped_at, g.last_played, g.play_count, \
-     g.play_time_seconds, g.favorite, g.added_at, g.file_mtime";
+     g.play_time_seconds, g.favorite, g.added_at, g.file_mtime, g.cover_width, g.cover_height";
 
 fn game_from_row(row: &Row) -> rusqlite::Result<Game> {
     Ok(Game {
@@ -133,6 +133,8 @@ fn game_from_row(row: &Row) -> rusqlite::Result<Game> {
         favorite: row.get(27)?,
         added_at: row.get(28)?,
         file_mtime: row.get(29)?,
+        cover_width: row.get(30)?,
+        cover_height: row.get(31)?,
     })
 }
 
@@ -296,8 +298,9 @@ pub fn apply_scrape_result(
             description = ?1, developer = ?2, publisher = ?3, genre = ?4, players = ?5,
             release_date = ?6, rating = ?7, region = ?8,
             cover_path = ?9, screenshot_path = ?10, wheel_path = ?11, video_path = ?12,
-            scrape_status = 'ok', scraped_at = ?13
-         WHERE id = ?14",
+            cover_width = ?13, cover_height = ?14,
+            scrape_status = 'ok', scraped_at = ?15
+         WHERE id = ?16",
         rusqlite::params![
             metadata.description,
             metadata.developer,
@@ -311,6 +314,8 @@ pub fn apply_scrape_result(
             media.screenshot_path,
             media.wheel_path,
             media.video_path,
+            media.cover_width,
+            media.cover_height,
             unix_now(),
             id,
         ],
@@ -552,6 +557,8 @@ mod tests {
 
         let media = crate::scraper::media::MediaPaths {
             cover_path: Some("covers/1.png".to_string()),
+            cover_width: Some(680),
+            cover_height: Some(497),
             screenshot_path: None,
             wheel_path: None,
             video_path: Some("videos/1.mp4".to_string()),
@@ -567,6 +574,8 @@ mod tests {
         assert_eq!(game.players, Some(2));
         assert_eq!(game.rating, Some(16.0));
         assert_eq!(game.cover_path.as_deref(), Some("covers/1.png"));
+        assert_eq!(game.cover_width, Some(680));
+        assert_eq!(game.cover_height, Some(497));
         assert_eq!(game.video_path.as_deref(), Some("videos/1.mp4"));
         assert_eq!(game.screenshot_path, None);
         assert_eq!(game.scrape_status, "ok");

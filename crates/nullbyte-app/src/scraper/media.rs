@@ -29,6 +29,12 @@ const MAX_VIDEO_BYTES: u64 = 10 * 1024 * 1024;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MediaPaths {
     pub cover_path: Option<String>,
+    /// Tikri viršelio matmenys (ADR-021) — nuskaityti iš JAU atsisiųsto/rasto failo disko,
+    /// nepriklausomai nuo to, ar šis `download_game_media` kvietimas realiai siuntė failą,
+    /// ar tik rado jį jau esantį (P6.3 „pakartotinis scraping'as nesiunčia dar kartą") — abiem
+    /// atvejais failas realiai egzistuoja diske ir jo matmenis galima perskaityti.
+    pub cover_width: Option<u32>,
+    pub cover_height: Option<u32>,
     pub screenshot_path: Option<String>,
     pub wheel_path: Option<String>,
     pub video_path: Option<String>,
@@ -85,12 +91,28 @@ pub async fn download_game_media(
     )
     .await;
 
+    let (cover_width, cover_height) = match &cover_path {
+        Some(relative) => read_cover_dimensions(media_dir, relative).await.unzip(),
+        None => (None, None),
+    };
+
     Ok(MediaPaths {
         cover_path,
+        cover_width,
+        cover_height,
         screenshot_path,
         wheel_path,
         video_path,
     })
+}
+
+/// Perskaito viršelio failą DISKE (ne per HTTP) ir nuskaito jo matmenis (ADR-021) — `None`
+/// tyliai, jei failo perskaityti nepavyksta ar formatas neatpažįstamas (PNG/JPEG headerio
+/// parseris — `image_dimensions.rs` — negaliniai formatai, pvz. WebP, tiesiog liktų `None`,
+/// GameCard tada naudoja numatytąją 3:4 proporciją, ne sulaužo layout'o).
+async fn read_cover_dimensions(media_dir: &Path, relative_path: &str) -> Option<(u32, u32)> {
+    let bytes = tokio::fs::read(media_dir.join(relative_path)).await.ok()?;
+    crate::scraper::image_dimensions::read_dimensions(&bytes)
 }
 
 /// Geriausias `media_type` įrašas pagal regiono prioritetą. Įrašai be `region` (dažnai
@@ -516,6 +538,14 @@ mod tests {
             let cover_bytes = std::fs::read(dir.join(&cover_relative)).unwrap();
             assert!(!cover_bytes.is_empty());
             assert!(!dir.join(format!("{cover_relative}.tmp")).exists());
+
+            // ADR-021: REALUS viršelis turi būti matomas dydis, ne tik atsisiųstas — patikrina
+            // visą grandinę (atsisiuntimas → image_dimensions::read_dimensions → MediaPaths).
+            let (width, height) = (
+                result.cover_width.expect("tikėtasi nuskaityto pločio"),
+                result.cover_height.expect("tikėtasi nuskaityto aukščio"),
+            );
+            assert!(width > 0 && height > 0, "matmenys turėtų būti > 0");
 
             std::fs::remove_dir_all(&dir).ok();
         });

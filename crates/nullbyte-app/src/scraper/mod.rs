@@ -21,6 +21,7 @@
 //! patikrinamas gyvais `#[ignore]` testais (žr. `tests` modulį), o `rom_filename`/DB
 //! funkcijos (`db::games::set_scrape_status`/`apply_scrape_result`) testuojamos greitai atskirai.
 
+pub mod image_dimensions;
 pub mod media;
 pub mod rate_limit;
 pub mod screenscraper;
@@ -399,6 +400,8 @@ mod tests {
             rating: None,
             region: None,
             cover_path: None,
+            cover_width: None,
+            cover_height: None,
             screenshot_path: None,
             wheel_path: None,
             video_path: None,

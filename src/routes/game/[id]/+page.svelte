@@ -83,10 +83,10 @@
   );
 </script>
 
-<div class="h-full overflow-y-auto">
+<div class="relative h-full overflow-y-auto">
   <a
     href={resolve("/")}
-    class="bg-background/80 fixed top-4 left-4 z-10 inline-flex size-8 items-center justify-center rounded-lg backdrop-blur"
+    class="bg-background/80 absolute top-4 left-4 z-10 inline-flex size-8 items-center justify-center rounded-lg backdrop-blur"
   >
     <ArrowLeftIcon class="size-4" />
   </a>
@@ -100,10 +100,10 @@
       class={`relative h-56 w-full overflow-hidden ${heroSrc ? "" : platformAccentClass(game.platformId)}`}
     >
       {#if heroSrc}
-        <img src={heroSrc} alt="" class="h-full w-full scale-110 object-cover opacity-50 blur-md" />
+        <img src={heroSrc} alt="" class="h-full w-full object-cover" />
       {/if}
       <div
-        class="from-background via-background/70 absolute inset-0 bg-gradient-to-t to-transparent"
+        class="from-background absolute inset-0 bg-gradient-to-t via-transparent to-transparent"
       ></div>
       <div class="absolute inset-x-0 bottom-0 flex items-end gap-4 p-6">
         {#if wheelSrc}

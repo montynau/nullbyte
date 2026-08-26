@@ -6,31 +6,58 @@
 
   let { games }: { games: Game[] } = $props();
 
-  const CARD_MIN_WIDTH = 160;
+  const ROW_HEIGHT = 220;
   const GAP = 16;
+  // Placeholder'ių (dar nescrape'intų žaidimų, `coverWidth`/`coverHeight` = null) numatytoji
+  // proporcija — jokia geresnė prielaida neįmanoma be tikrų matmenų.
+  const DEFAULT_ASPECT = 3 / 4;
 
   let scrollElement: HTMLDivElement | undefined = $state();
   let containerWidth = $state(0);
 
-  const columns = $derived(
-    Math.max(1, Math.floor((containerWidth + GAP) / (CARD_MIN_WIDTH + GAP))),
-  );
-  const cardWidth = $derived(
-    columns > 0 && containerWidth > 0
-      ? (containerWidth - GAP * (columns - 1)) / columns
-      : CARD_MIN_WIDTH,
-  );
-  const cardHeight = $derived(cardWidth * (4 / 3));
-  const rowCount = $derived(Math.ceil(games.length / columns));
-  const columnIndexes = $derived(Array.from({ length: columns }, (_, i) => i));
+  function aspectRatioFor(game: Game): number {
+    if (game.coverWidth && game.coverHeight) {
+      return game.coverWidth / game.coverHeight;
+    }
+    return DEFAULT_ASPECT;
+  }
 
-  // Tik pradinė reikšmė; realus sinchronizavimas vyksta žemiau per $effect + setOptions()
-  // kaskart pasikeitus rowCount/cardHeight.
+  interface PackedCard {
+    game: Game;
+    width: number;
+  }
+
+  // ADR-021: fiksuota AUKŠTIS (`ROW_HEIGHT`), plotis pagal TIKRĄ viršelio proporciją — vietoj
+  // vienodo stulpelių tinklelio (P7.2), nes realūs viršeliai LABAI skiriasi tarp platformų
+  // (PSX kvadratas, SNES platus, Genesis aukštas — patikrinta realiais matmenimis). Eilutės
+  // pakuojamos „iš eilės kol tilpsta" (ragged-right), NE tobulai išlygintos per visą plotį —
+  // vartotojas prašė TIK „fiksuota aukštis, plotis kad visas tilptu", ne edge-to-edge justify.
+  const rows = $derived.by(() => {
+    if (containerWidth <= 0) return [] as PackedCard[][];
+    const packed: PackedCard[][] = [];
+    let current: PackedCard[] = [];
+    let currentWidth = 0;
+    for (const game of games) {
+      const width = ROW_HEIGHT * aspectRatioFor(game);
+      const widthWithGap = current.length === 0 ? width : width + GAP;
+      if (current.length > 0 && currentWidth + widthWithGap > containerWidth) {
+        packed.push(current);
+        current = [];
+        currentWidth = 0;
+      }
+      current.push({ game, width });
+      currentWidth += current.length === 1 ? width : width + GAP;
+    }
+    if (current.length > 0) packed.push(current);
+    return packed;
+  });
+
+  // Tik pradinė reikšmė; realus sinchronizavimas vyksta žemiau per $effect + setOptions().
   // svelte-ignore state_referenced_locally
   const rowVirtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: rowCount,
+    count: rows.length,
     getScrollElement: () => scrollElement ?? null,
-    estimateSize: () => cardHeight + GAP,
+    estimateSize: () => ROW_HEIGHT + GAP,
     overscan: 4,
   });
 
@@ -38,12 +65,12 @@
   // `setOptions()`/`measure()` PATYS priverčia store'ą pranešti apie pasikeitimą (measure
   // perskaičiuoja dydžius). `$`-prefiksas čia sukurtų begalinę kilpą: effect skaito store'ą →
   // store pasikeičia → effect vėl paleidžiamas → ir taip toliau (realiai patikrinta, žr.
-  // MVP.md ADR-019 — Svelte `effect_update_depth_exceeded`, „updated at GameGrid.svelte:41").
+  // MVP.md ADR-019 — Svelte `effect_update_depth_exceeded`).
   $effect(() => {
     const virtualizer = get(rowVirtualizer);
     virtualizer.setOptions({
-      count: rowCount,
-      estimateSize: () => cardHeight + GAP,
+      count: rows.length,
+      estimateSize: () => ROW_HEIGHT + GAP,
     });
     virtualizer.measure();
   });
@@ -53,18 +80,15 @@
   <div style:height="{$rowVirtualizer.getTotalSize()}px" class="relative w-full">
     {#each $rowVirtualizer.getVirtualItems() as row (row.index)}
       <div
-        class="absolute top-0 left-0 flex w-full"
-        style:height="{row.size}px"
+        class="absolute top-0 left-0 flex"
+        style:height="{ROW_HEIGHT}px"
         style:transform="translateY({row.start}px)"
         style:gap="{GAP}px"
       >
-        {#each columnIndexes as col (col)}
-          {@const game = games[row.index * columns + col]}
-          {#if game}
-            <div style:width="{cardWidth}px">
-              <GameCard {game} />
-            </div>
-          {/if}
+        {#each rows[row.index] ?? [] as card (card.game.id)}
+          <div style:width="{card.width}px" style:height="{ROW_HEIGHT}px" class="shrink-0">
+            <GameCard game={card.game} />
+          </div>
         {/each}
       </div>
     {/each}

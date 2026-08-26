@@ -46,6 +46,11 @@ export interface Game {
   rating: number | null;
   region: string | null;
   coverPath: string | null;
+  /** Tikri viršelio matmenys (ADR-021) — `null`, kol dar nescrape'inta. Naudojama
+   * `GameGrid` „packed row" layout'ui, nes ScreenScraper viršelių proporcijos labai
+   * skiriasi tarp platformų (PSX kvadratas, SNES platus, Genesis aukštas...). */
+  coverWidth: number | null;
+  coverHeight: number | null;
   screenshotPath: string | null;
   wheelPath: string | null;
   videoPath: string | null;

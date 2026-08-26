@@ -19,7 +19,7 @@
 
 <a
   href={resolve("/game/[id]", { id: String(game.id) })}
-  class="border-border bg-card group relative flex aspect-[3/4] w-full flex-col overflow-hidden rounded-lg border transition-transform duration-150 hover:-translate-y-1 hover:shadow-lg"
+  class="border-border bg-card group relative flex h-full w-full flex-col overflow-hidden rounded-lg border transition-transform duration-150 hover:-translate-y-1 hover:shadow-lg"
 >
   {#if showPlaceholder}
     <div

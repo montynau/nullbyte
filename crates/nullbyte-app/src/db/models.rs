@@ -43,6 +43,12 @@ pub struct Game {
     pub rating: Option<f64>,
     pub region: Option<String>,
     pub cover_path: Option<String>,
+    /// Tikri viršelio matmenys (ADR-021) — `None`, kol dar nenuskaityti (žr.
+    /// `scraper::image_dimensions`). Naudojama `GameGrid` „packed row" layout'ui, kad
+    /// skirtingų proporcijų viršeliai (PSX kvadratas vs SNES platus vs Genesis aukštas)
+    /// nebūtų apkerpami vienoda 3:4 dėže.
+    pub cover_width: Option<i64>,
+    pub cover_height: Option<i64>,
     pub screenshot_path: Option<String>,
     pub wheel_path: Option<String>,
     pub video_path: Option<String>,
