@@ -554,6 +554,9 @@ tylių bug'ų priežastis šiame projekte.
 - Hover → video preview su 300 ms delsa (kad neblyksėtų slenkant pele).
 - Visos spalvos per Tailwind v4 CSS kintamuosius `app.css` — jokių hardcode'intų hex reikšmių
   komponentuose.
+- **Visas vartotojui matomas UI tekstas — angliškai** (label'ai, placeholder'iai, klaidų
+  pranešimai, tooltip'ai, aria-label'ai). Kodo komentarai ir šis dokumentas lieka lietuviškai
+  (žr. §1 komunikacijos taisykles) — tai atskiros kategorijos, nemaišyk.
 
 ---
 

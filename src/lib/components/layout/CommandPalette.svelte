@@ -23,26 +23,26 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<Command.Dialog bind:open title="Komandų paletė" description="Greita navigacija po biblioteką">
-  <Command.Input placeholder="Ieškoti peržiūros ar platformos..." />
+<Command.Dialog bind:open title="Command Palette" description="Quick navigation across the library">
+  <Command.Input placeholder="Search views or platforms..." />
   <Command.List>
-    <Command.Empty>Nieko nerasta.</Command.Empty>
-    <Command.Group heading="Peržiūra">
+    <Command.Empty>No results found.</Command.Empty>
+    <Command.Group heading="Views">
       <Command.Item onSelect={() => pick(() => library.selectAll())}>
         <LibraryIcon class="size-4" />
-        Visi žaidimai
+        All Games
       </Command.Item>
       <Command.Item onSelect={() => pick(() => library.selectFavorites())}>
         <StarIcon class="size-4" />
-        Mėgstami
+        Favorites
       </Command.Item>
       <Command.Item onSelect={() => pick(() => library.selectRecentlyPlayed())}>
         <ClockIcon class="size-4" />
-        Neseniai žaisti
+        Recently Played
       </Command.Item>
     </Command.Group>
     {#if library.platforms.length > 0}
-      <Command.Group heading="Platformos">
+      <Command.Group heading="Platforms">
         {#each library.platforms as platform (platform.id)}
           <Command.Item onSelect={() => pick(() => library.selectPlatform(platform.id))}>
             <Gamepad2Icon class="size-4" />

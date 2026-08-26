@@ -10,11 +10,11 @@
 
 <div class="p-4">
   {#if library.loading}
-    <p class="text-muted-foreground text-sm">Kraunama...</p>
+    <p class="text-muted-foreground text-sm">Loading...</p>
   {:else if library.error}
     <p class="text-destructive text-sm">{library.error}</p>
   {:else if library.games.length === 0}
-    <p class="text-muted-foreground text-sm">Žaidimų nerasta. Pridėk ROM katalogą nustatymuose.</p>
+    <p class="text-muted-foreground text-sm">No games found. Add a ROM directory in settings.</p>
   {:else}
     <!-- Laikinas sąrašas — P7.2 pakeis tikru virtualizuotu grid'u su viršeliais. -->
     <ul class="flex flex-col gap-1">

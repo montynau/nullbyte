@@ -8,16 +8,14 @@
   import SettingsIcon from "@lucide/svelte/icons/settings";
 
   const SORT_OPTIONS: { value: string; label: string }[] = [
-    { value: "title-asc", label: "Pavadinimas (A–Z)" },
-    { value: "title-desc", label: "Pavadinimas (Z–A)" },
-    { value: "lastPlayed-desc", label: "Neseniai žaisti" },
-    { value: "addedAt-desc", label: "Naujausiai pridėti" },
+    { value: "title-asc", label: "Title (A–Z)" },
+    { value: "title-desc", label: "Title (Z–A)" },
+    { value: "lastPlayed-desc", label: "Recently Played" },
+    { value: "addedAt-desc", label: "Recently Added" },
   ];
 
   const sortValue = $derived(`${library.filter.sort}-${library.filter.sortDirection}`);
-  const sortLabel = $derived(
-    SORT_OPTIONS.find((o) => o.value === sortValue)?.label ?? "Rūšiavimas",
-  );
+  const sortLabel = $derived(SORT_OPTIONS.find((o) => o.value === sortValue)?.label ?? "Sort");
 
   function handleSortChange(value: string | undefined) {
     if (!value) return;
@@ -36,7 +34,7 @@
     />
     <Input
       type="text"
-      placeholder="Ieškoti bibliotekoje..."
+      placeholder="Search library..."
       value={library.filter.search ?? ""}
       oninput={(e) => library.setSearch(e.currentTarget.value)}
       class="h-8 pl-8"
@@ -59,11 +57,11 @@
   <Tooltip.Provider>
     <Tooltip.Root>
       <Tooltip.Trigger>
-        <Button variant="ghost" size="icon" disabled aria-label="Nustatymai">
+        <Button variant="ghost" size="icon" disabled aria-label="Settings">
           <SettingsIcon class="size-4" />
         </Button>
       </Tooltip.Trigger>
-      <Tooltip.Content>Nustatymai — netrukus (P7.6)</Tooltip.Content>
+      <Tooltip.Content>Settings — coming soon (P7.6)</Tooltip.Content>
     </Tooltip.Root>
   </Tooltip.Provider>
 </header>

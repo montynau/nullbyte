@@ -17,7 +17,7 @@
 </script>
 
 <nav
-  aria-label="Bibliotekos navigacija"
+  aria-label="Library navigation"
   class="border-sidebar-border bg-sidebar text-sidebar-foreground flex h-full w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r p-3"
 >
   <ul class="flex flex-col gap-0.5">
@@ -29,7 +29,7 @@
         class="hover:bg-sidebar-accent aria-[current=true]:bg-sidebar-accent aria-[current=true]:text-sidebar-primary flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors"
       >
         <LibraryIcon class="size-4" />
-        <span class="flex-1 text-left">Visi</span>
+        <span class="flex-1 text-left">All</span>
         <span class="text-muted-foreground text-xs tabular-nums">{library.totalGameCount}</span>
       </button>
     </li>
@@ -41,7 +41,7 @@
         class="hover:bg-sidebar-accent aria-[current=true]:bg-sidebar-accent aria-[current=true]:text-sidebar-primary flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors"
       >
         <StarIcon class="size-4" />
-        <span class="flex-1 text-left">Mėgstami</span>
+        <span class="flex-1 text-left">Favorites</span>
       </button>
     </li>
     <li>
@@ -52,7 +52,7 @@
         class="hover:bg-sidebar-accent aria-[current=true]:bg-sidebar-accent aria-[current=true]:text-sidebar-primary flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors"
       >
         <ClockIcon class="size-4" />
-        <span class="flex-1 text-left">Neseniai žaisti</span>
+        <span class="flex-1 text-left">Recently Played</span>
       </button>
     </li>
   </ul>
@@ -60,7 +60,7 @@
   {#if library.platforms.length > 0}
     <div class="flex flex-col gap-0.5">
       <h2 class="text-muted-foreground px-2 pb-1 text-xs font-medium tracking-wide uppercase">
-        Platformos
+        Platforms
       </h2>
       <ul class="flex flex-col gap-0.5">
         {#each library.platforms as platform (platform.id)}
