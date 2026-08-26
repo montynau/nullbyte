@@ -112,6 +112,10 @@ export interface RomDirectory {
   path: string;
   recursive: boolean;
   enabled: boolean;
+  /** `null` = automatinis platformos nustatymas pagal plėtinį per skenavimą. `number` —
+   * vartotojo nurodyta platforma šiam katalogui (ADR-020), pašalina dviprasmybę tarp
+   * platformų, dalinančių tuos pačius archyvo vidinius plėtinius (PSX/Saturn/SegaCD). */
+  platformId: number | null;
 }
 
 /** Atitinka `ScanProgress` (crates/nullbyte-app/src/library/scanner.rs) — siunčiamas per

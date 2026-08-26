@@ -11,6 +11,7 @@
   import { library } from "$lib/stores/library.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Progress } from "$lib/components/ui/progress";
+  import * as Select from "$lib/components/ui/select/index.js";
   import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
   import Trash2Icon from "@lucide/svelte/icons/trash-2";
   import type {
@@ -21,8 +22,13 @@
     ScrapeSummary,
   } from "$lib/types";
 
+  const AUTO_DETECT = "auto";
+
   let directories = $state<RomDirectory[]>([]);
   let loadingDirs = $state(true);
+  // Select veikia su string reikšmėmis — "auto" žymi `platformId: null` (automatinis
+  // nustatymas pagal plėtinį), kitaip platformos `id` kaip tekstas.
+  let pendingPlatformId = $state(AUTO_DETECT);
 
   let scanning = $state(false);
   let scanProgress = $state<ScanProgress | null>(null);
@@ -48,13 +54,19 @@
   async function pickDirectory() {
     const selected = await open({ directory: true, multiple: false });
     if (!selected || Array.isArray(selected)) return;
-    await addRomDirectory(selected, true);
+    const platformId = pendingPlatformId === AUTO_DETECT ? null : Number(pendingPlatformId);
+    await addRomDirectory(selected, true, platformId);
     await loadDirectories();
   }
 
   async function removeDirectory(id: number) {
     await removeRomDirectory(id);
     await loadDirectories();
+  }
+
+  function platformName(platformId: number | null): string {
+    if (platformId == null) return "Auto-detect";
+    return library.platforms.find((p) => p.id === platformId)?.name ?? `#${platformId}`;
   }
 
   async function runScan() {
@@ -102,12 +114,25 @@
 
 <div class="flex flex-col gap-6">
   <section class="flex flex-col gap-3">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-2">
       <h2 class="text-sm font-medium">ROM directories</h2>
-      <Button size="sm" onclick={pickDirectory}>
-        <FolderPlusIcon class="size-4" />
-        Add directory
-      </Button>
+      <div class="flex items-center gap-2">
+        <Select.Root type="single" bind:value={pendingPlatformId}>
+          <Select.Trigger class="h-8 w-40 text-sm">
+            {platformName(pendingPlatformId === AUTO_DETECT ? null : Number(pendingPlatformId))}
+          </Select.Trigger>
+          <Select.Content>
+            <Select.Item value={AUTO_DETECT} label="Auto-detect" />
+            {#each library.platforms as platform (platform.id)}
+              <Select.Item value={String(platform.id)} label={platform.name} />
+            {/each}
+          </Select.Content>
+        </Select.Root>
+        <Button size="sm" onclick={pickDirectory}>
+          <FolderPlusIcon class="size-4" />
+          Add directory
+        </Button>
+      </div>
     </div>
 
     {#if loadingDirs}
@@ -120,7 +145,10 @@
           <li
             class="border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
           >
-            <span class="truncate">{dir.path}</span>
+            <div class="flex min-w-0 flex-col">
+              <span class="truncate">{dir.path}</span>
+              <span class="text-muted-foreground text-xs">{platformName(dir.platformId)}</span>
+            </div>
             <Button
               variant="ghost"
               size="icon"
@@ -148,7 +176,7 @@
     {#if scanSummary}
       <p class="text-muted-foreground text-xs">
         Added {scanSummary.added}, updated {scanSummary.updated}, removed {scanSummary.removed},
-        unchanged {scanSummary.unchanged}.
+        unchanged {scanSummary.unchanged}, skipped {scanSummary.skippedUnknownExtension}.
       </p>
     {/if}
   </section>

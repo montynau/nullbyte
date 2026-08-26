@@ -53,9 +53,10 @@ pub fn add_rom_directory(
     state: State<'_, AppState>,
     path: String,
     recursive: bool,
+    platform_id: Option<i64>,
 ) -> Result<RomDirectory, AppError> {
     let conn = state.db.lock().expect("DB Mutex poisoned");
-    rom_directories::add_rom_directory(&conn, &path, recursive)
+    rom_directories::add_rom_directory(&conn, &path, recursive, platform_id)
 }
 
 #[tauri::command]

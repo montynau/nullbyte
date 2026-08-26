@@ -99,6 +99,11 @@ pub struct RomDirectory {
     pub path: String,
     pub recursive: bool,
     pub enabled: bool,
+    /// `None` = automatinis platformos nustatymas pagal plėtinį per skenavimą (senas
+    /// elgesys). `Some` — vartotojo eksplicitiškai nurodyta platforma šiam katalogui,
+    /// pašalinanti dviprasmiškumą tarp platformų, dalinančių tuos pačius archyvo vidinius
+    /// plėtinius (PSX/Saturn/SegaCD, žr. MVP.md ADR-020).
+    pub platform_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

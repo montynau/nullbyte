@@ -17,6 +17,14 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
         3,
         include_str!("../../migrations/003_games_fts_sync_triggers.sql"),
     ),
+    (
+        4,
+        include_str!("../../migrations/004_fix_gba_archive_extension.sql"),
+    ),
+    (
+        5,
+        include_str!("../../migrations/005_rom_directory_platform_hint.sql"),
+    ),
 ];
 
 /// Atveria (arba sukuria, jei neegzistuoja — kartu su tėviniais katalogais) SQLite DB

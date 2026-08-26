@@ -2170,12 +2170,22 @@ ANKSČIAU tik keisdavo filtrą, bet neišvesdavo iš Settings/žaidimo puslapio 
 dabar `Sidebar.svelte`/`CommandPalette.svelte` visada iškviečia `goto(resolve("/"))` po
 pasirinkimo.
 
+**Toliau testuojant su Genesis/GBA/PSX/MAME katalogais rasta IR IŠTAISYTA dar viena reali
+klaida** — žr. ADR-020: GBA rodė 0 žaidimų (trūko `zip`/`7z` iš leidžiamų plėtinių), o PSX
+žaidimai atsidurdavo po „Sega CD" (dviprasmybė tarp platformų, dalinančių tuos pačius archyvo
+vidinius plėtinius). Sprendimas — naujas `rom_directories.platform_id` hint'as, leidžiantis
+vartotojui eksplicitiškai nurodyti katalogo platformą. Galutinis REALUS rezultatas: 88 žaidimai
+teisingai — 30 SNES + 35 Genesis + 20 GBA + 3 Sony PlayStation (ne Sega CD).
+
 **Acceptance:**
-- [x] Katalogo pridėjimas veikia — patvirtinta vartotojo 2026-08-26 (macOS; Linux dar
-      netestuota nė vienoje sesijoje, žr. §11.5 apribojimą)
-- [x] Progresas sklandus, be UI užšalimo — skenavimas realiai baigėsi teisingu rezultatu
-      (30 pridėta); pats UI užšalimas, kurį vartotojas pastebėjo PO skenavimo, buvo ADR-019
-      klaida (nesusijusi su `scan_library`/progreso mechanizmu), dabar ištaisyta
+- [x] Katalogo pridėjimas veikia — patvirtinta vartotojo 2026-08-26 penkiais skirtingais
+      katalogais (macOS; Linux dar netestuota nė vienoje sesijoje, žr. §11.5 apribojimą)
+- [x] Progresas sklandus, be UI užšalimo — progreso mechanizmas PATS veikia teisingai
+      (Channel siunčia atnaujinimus, UI juos rodo). ⚠️ ŽINOMAS apribojimas (žr. ADR-020,
+      sąmoningai NEpataisyta vartotojo sprendimu): su labai dideliais failais (400+ MB PSX
+      archyvais) `scan_library` laiko `state.db` Mutex užrakintą per visą hash'avimo trukmę,
+      todėl KITI veiksmai (ne pats skenavimas) tampa laikinai neatsakantys — nekritiška
+      įprasto dydžio ROM'ams (SNES/Genesis/GBA — KB–kelių MB)
 - [ ] Atšaukimas veikia — dar nepatikrinta interaktyviai (perpanaudoja jau patikrintą P6.4
       `cancel_scrape`, tad rizika maža)
 
@@ -2884,6 +2894,61 @@ Atitinkamai atnaujinta atmintis (`feedback_native_window_no_input_in_agent_sessi
 **Pasekmės:** P7.2/P7.3/P7.4/P7.5 acceptance punktai, kurie anksčiau buvo pažymėti „reikia
 vartotojo patvirtinimo", DABAR realiai patvirtinti — žr. atitinkamas sekcijas aukščiau,
 atnaujinta 2026-08-26 po šio pataisymo.
+
+---
+
+### ADR-020 — `rom_directories.platform_id` — vartotojo nurodomas platformos hint'as skenavimui (P7.5)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** vartotojas realiai nuskenavo SNES/Genesis/GBA/PSX/MAME katalogus. Rezultatai
+atskleidė DVI realias klaidas:
+1. **GBA rodė 0 žaidimų.** `platforms.gba.extensions = 'gba'` neįtraukė `zip`/`7z` — realūs
+   GBA romset'ai beveik visada suarchyvuoti. Analogiškas atvejis kaip PSX/Saturn/SegaCD
+   (`002_fix_archive_extensions.sql`), tiesiog nepastebėtas tada. **Pataisyta migracija 004**
+   (`UPDATE platforms SET extensions = 'gba,zip,7z' WHERE slug = 'gba'`) — REALIAI patikrinta:
+   20/20 GBA žaidimų po pataisymo.
+2. **3 realūs PSX žaidimai (Castlevania SotN, Tekken 3, Tony Hawk's) atsidūrė po „Sega CD".**
+   PSX/Saturn/SegaCD visos priima `.cue`/`.iso`/`.chd` archyvo viduje — `scanner.rs`
+   `resolve_platform_and_hashes` ima PIRMĄ tinkantį kandidatą `platforms` sąrašo tvarka
+   (Sega CD `id=10` < PSX `id=13`, žr. `001_initial.sql` seed eiliškumą). Vien plėtinio
+   nepakanka vienareikšmiam nustatymui — reikalingas papildomas signalas.
+
+**Sprendimas:** du pasirinkimai buvo apsvarstyti su vartotoju — (A) `rom_directories` gauna
+nebūtiną `platform_id` stulpelį, vartotojas eksplicitiškai pasako „šis katalogas — PSX"; (B)
+tiesiog pakeisti prioritetų tvarką (PSX prieš Saturn/SegaCD, nes PS1 žaidimų realiai daugiausia).
+**Vartotojas pasirinko (A)** — tvarkingas sprendimas, pašalina dviprasmybę VISIŠKAI, ne tik šiam
+konkrečiam atvejui.
+
+**Įgyvendinta (migracija 005 + kodas):**
+- `rom_directories.platform_id INTEGER REFERENCES platforms(id)` — `NULL` = senas automatinis
+  elgesys (veikia gerai vienareikšmiams plėtiniams).
+- `resolve_platform_and_hashes()` gauna `platform_hint: Option<i64>` — kai `Some`, kandidatų
+  sąrašas susiaurinamas iki VIENOS nurodytos platformos (nulinė dviprasmybė).
+- `scan()` **priverstinai perklasifikuoja** jau įrašytą žaidimą, jei katalogo `platform_id`
+  hint'as skiriasi nuo jau įrašytos platformos, NEPAISANT `mtime` (savaiminis pasitaisymas
+  pridėjus hint'ą + rescan'inant — vartotojui NEREIKIA rankiniu būdu taisyti DB).
+- `add_rom_directory` idempotentiškas ir hint'ui — pakartotinis pridėjimas TO PATIES kelio
+  su NAUJU hint'u atnaujina `platform_id` (nėra atskiros „edit" komandos).
+- `PathsPanel.svelte` — platformos `<Select>` prie „Add directory" (numatytoji „Auto-detect").
+  Katalogų sąraše rodoma kiekvieno priskirta platforma.
+
+**REALIAI patikrinta 2026-08-26** (vartotojo sesijoje, po duomenų išvalymo ir pilno rescan'o):
+88 žaidimai teisingai — 30 SNES + 35 Genesis + 20 GBA + **3 Sony PlayStation** (NE Sega CD).
+
+**Žinomas apribojimas (NEIŠSPRĘSTAS, sąmoningai atidėtas vartotojo sprendimu):** `scan_library`
+laiko `state.db` `Mutex<Connection>` UŽRAKINTĄ per VISĄ skenavimo trukmę, įskaitant lėtą failų
+hash'avimą (CRC32+MD5+SHA1). Su labai dideliais archyvais (vartotojo PSX test fixture'ai —
+400–514MB kiekvienas) tai REALIAI pastebima: VISA aplikacija tampa neatsakanti kitiems DB
+poreikalaujantiems veiksmams (bet koks kitas mygtukas/naršymas), kol skenavimas nesibaigia —
+pažeidžia P7.5 acceptance „Progresas sklandus, be UI užšalimo" tikrąja to žodžio prasme šiam
+edge case'ui (nors PATS progreso mechanizmas veikia teisingai — Channel siunčia atnaujinimus,
+UI juos rodo, tiesiog KITI veiksmai blokuojami tuo pat metu). Nekritiška realiam MVP naudojimui
+(SNES/Genesis/GBA ROM'ai — KB–kelių MB dydžio, hash'avimas trunka milisekundes), bet
+neišspręsta architektūrinė spraga: vienas global `Mutex<Connection>` (CLAUDE.md §10 „SQLite" —
+MVP sąmoningas supaprastinimas) reiškia BET KOKS ilgai trunkantis DB veiksmas blokuoja VISUS
+kitus. Tikras sprendimas — nelaikyti lock'o per PATĮ hash'avimą (tik trumpiems DB read/write
+žingsniams), reikalautų `scan()` pertvarkymo. **Palikta kaip žinoma spraga, ne pataisyta —
+vartotojo sprendimas 2026-08-26**, kad būtų galima tęsti prie scraping'o testavimo.
 
 ---
 

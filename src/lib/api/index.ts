@@ -64,8 +64,12 @@ export function listRomDirectories(): Promise<RomDirectory[]> {
   return invoke("list_rom_directories");
 }
 
-export function addRomDirectory(path: string, recursive: boolean): Promise<RomDirectory> {
-  return invoke("add_rom_directory", { path, recursive });
+export function addRomDirectory(
+  path: string,
+  recursive: boolean,
+  platformId: number | null,
+): Promise<RomDirectory> {
+  return invoke("add_rom_directory", { path, recursive, platformId });
 }
 
 export function removeRomDirectory(id: number): Promise<void> {

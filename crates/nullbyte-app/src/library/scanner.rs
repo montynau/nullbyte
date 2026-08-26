@@ -98,12 +98,20 @@ pub fn scan(
 
             let metadata = std::fs::metadata(path)?;
             let file_mtime = mtime_unix_seconds(&metadata);
-            let existing_mtime = existing_game_mtime(&tx, &rom_path)?;
+            let existing = existing_game_state(&tx, &rom_path)?;
+            let existing_mtime = existing.map(|(mtime, _)| mtime);
 
             // Inkrementinis skenavimas (MVP.md P5.3): nepakitusiam failui NĖRA prasmės nei
             // spėti platformą, nei hash'uoti iš naujo — tai buvo padaryta ANKSTESNIO
-            // skenavimo metu, o rezultatas jau DB'je.
-            if existing_mtime == Some(file_mtime) {
+            // skenavimo metu, o rezultatas jau DB'je. IŠIMTIS (ADR-020): jei katalogui
+            // NUSTATYTAS `platform_id` hint'as, kuris SKIRIASI nuo jau įrašytos platformos —
+            // priverstinai perklasifikuojame, nepaisant mtime (vartotojas ką tik ištaisė
+            // dviprasmybę pridėdamas hint'ą, tikisi pataisymo be failo modifikavimo).
+            let platform_matches_hint = match (dir.platform_id, existing) {
+                (Some(hint), Some((_, existing_platform_id))) => hint == existing_platform_id,
+                _ => true,
+            };
+            if existing_mtime == Some(file_mtime) && platform_matches_hint {
                 summary.unchanged += 1;
                 continue;
             }
@@ -118,7 +126,7 @@ pub fn scan(
             };
 
             let Some((platform, hashes)) =
-                resolve_platform_and_hashes(path, &platforms, &extension)
+                resolve_platform_and_hashes(path, &platforms, &extension, dir.platform_id)
             else {
                 summary.skipped_unknown_extension += 1;
                 continue;
@@ -157,14 +165,16 @@ pub fn scan(
 }
 
 fn load_enabled_directories(conn: &Connection) -> Result<Vec<RomDirectory>, AppError> {
-    let mut stmt =
-        conn.prepare("SELECT id, path, recursive, enabled FROM rom_directories WHERE enabled = 1")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, path, recursive, enabled, platform_id FROM rom_directories WHERE enabled = 1",
+    )?;
     let rows = stmt.query_map([], |row| {
         Ok(RomDirectory {
             id: row.get(0)?,
             path: row.get(1)?,
             recursive: row.get::<_, i64>(2)? != 0,
             enabled: row.get::<_, i64>(3)? != 0,
+            platform_id: row.get(4)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
@@ -185,38 +195,43 @@ fn load_platforms(conn: &Connection) -> Result<Vec<Platform>, AppError> {
     rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
 
-fn find_platform_for_extension<'a>(
-    platforms: &'a [Platform],
-    extension: &str,
-) -> Option<&'a Platform> {
-    platforms.iter().find(|p| {
-        p.extensions
-            .split(',')
-            .any(|e| e.trim().eq_ignore_ascii_case(extension))
-    })
-}
-
 /// Nustato platformą IR PAKELIUI apskaičiuoja hash'us — abu atliekami VIENAME žingsnyje,
 /// nes archyvams (`.zip`/`.7z`) vien plėtinio NEPAKANKA: KELIOS platformos gali dalintis
 /// bendru archyvo plėtiniu (žr. `002_fix_archive_extensions.sql` — PSX/Saturn/SegaCD visos
-/// naudoja `.zip`), tad vienareikšmiškai nustatoma bandant KIEKVIENĄ kandidatą ir žiūrint,
-/// kurio VIDINIS plėtinys realiai atsiranda archyve. Tai PIGU: `archive::extract_first_match`
-/// tikrina įrašų VARDUS (zip TOC), NEDEKOMPRESUOJA turinio, kol nerado sutampančio — klaidingas
-/// kandidatas kainuoja tik sąrašo skaitymą, teisingas — vienintelę realią dekompresiją.
+/// naudoja `.zip`), tad be `platform_hint` vienareikšmiškai nustatoma bandant KIEKVIENĄ
+/// kandidatą ir žiūrint, kurio VIDINIS plėtinys realiai atsiranda archyve. Tai PIGU:
+/// `archive::extract_first_match` tikrina įrašų VARDUS (zip TOC), NEDEKOMPRESUOJA turinio,
+/// kol nerado sutampančio — klaidingas kandidatas kainuoja tik sąrašo skaitymą, teisingas —
+/// vienintelę realią dekompresiją.
+///
+/// `platform_hint` (ADR-020, `rom_directories.platform_id`) — kai `Some`, kandidatų sąrašas
+/// susiaurinamas iki VIENOS nurodytos platformos: pašalina dviprasmybę VISIŠKAI (realus
+/// atvejis: PSX `.zip` be hint'o klaidingai atsidurdavo po Sega CD, nes abi priima `.cue`
+/// archyvo viduje, o Sega CD anksčiau pasitaiko `platforms` sąraše).
 fn resolve_platform_and_hashes<'a>(
     path: &Path,
     platforms: &'a [Platform],
     extension: &str,
+    platform_hint: Option<i64>,
 ) -> Option<(&'a Platform, hasher::RomHashes)> {
+    let candidates: Vec<&Platform> = match platform_hint {
+        Some(hint_id) => platforms.iter().filter(|p| p.id == hint_id).collect(),
+        None => platforms.iter().collect(),
+    };
+
     let is_archive = matches!(extension, "zip" | "7z");
 
     if !is_archive {
-        let platform = find_platform_for_extension(platforms, extension)?;
+        let platform = candidates.into_iter().find(|p| {
+            p.extensions
+                .split(',')
+                .any(|e| e.trim().eq_ignore_ascii_case(extension))
+        })?;
         let hashes = hasher::hash_rom(path, &[]).ok()?;
         return Some((platform, hashes));
     }
 
-    for platform in platforms.iter().filter(|p| {
+    for platform in candidates.into_iter().filter(|p| {
         p.extensions
             .split(',')
             .any(|e| e.trim().eq_ignore_ascii_case(extension))
@@ -250,14 +265,15 @@ fn now_unix_seconds() -> i64 {
         .unwrap_or(0)
 }
 
-fn existing_game_mtime(
+/// Grąžina `(file_mtime, platform_id)` jau įrašytam žaidimui, arba `None`, jei jo dar nėra.
+fn existing_game_state(
     tx: &rusqlite::Transaction,
     rom_path: &str,
-) -> Result<Option<i64>, AppError> {
+) -> Result<Option<(i64, i64)>, AppError> {
     tx.query_row(
-        "SELECT file_mtime FROM games WHERE rom_path = ?1",
+        "SELECT file_mtime, platform_id FROM games WHERE rom_path = ?1",
         params![rom_path],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     )
     .map(Some)
     .or_else(|e| match e {
@@ -739,5 +755,93 @@ mod tests {
             "pakartotinis skenavimas užtruko {:.2}s, tikėtasi < 2s",
             second_elapsed.as_secs_f64()
         );
+    }
+
+    fn make_test_zip(dir: &Path, name: &str, inner_name: &str, content: &[u8]) -> PathBuf {
+        use std::io::Write;
+
+        let mut buf = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut buf);
+            let mut writer = zip::ZipWriter::new(cursor);
+            writer
+                .start_file(inner_name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(content).unwrap();
+            writer.finish().unwrap();
+        }
+        let path = dir.join(name);
+        std::fs::write(&path, &buf).unwrap();
+        path
+    }
+
+    fn platform_id_by_slug(conn: &Connection, slug: &str) -> i64 {
+        conn.query_row(
+            "SELECT id FROM platforms WHERE slug = ?1",
+            params![slug],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    /// ADR-020: PSX/Saturn/SegaCD visos priima `.cue` archyvo viduje, tad be `platform_id`
+    /// hint'o skeneris negali jų vienareikšmiškai atskirti — pasirenka PIRMĄ tinkantį
+    /// kandidatą `platforms` sąrašo tvarka (Sega CD, nes jos `id` mažesnis už PSX, žr.
+    /// `001_initial.sql` seed eiliškumą). Realus radinys P7.5 metu (3 tikri PSX žaidimai
+    /// atsidūrė po Sega CD). Šis testas patikrina IR pačią dviprasmybę, IR kad hint'o
+    /// pridėjimas + pakartotinis skenavimas PERKLASIFIKUOJA jau įrašytą žaidimą, nors jo
+    /// failas nepasikeitė (mtime tas pats) — savaiminis pasitaisymas be rankinio DB taisymo.
+    #[test]
+    fn ambiguous_cue_zip_resolves_via_hint_and_self_heals_on_rescan() {
+        let mut conn = open_test_db();
+        let psx_id = platform_id_by_slug(&conn, "psx");
+        let segacd_id = platform_id_by_slug(&conn, "segacd");
+        let dir = std::env::temp_dir().join(format!(
+            "nullbyte_scan_ambiguous_test_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        make_test_zip(&dir, "Tekken 3.zip", "Tekken 3.cue", b"fake cue data");
+
+        conn.execute(
+            "INSERT INTO rom_directories (path, recursive, enabled, platform_id) VALUES (?1, 1, 1, NULL)",
+            params![dir.to_string_lossy()],
+        )
+        .unwrap();
+        let first = scan(&mut conn, |_| {}).unwrap();
+        assert_eq!(first.added, 1);
+        let resolved: i64 = conn
+            .query_row(
+                "SELECT platform_id FROM games WHERE title LIKE 'Tekken%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            resolved, segacd_id,
+            "be hint'o žinomai susimaišo su Sega CD (dokumentuotas apribojimas)"
+        );
+
+        conn.execute(
+            "UPDATE rom_directories SET platform_id = ?1 WHERE path = ?2",
+            params![psx_id, dir.to_string_lossy()],
+        )
+        .unwrap();
+        let second = scan(&mut conn, |_| {}).unwrap();
+        assert_eq!(
+            second.updated, 1,
+            "hint'o pridėjimas turėtų priversti perklasifikavimą, ne 'unchanged'"
+        );
+        assert_eq!(second.added, 0);
+        let resolved2: i64 = conn
+            .query_row(
+                "SELECT platform_id FROM games WHERE title LIKE 'Tekken%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(resolved2, psx_id, "po hint'o turėtų būti PSX");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
