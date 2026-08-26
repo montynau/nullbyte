@@ -2233,6 +2233,20 @@ realaus žaidimo, kol P9.1 nepastatys vamzdyno, sujungiančio šį pasirinkimą 
 tai. Vartotojas EKSPLICITIŠKAI pasirinko šį apribotą apimties variantą vietoj laukimo iki P9.1
 arba gilesnio engine pakeitimo dabar.
 
+**Žinomas apribojimas — viena BENDRA mapping lentelė visiems žaidėjams (aptarta su
+vartotoju 2026-08-26):** `nullbyte-emu` (P4.3) jau palaiko iki 4 gamepad portų — kiekvienas
+prisijungęs valdiklis automatiškai gauna kitą laisvą portą prisijungimo eile
+(`gamepad_ports: HashMap<usize, usize>`), tad **2-4 žaidėjų co-op su atskirais fiziniais
+valdikliais VEIKS** (kai bus P9.1) be jokio papildomo darbo. Bet `default_gamepad_mapping`
+yra VIENA FIZINĖS POZICIJOS lentelė, taikoma VISIEMS portams vienodai — nėra per-port
+override'o, tad visi žaidėjai priversti naudoti TĄ PATĮ „fizinis mygtukas → RetroPad veiksmas"
+išdėstymą (praktiškai nekritiška — tai standartinis RetroArch elgesys co-op žaidimuose).
+Papildomai, **klaviatūra visada valdo TIK portą 0** (žaidėjas 1) — antro žaidėjo klaviatūros
+mapping'o NĖRA ir neplanuojama šiame etape. Jei kada prireiks per-žaidėjo individualaus
+mapping'o — reikėtų `InputBinding` papildyti `port` lauku ir DB raktą
+(`input.mapping.port{N}`) vietoj vieno `input.mapping`. Vartotojas sąmoningai pasirinko
+NEDARYTI šio išplėtimo dabar (žr. pokalbį) — bendra lentelė pakanka realiam co-op scenarijui.
+
 **Acceptance:**
 - [ ] Visi nustatymai išsaugomi DB ir taikomi — DALINIAI: scraper credentials TAIP (žr.
       ADR-022), input mapping IŠSAUGOMAS bet DAR NETAIKOMAS (žr. pastabą aukščiau);
