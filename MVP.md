@@ -463,12 +463,15 @@ Tik įrodymas, kad FFI veikia.
       paleidimu (log: „wgpu adapteris pasirinktas" adapter=Apple M1 backend=Metal, „wgpu Surface
       sukonfigūruotas" 1600×1200 Bgra8UnormSrgb)
 - [x] Veikia macOS (Metal) — patikrinta (žr. aukščiau)
-- [!] Veikia Linux X11 (Vulkan) — **NEPATIKRINTA**, šioje sesijoje nėra Linux mašinos su
-      ekranu. Kodas naudoja tik standartines, platformai neutralias Tauri (`raw-window-handle`)
-      ir wgpu API — jokių macOS-specifinių hack'ų. CI (P0.4) tikrina `cargo build`/`clippy` ant
-      `ubuntu-latest`, bet CI runner'yje nėra display serverio/GPU, tad realaus wgpu Surface
-      veikimo nepatikrina. Reikia patikrinti realioje Linux mašinoje prieš MVP išleidimą.
-- [!] Veikia Linux Wayland arba yra dokumentuotas apėjimas — **NEPATIKRINTA** (ta pati priežastis)
+- [!] Veikia Linux X11 (Vulkan) — VIS DAR NEPATIKRINTA (žr. Wayland įrašą žemiau — turėta
+      Linux sesija buvo Wayland, ne X11).
+- [x] Veikia Linux Wayland — **PATIKRINTA REALIAI 2026-08-26** (žr. ADR-027, per NAUJĄ
+      `nullbyte-emu` winit architektūrą, ne šio task'o originalią Tauri `Window`, žr. pastabą
+      žemiau): Arch Linux (omarchy), tikra aktyvi Hyprland/Wayland sesija (SSH kaip tas pats
+      vartotojas, `WAYLAND_DISPLAY`/`XDG_RUNTIME_DIR` iš `/run/user/<uid>`), realus GPU. Log:
+      „wgpu adapteris pasirinktas" `adapter="AMD Radeon Graphics (RADV RENOIR)"
+      backend=Vulkan`, „wgpu Surface sukonfigūruotas" `758×818 Bgra8UnormSrgb`. Vartotojas
+      REALIAI matė žaidimą (ActRaiser, SNES) savo fiziniame ekrane, patvirtino: „taip, veikia".
 - [x] Lango dydžio keitimas nesulaužo surface'o — patikrinta AppleScript resize (900×700 →
       1800×1400 su Retina scale), log: „wgpu Surface rekonfigūruotas (resize)", jokio crash'o
 
@@ -583,8 +586,16 @@ Tik įrodymas, kad FFI veikia.
       panic'o/crash'o). Klaidos callback'as (kai jis realiai suveikia) veikia NE real-time
       audio gijoje — `tracing::error!` ten saugus (CLAUDE.md §3.2 taisyklė #3 galioja tik
       duomenų callback'ui)
-- [x] Veikia macOS (CoreAudio) — patikrinta aukščiau. [!] Linux (ALSA/PipeWire) —
-      NEPATIKRINTA (nėra Linux mašinos šioje sesijoje, ta pati priežastis kaip P2.3/P2.5)
+- [x] Veikia macOS (CoreAudio) — patikrinta aukščiau. **Veikia Linux (ALSA/PipeWire) —
+      PATIKRINTA REALIAI 2026-08-26**, bet TIK PO realaus bug'o pataisymo — žr. ADR-027.
+      Pirmas bandymas Arch Linux (PipeWire virš ALSA) sudužo su
+      `snd_pcm_hw_params_set_buffer_size ... Invalid argument` (`BufferSize::Fixed`
+      atmesta), audio srautas neatsidarydavo, tad audio-driven pacing niekada nepajudėdavo
+      (juodas langas, procesas gyvas). Pataisyta perjungus į `BufferSize::Default` (saugu —
+      `audio::ring::recommended_capacity` NEPRIKLAUSO nuo OS lygio buferio dydžio, žr.
+      ADR-027). Po pataisymo: log „cpal audio srautas paleistas" be klaidos, REALUS žaidimas
+      (ActRaiser) veikė ~51 fps, `audio_occupancy≈0.62`, vartotojas girdėjo/matė veikiantį
+      žaidimą su klaviatūros valdymu.
 
 ---
 
@@ -1252,8 +1263,10 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
       ir švariai baigia darbą net be jokio prijungto valdiklio (`cargo test`,
       `spawn_does_not_panic_without_any_gamepad`; taip pat realiai paleidus `nullbyte-emu`
       P4.0.2 metu — jokio crash'o be prijungto valdiklio, ir su realiu DualShock 4).
-      [!] Linux — NEPATIKRINTA (nėra Linux mašinos šioje sesijoje, ta pati priežastis kaip
-      P2.3/P2.5/P3.1)
+      **Veikia Linux — DALINIAI PATIKRINTA 2026-08-26** (Arch, ADR-027): visas
+      `cargo test --workspace` (84+80+4 testai, įsk. `spawn_does_not_panic_without_any_gamepad`)
+      praėjo švariai realioje Linux mašinoje. Realaus fizinio valdiklio prijungimo Linux'e
+      NEPATIKRINTA (tuo metu prieinamoje mašinoje jokio gamepad'o nebuvo — žr. atmintį).
 
 ---
 
@@ -3441,6 +3454,68 @@ paties interaktyvios sesijos (žr. atmintį „native window input").
 **REALIAI patikrinta:** `cargo fmt/clippy --workspace -D warnings`, `cargo test --workspace`
 (visi testai, įsk. 2 naujus), IR realus žaidimas (ActRaiser, SNES, Xbox valdiklis, vartotojo
 paties terminale) — visi mygtukai + D-pad veikia teisingai.
+
+---
+
+### ADR-027 — Pirmas realus Linux patikrinimas: pilnas workspace + ALSA buferio dydžio bug'as (P2.3/P3.1/P4.1)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** vartotojas turi SSH prieigą prie Arch Linux mašinos („omarchy", Hyprland/
+Wayland darbastalis, AMD GPU) — pirma proga per VISĄ projekto istoriją realiai patikrinti
+Linux, ne vien pasikliauti CI (`ubuntu-latest`, be display serverio/GPU/audio, žr. P0.4).
+Mašinoje NEBUVO nei Rust toolchain, nei repo — abu įdiegti šios sesijos metu (`rustup`,
+`git clone` iš PUBLIC GitHub repo). Sisteminiai paketai (`webkit2gtk-4.1`, `gtk3`,
+`libappindicator-gtk3`, `librsvg`, `alsa-lib`, `patchelf`, `openssl`, `base-devel`) ir
+`libretro-snes9x` (Arch `extra` repo turi paruoštus libretro core'us — NEREIKĖJO kompiliuoti
+iš šaltinio) įdiegti PAČIO VARTOTOJO (reikėjo `sudo`, agentas neturėjo slaptažodžio).
+
+**Radinys #1 (teigiamas) — VISAS workspace kompiliuojasi ir testuojasi švariai Linux'e
+PIRMĄ KARTĄ:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`,
+`cargo test --workspace` (84+80+4 = TIKSLIAI tas pats testų skaičius kaip macOS, 0 failed) —
+VISI švarūs be jokių pakeitimų kode. `nullbyte-app` (su Tauri/webkit2gtk/GTK priklausomybėmis)
+IR `nullbyte-emu` (su winit/wgpu/cpal) abu sukompiliavo be klaidų. Tai anuliuoja daugybę senų
+„Linux — NEPATIKRINTA" pastabų P2.x/P3.x/P4.x acceptance sąrašuose (žr. jas individualiai,
+sweep'intas visas MVP.md šia sesija).
+
+**Radinys #2 (neigiamas, PATAISYTAS) — ALSA atmeta `BufferSize::Fixed`:** paleidus
+`nullbyte-emu` su realiu Wayland langu (tikra vartotojo grafinė sesija — `WAYLAND_DISPLAY`/
+`XDG_RUNTIME_DIR` iš `/run/user/<uid>`, SSH kaip TAS PATS vartotojas), langas atsivėrė
+(realus wgpu Vulkan Surface, `adapter="AMD Radeon Graphics (RADV RENOIR)"`), BET liko juodas
+— `audio_buffer_occupancy` amžinai `0.0`. `RUST_LOG=debug` atskleidė tikrą priežastį:
+`nepavyko sukurti audio srauto: ... ALSA function 'snd_pcm_hw_params_set_buffer_size' failed
+with error 'Invalid argument (22)'` — `audio/output.rs` PRIVERSTINIAI prašė
+`cpal::BufferSize::Fixed(buffer_frames)` (apskaičiuoto iš `TARGET_LATENCY_MS = 50`), o šios
+mašinos PipeWire/ALSA stack'as tokį TIKSLŲ dydį atmetė (ALSA hw_params derybos turi
+papildomų period/buffer santykio apribojimų, kurių `cpal`'o pranešta `SupportedBufferSize`
+riba PATI SAVAIME negarantuoja). Kadangi emuliavimo pacing YRA audio-driven (CLAUDE.md
+§8.5), garso srauto neatsidarymas reiškė VISIŠKĄ emuliacijos sustojimą — juodas langas,
+procesas gyvas, bet nė vieno `retro_run()` niekada neįvyko.
+
+**Sprendimas:** `config.buffer_size = cpal::BufferSize::Default` vietoj `Fixed(buffer_frames)`
+— leidžia backend'ui (ALSA/PipeWire/CoreAudio) PAČIAM parinkti TIKRAI veikiantį dydį.
+SAUGU macOS atžvilgiu (jau patikrinta anksčiau su `Fixed`, dabar Default irgi veikia — žr.
+patikrinimą žemiau) IR nekeičia `audio::ring::recommended_capacity()` (nullbyte'o PAČIO
+lock-free žiedinio buferio, atskirto nuo OS lygio cpal srauto buferio, dydžio) — ta funkcija
+IR TOLIAU naudoja `TARGET_LATENCY_MS` NEPRIKLAUSOMAI. `buffer_frames` KINTAMASIS liko (vis
+dar naudojamas `scratch_capacity` — vietinio, ne-OS, apsauginio buferio — dydžiui).
+
+**REALIAI patikrinta po pataisymo:** perkompiliuota IR macOS (`cargo test -p nullbyte-core
+audio::output` švarus, `cargo clippy --workspace` švarus), IR Linux (rsync'intas pakeitimas,
+perkompiliuota omarchy). Linux'e: log „cpal audio srautas paleistas" BE klaidos
+(`sample_rate=44100`), realus emuliavimo ciklas veikė `measured_fps≈51.4`,
+`audio_occupancy≈0.62` (sveikas, arti tikslinio 50%). Vartotojas REALIAI matė žaidimą
+(ActRaiser) savo fiziniame Wayland ekrane IR patvirtino klaviatūros valdymą veikiant
+(„taip"/„taip"). Šis fix'as taip pat, tikėtina, paaiškina panašią (bet TADA nediagnozuotą)
+simptomatiką ankstesniuose šios sesijos macOS bandymuose per agento fono procesą (žr.
+[[feedback_background_launched_emu_no_audio]]) — ten priežastis liko nepatvirtinta (CoreAudio
+sesijos apribojimas buvo geriausia hipotezė, ne įrodytas faktas), bet ta pati klasė bug'o
+(garso srautas neatsidaro → pacing sustoja → juodas langas) dabar Linux'e TURI konkretų,
+atkuriamą, pataisytą pavyzdį.
+
+**Sąmoningai NEPADARYTA šioje sesijoje** (žinomi likę apribojimai): X11 (tik Wayland
+testuota), realus gamepad Linux'e (jokio valdiklio neturėta ant omarchy), Tauri app'o pati
+UI/native dialog'ai Linux'e (testuota TIK `nullbyte-emu` tiesiogiai, ne `pnpm tauri dev`),
+fullscreen toggle Linux'e.
 
 ---
 

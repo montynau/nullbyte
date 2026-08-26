@@ -77,11 +77,22 @@ impl AudioOutput {
         let sample_rate = supported_config.sample_rate().0;
 
         let mut config: StreamConfig = supported_config.into();
+        // `BufferSize::Fixed` — SĄMONINGAI NENAUDOJAMA (nuo 2026-08-26, žr. ADR-027 MVP.md
+        // faile). Realiu Linux hardware'u (Arch, PipeWire/ALSA) `Fixed(buffer_frames)`
+        // BAIGDAVOSI `snd_pcm_hw_params_set_buffer_size` klaida „Invalid argument" — ALSA
+        // hw_params derybos turi papildomų apribojimų (period/buffer dydžio santykis),
+        // kurių `cpal`'o pranešta `SupportedBufferSize::Range` PATI SAVAIME negarantuoja.
+        // `BufferSize::Default` leidžia backend'ui (ALSA/PipeWire/CoreAudio) pačiam parinkti
+        // TIKRAI veikiantį dydį — SAUGU, nes `TARGET_LATENCY_MS` VIS TIEK naudojamas
+        // NEPRIKLAUSOMAI `audio::ring::recommended_capacity()` (nullbyte'o PAČIO lock-free
+        // žiedinio buferio dydžiui, atskirto nuo OS lygio cpal srauto buferio) — šis
+        // pakeitimas NEKEIČIA vidinio buferio talpos skaičiavimo.
         let buffer_frames = (sample_rate * TARGET_LATENCY_MS / 1000).max(1);
-        config.buffer_size = cpal::BufferSize::Fixed(buffer_frames);
-        // 2x atsarga — jei backend'as callback'ą vis tiek iškviečia su kitokiu dydžiu nei
-        // prašytas `Fixed`, scratch buferis (žr. `build_stream`) turi tilpti be alokacijos
-        // hot path'e (per didelis kadras tiesiog nukerpamas, ne panikuoja/alokuoja).
+        config.buffer_size = cpal::BufferSize::Default;
+        // 2x atsarga — jei backend'as callback'ą iškviečia su kitokiu dydžiu nei
+        // `TARGET_LATENCY_MS` implikuotų, scratch buferis (žr. `build_stream`) turi tilpti
+        // be alokacijos hot path'e (per didelis kadras tiesiog nukerpamas, ne panikuoja/
+        // alokuoja).
         let scratch_capacity = buffer_frames as usize * channels as usize * 2;
 
         let device_lost = Arc::new(AtomicBool::new(false));
