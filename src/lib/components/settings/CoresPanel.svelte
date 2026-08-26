@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { getAppInfo, getPreferredCores, listCores, setPreferredCores } from "$lib/api";
+  import {
+    getAppInfo,
+    getCorePriority,
+    getPreferredCores,
+    listCores,
+    setPreferredCores,
+  } from "$lib/api";
   import { library } from "$lib/stores/library.svelte";
   import * as Select from "$lib/components/ui/select/index.js";
   import type { CoreInfo, PlatformCorePreference } from "$lib/types";
@@ -8,18 +14,21 @@
 
   let cores = $state<CoreInfo[]>([]);
   let preferences = $state<PlatformCorePreference[]>([]);
+  let corePriority = $state<Record<string, string[]>>({});
   let coresDir = $state("");
   let loading = $state(true);
 
   async function load() {
     loading = true;
-    const [coresResult, preferencesResult, appInfo] = await Promise.all([
+    const [coresResult, preferencesResult, priorityResult, appInfo] = await Promise.all([
       listCores(),
       getPreferredCores(),
+      getCorePriority(),
       getAppInfo(),
     ]);
     cores = coresResult;
     preferences = preferencesResult;
+    corePriority = priorityResult;
     coresDir = appInfo.coresDir;
     loading = false;
   }
@@ -34,14 +43,39 @@
 
   // Filtruojama pagal kuruotą `supportedPlatforms` (backend `known_core_platforms`, ADR-024),
   // NE pagal `validExtensions` sutapimą — patikrinta REALIAIS core'ais, kad extension'ų
-  // sutapimas duoda klaidingus teigiamus rezultatus (PicoDrive/Genesis Plus GX/MAME atitikdavo
-  // PSX plėtinius, nors PSX nepalaiko). `supportedPlatforms === null` (core'as neatpažintas
-  // kuruotoje lentelėje) traktuojamas kaip „nepatikrinta" — rodomas VISUR, kad naujas/
-  // nekataloguotas core'as nebūtų tyliai paslėptas, bet paženklintas „(unverified)".
-  function coresForPlatform(platformSlug: string): CoreInfo[] {
-    return [...cores]
-      .filter((c) => c.supportedPlatforms === null || c.supportedPlatforms.includes(platformSlug))
-      .sort((a, b) => a.name.localeCompare(b.name));
+  // sutapimas duoda klaidingus teigiamus rezultatus. TIK VERIFIKUOTI atitikimai (core'as
+  // eksplicitiškai nurodytas kaip palaikantis šią platformą) laikomi „turi core'ą" — jei jų
+  // yra bent vienas, „None" IŠVIS nerodoma kaip pasirinkimas (vartotojo prašymas). Nežinomi
+  // core'ai (`supportedPlatforms === null`) visada pridedami kaip papildomas, aiškiai
+  // paženklintas „· unverified" pasirinkimas — niekada nepaslepiami, bet niekada NEI
+  // laikomi „turi core'ą" požymiu.
+  function verifiedCores(platformSlug: string): CoreInfo[] {
+    return cores.filter((c) => c.supportedPlatforms?.includes(platformSlug));
+  }
+
+  function unverifiedCores(): CoreInfo[] {
+    return cores.filter((c) => c.supportedPlatforms === null);
+  }
+
+  function optionsForPlatform(platformSlug: string): CoreInfo[] {
+    return [...verifiedCores(platformSlug), ...unverifiedCores()].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }
+
+  function showNoneFor(platformSlug: string): boolean {
+    return verifiedCores(platformSlug).length === 0;
+  }
+
+  // Pirmas `corePriority[slug]` sąraše nurodytas core'as, kuris REALIAI rastas `cores_dir` —
+  // naudojama automatiniam pasiūlymui (žr. `$effect` žemiau).
+  function recommendedCorePath(platformSlug: string): string | null {
+    const order = corePriority[platformSlug] ?? [];
+    for (const name of order) {
+      const match = cores.find((c) => c.name === name);
+      if (match) return match.path;
+    }
+    return null;
   }
 
   const sortedCores = $derived([...cores].sort((a, b) => a.name.localeCompare(b.name)));
@@ -50,6 +84,32 @@
     const base = core.version ? `${core.name} (${core.version})` : core.name;
     return core.supportedPlatforms === null ? `${base} · unverified` : base;
   }
+
+  // Automatiškai priskiria rekomenduojamą core'ą KIEKVIENAI platformai, kurios vartotojas dar
+  // NELIETĖ (nėra `preferences` įraše) — vartotojo prašymas: „galima iškart uždėti jei randa
+  // rekomenduojamą... nenorėčiau viską nuo 0 suvedinėti". Reaktyvus (ne vienkartinis `load()`
+  // viduje), nes `library.platforms` užsipildo ASINCHRONIŠKAI iš atskiro store'o (`+layout.svelte`)
+  // — gali dar būti tuščias, kai šio komponento `load()` baigiasi. Idempotentiškas: antrą kartą
+  // paleidus (po `preferences` pasikeitimo) `next.some(...)` jau ras visus ką tik pridėtus
+  // įrašus, `changed` liks `false`, jokios begalinės kilpos.
+  $effect(() => {
+    if (loading || cores.length === 0 || library.platforms.length === 0) return;
+
+    const next = [...preferences];
+    let changed = false;
+    for (const platform of library.platforms) {
+      if (next.some((p) => p.platformSlug === platform.slug)) continue;
+      const recommended = recommendedCorePath(platform.slug);
+      if (recommended) {
+        next.push({ platformSlug: platform.slug, corePath: recommended });
+        changed = true;
+      }
+    }
+    if (changed) {
+      preferences = next;
+      setPreferredCores(preferences);
+    }
+  });
 
   async function setPreference(platformSlug: string, corePath: string) {
     preferences =
@@ -67,7 +127,8 @@
   <div class="border-border bg-muted/30 rounded-md border px-3 py-2 text-xs">
     <strong>Per-platform core selection is not applied to gameplay yet.</strong> It's saved for later
     — the emulator launch pipeline that would actually use it isn't built yet. The detected cores list
-    below is accurate and live.
+    below is accurate and live. A recommended core is picked automatically for each platform that has
+    one — change it any time.
   </div>
 
   {#if loading}
@@ -104,24 +165,29 @@
       <h2 class="text-sm font-medium">Preferred core per platform</h2>
       <div class="flex flex-col gap-1">
         {#each library.platforms as platform (platform.id)}
-          {@const options = coresForPlatform(platform.slug)}
+          {@const options = optionsForPlatform(platform.slug)}
+          {@const currentPath = preferredCorePath(platform.slug)}
+          {@const currentCore = cores.find((c) => c.path === currentPath)}
           <div
             class="border-border flex items-center justify-between gap-3 rounded-md border px-3 py-1.5 text-sm"
           >
             <span>{platform.name}</span>
             <Select.Root
               type="single"
-              value={preferredCorePath(platform.slug)}
+              value={currentPath}
               onValueChange={(value) => setPreference(platform.slug, value)}
             >
               <Select.Trigger class="h-8 w-56 text-sm">
-                {preferredCorePath(platform.slug) === NONE
+                {currentPath === NONE
                   ? "None"
-                  : (cores.find((c) => c.path === preferredCorePath(platform.slug))?.name ??
-                    "Unknown core")}
+                  : currentCore
+                    ? coreLabel(currentCore)
+                    : "Unknown core"}
               </Select.Trigger>
               <Select.Content>
-                <Select.Item value={NONE} label="None" />
+                {#if showNoneFor(platform.slug)}
+                  <Select.Item value={NONE} label="None" />
+                {/if}
                 {#each options as core (core.path)}
                   <Select.Item value={core.path} label={coreLabel(core)} />
                 {/each}

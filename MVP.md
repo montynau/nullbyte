@@ -3262,6 +3262,32 @@ spėjimų apie kitus core'us. Du nauji testai: `every_known_core_platform_slug_e
 (apsauga nuo netikslaus `slug` typo lentelėje) ir `psx_maps_to_exactly_the_three_real_psx_cores`
 (tiesiogiai užfiksuoja ADR-024 esmę — PSX = TIK 3 core'ai, ne 6).
 
+**Iteracija #4 — automatinis rekomenduojamo core'o priskyrimas + „None" pašalinta, kai turi
+core'ą (vartotojo prašymas, 2026-08-26):** vartotojas paprašė, kad turint tinkamą core'ą,
+jis būtų priskirtas AUTOMATIŠKAI (kad nereikėtų 23 platformoms rankiniu būdu suvedinėti), IR
+kad „None" apskritai nebūtų rodoma kaip pasirinkimas platformoms, kurios turi bent vieną
+VERIFIKUOTĄ core'ą.
+- Nauja `CORE_PRIORITY_ORDER` lentelė (`commands/settings.rs`) — platformos `slug` → core'o
+  pavadinimų prioritetinė tvarka, kai KELETAS core'ų ją palaiko (pvz. `psx` →
+  `["SwanStation", "Beetle PSX HW", "Beetle PSX"]`). Nauja komanda `get_core_priority()` —
+  GRYNAI statiniai duomenys, JOKIO `cores_dir` pakartotinio skenavimo (MAME ~400MB core'ą
+  būtų brangu įkelti du kartus vien rekomendacijai apskaičiuoti) — frontend'as sujungia su JAU
+  turimu `list_cores` rezultatu.
+- Naujas testas `every_priority_entry_is_consistent_with_known_core_platforms` — apsauga nuo
+  DVIEJŲ lentelių (`known_core_platforms`/`CORE_PRIORITY_ORDER`) išsiskyrimo (typo viename,
+  bet ne kitame reikštų, kad rekomendacija tyliai niekada nesutaptų su jokiu core'u).
+- `CoresPanel.svelte`: reaktyvus `$effect` (NE vienkartinis kvietimas `load()` viduje, nes
+  `library.platforms` užsipildo ASINCHRONIŠKAI iš atskiro store'o ir gali dar būti tuščias,
+  kai šio komponento pradinis `load()` baigiasi) automatiškai priskiria+išsaugo rekomenduojamą
+  core'ą KIEKVIENAI platformai, kurios vartotojas dar NELIETĖ. Idempotentiškas (antras
+  paleidimas po `preferences` pasikeitimo nieko naujo neprideda, jokios begalinės kilpos).
+- **„None" IŠVIS nerodoma** platformoms, turinčioms bent vieną VERIFIKUOTĄ core'ą
+  (`showNoneFor`) — tik nežinomi/unverified core'ai lieka pasirenkami kaip papildomas
+  variantas, niekada nelaikomi „turi core'ą" požymiu. Kadangi automatinis priskyrimas VEIKIA
+  BŪTENT toms pačioms (verifikuotoms) platformoms, konflikto tarp „vartotojas eksplicitiškai
+  pasirinko None" ir „automatinis pasiūlymas" NĖRA — tokioms platformoms None niekada
+  nebuvo pasiekiama pasirinktis iš viso.
+
 ---
 
 ## 15. Po MVP — idėjų sąrašas

@@ -68,6 +68,43 @@ fn known_core_platforms(core_name: &str) -> Option<&'static [&'static str]> {
     }
 }
 
+/// Kai KELETAS core'ų palaiko tą pačią platformą (žr. `known_core_platforms`), ši lentelė
+/// nurodo REKOMENDUOJAMĄ tvarką (pirmas rastas `cores_dir` laimi) — naudojama P7.6 Cores
+/// panelės automatiniam pasiūlymui, kai vartotojas dar nieko nepasirinko rankiniu būdu
+/// (vartotojo prašymas: „galima iškart uždėti jei randa rekomenduojamą... nenorėčiau
+/// įsirašęs programą viską nuo 0 suvedinėti"). Prioritetas — bendrai priimta libretro
+/// bendruomenės nuomonė (tikslumas/suderinamumas), NE griežtai išmatuota — vartotojas visada
+/// gali pakeisti rankiniu būdu.
+const CORE_PRIORITY_ORDER: &[(&str, &[&str])] = &[
+    ("snes", &["Snes9x", "bsnes-mercury"]),
+    ("gba", &["mGBA"]),
+    ("gb", &["mGBA"]),
+    ("gbc", &["mGBA"]),
+    ("genesis", &["Genesis Plus GX", "PicoDrive"]),
+    ("mastersystem", &["Genesis Plus GX", "PicoDrive"]),
+    ("gamegear", &["Genesis Plus GX", "PicoDrive"]),
+    ("segacd", &["Genesis Plus GX", "PicoDrive"]),
+    ("sega32x", &["PicoDrive"]),
+    ("psx", &["SwanStation", "Beetle PSX HW", "Beetle PSX"]),
+    ("arcade", &["MAME"]),
+];
+
+/// Grynai statiniai duomenys (jokio I/O, jokio `cores_dir` skenavimo) — frontend'as sujungia
+/// su JAU turimu `list_cores` rezultatu, kad IŠVENGTŲ pakartotinio core'ų įkėlimo (kai kurie,
+/// pvz. MAME, ~400MB — brangu skenuoti du kartus).
+#[tauri::command]
+pub fn get_core_priority() -> std::collections::HashMap<String, Vec<String>> {
+    CORE_PRIORITY_ORDER
+        .iter()
+        .map(|&(slug, names)| {
+            (
+                slug.to_string(),
+                names.iter().map(|s| s.to_string()).collect(),
+            )
+        })
+        .collect()
+}
+
 impl From<nullbyte_core::core::info::CoreInfo> for CoreInfoDto {
     fn from(info: nullbyte_core::core::info::CoreInfo) -> Self {
         let supported_platforms = known_core_platforms(&info.name)
@@ -195,5 +232,26 @@ mod tests {
     #[test]
     fn unrecognized_core_name_returns_none() {
         assert_eq!(known_core_platforms("Some Future Core"), None);
+    }
+
+    /// Apsauga nuo lentelių išsiskyrimo (typo, pamirštas atnaujinti vieną iš dviejų): kiekvienas
+    /// `CORE_PRIORITY_ORDER` core'o vardas TURI būti realiai `known_core_platforms` nurodytas
+    /// KAIP palaikantis TĄ PAČIĄ platformą — kitaip rekomendacija tyliai niekada nesutaptų su
+    /// jokiu core'u.
+    #[test]
+    fn every_priority_entry_is_consistent_with_known_core_platforms() {
+        for &(slug, names) in CORE_PRIORITY_ORDER {
+            for &name in names {
+                let supported = known_core_platforms(name).unwrap_or_else(|| {
+                    panic!(
+                        "{name} (CORE_PRIORITY_ORDER['{slug}']) neturi known_core_platforms įrašo"
+                    )
+                });
+                assert!(
+                    supported.contains(&slug),
+                    "{name} yra CORE_PRIORITY_ORDER['{slug}'], bet known_core_platforms jo nesieja su '{slug}'"
+                );
+            }
+        }
     }
 }

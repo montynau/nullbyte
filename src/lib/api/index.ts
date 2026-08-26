@@ -131,3 +131,8 @@ export function getPreferredCores(): Promise<PlatformCorePreference[]> {
 export function setPreferredCores(preferences: PlatformCorePreference[]): Promise<void> {
   return invoke("set_preferred_cores", { preferences });
 }
+
+/** Platformos `slug` -> rekomenduojamų core'o pavadinimų tvarka (pirmas rastas laimi). */
+export function getCorePriority(): Promise<Record<string, string[]>> {
+  return invoke("get_core_priority");
+}
