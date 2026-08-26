@@ -32,18 +32,23 @@
     return preferences.find((p) => p.platformSlug === platformSlug)?.corePath ?? NONE;
   }
 
-  // SĄMONINGAI NEfiltruojama pagal `validExtensions` sutapimą su platformos plėtiniais —
-  // patikrinta REALIAIS core'ais (2026-08-26): PicoDrive/Genesis Plus GX (Sega CD palaikymas)
-  // ir MAME (plati zip/7z deklaracija) taip pat atitinka PSX plėtinius (cue/chd/zip — TA
-  // PATI persidengianti aibė kaip ADR-020/023 skenavimo dviprasmybėje), todėl toks
-  // filtravimas rodydavo 6 „tinkamus" core'us vietoj realių 3 (Beetle PSX, Beetle PSX HW,
-  // SwanStation). `.info` failų (kuriuose būtų patikimesnis `systemname`) šioje aplinkoje
-  // apskritai nėra, tad NĖRA patikimo signalo automatiniam siaurinimui — vartotojas
-  // renkasi pats iš pilno sąrašo.
+  // Filtruojama pagal kuruotą `supportedPlatforms` (backend `known_core_platforms`, ADR-024),
+  // NE pagal `validExtensions` sutapimą — patikrinta REALIAIS core'ais, kad extension'ų
+  // sutapimas duoda klaidingus teigiamus rezultatus (PicoDrive/Genesis Plus GX/MAME atitikdavo
+  // PSX plėtinius, nors PSX nepalaiko). `supportedPlatforms === null` (core'as neatpažintas
+  // kuruotoje lentelėje) traktuojamas kaip „nepatikrinta" — rodomas VISUR, kad naujas/
+  // nekataloguotas core'as nebūtų tyliai paslėptas, bet paženklintas „(unverified)".
+  function coresForPlatform(platformSlug: string): CoreInfo[] {
+    return [...cores]
+      .filter((c) => c.supportedPlatforms === null || c.supportedPlatforms.includes(platformSlug))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   const sortedCores = $derived([...cores].sort((a, b) => a.name.localeCompare(b.name)));
 
   function coreLabel(core: CoreInfo): string {
-    return core.version ? `${core.name} (${core.version})` : core.name;
+    const base = core.version ? `${core.name} (${core.version})` : core.name;
+    return core.supportedPlatforms === null ? `${base} · unverified` : base;
   }
 
   async function setPreference(platformSlug: string, corePath: string) {
@@ -78,7 +83,7 @@
         </p>
       {:else}
         <ul class="flex flex-col gap-1">
-          {#each cores as core (core.path)}
+          {#each sortedCores as core (core.path)}
             <li class="border-border flex flex-col gap-0.5 rounded-md border px-3 py-2 text-sm">
               <div class="flex items-center justify-between">
                 <span class="font-medium">{coreLabel(core)}</span>
@@ -99,6 +104,7 @@
       <h2 class="text-sm font-medium">Preferred core per platform</h2>
       <div class="flex flex-col gap-1">
         {#each library.platforms as platform (platform.id)}
+          {@const options = coresForPlatform(platform.slug)}
           <div
             class="border-border flex items-center justify-between gap-3 rounded-md border px-3 py-1.5 text-sm"
           >
@@ -116,7 +122,7 @@
               </Select.Trigger>
               <Select.Content>
                 <Select.Item value={NONE} label="None" />
-                {#each sortedCores as core (core.path)}
+                {#each options as core (core.path)}
                   <Select.Item value={core.path} label={coreLabel(core)} />
                 {/each}
               </Select.Content>

@@ -179,6 +179,10 @@ export interface CoreInfo {
   needFullpath: boolean;
   systemName: string | null;
   manufacturer: string | null;
+  /** Kuruotas platformų `slug` sąrašas, kurias šis core'as TIKRAI palaiko (žr. Rust pusės
+   * `known_core_platforms` doc, ADR-024). `null` = core'as NEATPAŽINTAS kuruotoje lentelėje —
+   * traktuok kaip „nepatikrinta", NE „nepalaiko nieko". */
+  supportedPlatforms: string[] | null;
 }
 
 /** Atitinka `PlatformCorePreference` (crates/nullbyte-app/src/commands/settings.rs, P7.6) —

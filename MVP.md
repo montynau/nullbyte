@@ -3232,20 +3232,35 @@ išnaudojamas tik testuose").
 **REALIAI patikrinta:** `cargo build/clippy/fmt -p nullbyte-app` švarūs, `pnpm check/lint/build`
 0 klaidų/warning'ų.
 
-**PATAISYTA po vartotojo realaus patikrinimo (2026-08-26):** iš pradžių `Select` sąrašas BUVO
-filtruojamas pagal `validExtensions` sutapimą su platformos plėtiniais (žr. pirminę
-`coresForPlatform` versiją) — vartotojas nukopijavo 11 realių core'ų į `cores_dir` ir pastebėjo,
-kad Sony PlayStation rodė 6 pasirinkimus, nors realiai PSX palaiko tik 3 (Beetle PSX, Beetle
-PSX HW, SwanStation). Patikrinau REALIAIS core'ais (laikinu `cargo run --example` diagnostikos
+**Iteracija #1 — extension'ų sutapimas (ATMESTA po vartotojo realaus patikrinimo, 2026-08-26):**
+iš pradžių `Select` sąrašas buvo filtruojamas pagal `validExtensions` sutapimą su platformos
+plėtiniais — vartotojas nukopijavo 11 realių core'ų į `cores_dir` ir pastebėjo, kad Sony
+PlayStation rodė 6 pasirinkimus, nors realiai PSX palaiko tik 3 (Beetle PSX, Beetle PSX HW,
+SwanStation). Patikrinau REALIAIS core'ais (laikinu `cargo run --example` diagnostikos
 skriptu, ištrintu po patikrinimo): PicoDrive ir Genesis Plus GX TAIP PAT deklaruoja
-`cue`/`iso`/`chd` (jie emuliuoja Sega CD), o MAME plačiai deklaruoja `zip`/`7z` — TA PATI
-persidengianti plėtinių aibė kaip ADR-020/023 skenavimo dviprasmybėje, dabar pasirodžiusi IR
-core'ų pasirinkime. `.info` failų (kuriuose būtų patikimesnis `systemname`) šioje aplinkoje
-NĖRA (jie yra atskiras, nebūtinas atsisiuntimas), tad nėra patikimo signalo automatiniam
-siaurinimui. **Sprendimas:** pašalintas filtravimas — `Select` dabar visada rodo VISUS
-aptiktus core'us (rūšiuotus pagal vardą), vartotojas renkasi pats. Sąžiningiau nei „protingas"
-filtras, kuris tyliai rodytų klaidingus rezultatus būtent toms platformoms, kur tikslumas
-svarbiausias (PSX/Saturn/SegaCD).
+`cue`/`iso`/`chd`/`m3u` (jie emuliuoja Sega CD, `m3u` — savo daugiadiskių sąrašams), o MAME
+plačiai deklaruoja `zip`/`7z` — TA PATI persidengianti plėtinių aibė kaip ADR-020/023
+skenavimo dviprasmybėje, dabar pasirodžiusi IR core'ų pasirinkime.
+
+**Iteracija #2 — jokio filtro (TAIP PAT ATMESTA, vartotojas iš karto pastebėjo):** pašalinus
+filtravimą visiškai, `Select` rodė VISUS core'us kiekvienai platformai — vartotojas teisingai
+nurodė, kad tai BLOGIAU, ne geriau: „gali pasirinkti betkoki ir neveiks". Reikėjo TIKSLAUS
+sprendimo, ne pasidavimo.
+
+**Iteracija #3 — kuruota lentelė (GALUTINIS sprendimas):** kadangi libretro API NETURI „kokias
+platformas palaikau" lauko (TIK `valid_extensions`), o `.info` failai (kuriuose būtų
+patikimesnis `systemname`) yra NEBŪTINAS atsisiuntimas ir šioje aplinkoje jų NĖRA nė vienam
+core'ui — vienintelis TIKSLUS sprendimas yra rankiniu būdu patikrinta core'o pavadinimas
+→ platformos `slug` lentelė (`known_core_platforms`, `commands/settings.rs`), TA PATI
+filosofija kaip `platforms` seed'as (P5.1) su kuruotais ScreenScraper ID'ais. Nauja
+`CoreInfoDto.supported_platforms: Option<Vec<String>>` — `None` reiškia „core'as
+neatpažintas kuruotoje lentelėje", UI tai traktuoja kaip „nepatikrinta" (rodo VISUR, pažymėtą
+„· unverified"), NE „nepalaiko nieko" (neslepia nauko/nekataloguoto core'o). Lentelė kol kas
+apima TIK 9 REALIAI ŠIOJE SESIJOJE patikrintus core'us (Snes9x, bsnes-mercury, mGBA, Genesis
+Plus GX, PicoDrive, Beetle PSX, Beetle PSX HW, SwanStation, MAME) — jokių nepatikrintų
+spėjimų apie kitus core'us. Du nauji testai: `every_known_core_platform_slug_exists_in_the_seed_table`
+(apsauga nuo netikslaus `slug` typo lentelėje) ir `psx_maps_to_exactly_the_three_real_psx_cores`
+(tiesiogiai užfiksuoja ADR-024 esmę — PSX = TIK 3 core'ai, ne 6).
 
 ---
 
