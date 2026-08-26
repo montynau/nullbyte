@@ -2676,9 +2676,10 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 
 ---
 
-### P9.5 — Ikonos, metaduomenys, packaging `[ ]`
+### P9.5 — Ikonos, metaduomenys, packaging `[!]`
 
 **Priklausomybės:** P9.4
+**Failai:** `crates/nullbyte-app/{Cargo.toml,tauri.conf.json,icons/}`, `.github/workflows/release.yml` (naujas)
 
 **Ką daryti:**
 - Aplikacijos ikona (macOS `.icns`, Linux `.png` visų dydžių) — `pnpm tauri icon`
@@ -2687,10 +2688,45 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 - Linux: `.AppImage` + `.deb`
 - GitHub Actions release workflow
 
+> **Pastaba (ADR-035, 2026-08-26):** ikona — vartotojo PAČIO sukurtas dizainas (AI
+> generuota, „nano banana"): neoninė kaukulė su binariniais skaičiais, D-pad kryžiais akių
+> vietoje. Dvi versijos palygintos REALIAI (padengta iki kvadrato, sugeneruoti 16/32/64/128px
+> peržiūros paveiksliukai): (a) perspalvinta į vienspalvę violetinę (HSV hue rotacija,
+> tiksliai apskaičiuota iš tikro histogramos dominuojančio atspalvio ~126° → app'o `--primary`
+> atspalvis ~258°, ne spėjimas), (b) originali daugiaspalvė (rožinė/žydra/žalia) versija.
+> Prieš tikrinant, spėta, kad plonos neoninės linijos sugrius mažuose dydžiuose — REALYBĖJE
+> daugiaspalvė versija laikėsi GERIAU už abi (švytėjimas suteikia linijoms pakankamai
+> vizualinio „svorio"). Vartotojas rinkosi daugiaspalvę versiją TOKIĄ, kokia yra (sąmoningas
+> pasirinkimas, ne app'o violetinio akcento atitikimas) — gali persvarstyti ateityje.
+> `tauri.conf.json` identifikatorius pakeistas iš `fr.nullbyte.app` į
+> `io.github.montynau.nullbyte` — P4.0.5 anksčiau šitą PATĮ pastebėjo (Tauri CLI įspėja dėl
+> `.app` galūnės konflikto su macOS bundle plėtiniu), bet paliko kaip „vartotojo sprendimą";
+> patikrinta, kad `paths.rs` duomenų katalogo pavadinimas NEPRIKLAUSO nuo šio identifikatoriaus
+> (hardkodintas „Nullbyte"/„nullbyte"), tad pakeitimas nekelia rizikos esamiems duomenims.
+>
+> **REALIAI patikrinta:** `pnpm tauri build --target universal-apple-darwin` lokaliai —
+> `.dmg` MOUNTINASI švariai (patikrinta `hdiutil attach`), tiek `nullbyte-app`, tiek
+> `nullbyte-emu` sidecar YRA tikri universal binarai (`lipo -info` patvirtina x86_64+arm64),
+> `.app` paleistas per `open` (ne žalias binaras — žr. P9.4 pamoką dėl to skirtumo), ikona
+> rodoma teisingai. `.github/workflows/release.yml` (`tauri-apps/tauri-action`, trigerinamas
+> TIK `v*` tag'u arba rankiniu paleidimu, `releaseDraft: true`) PALEISTAS REALIAI (`v0.1.0`
+> tag'as, vartotojo sutikimu) — ABU matricos darbai (macOS universal 14m30s, Linux
+> ubuntu-latest 9m44s) PRAĖJO SĖKMINGAI, sukūrė TIKRĄ draft GitHub Release'ą su
+> `Nullbyte_0.1.0_universal.dmg`, `Nullbyte_0.1.0_amd64.deb`, `Nullbyte_0.1.0_amd64.AppImage`,
+> IR papildomai `Nullbyte-0.1.0-1.x86_64.rpm` (Tauri bundler'io „targets: all" bonusas,
+> neprašytas, bet nekenksmingas). **NEPATIKRINTA:** ar `.AppImage`/`.deb` REALIAI PALEIDŽIA
+> aplikaciją Ubuntu sistemoje — CI TIK sustato ir įkelia artefaktus, nepaleidžia GUI (headless
+> runner'is). Draft release'as vis dar turi ANKSTESNĘ ikoną (paleista prieš du ikonos
+> pakeitimo commit'us) — naujas tag'as reikalingas, jei norima galutinę ikoną turinčio
+> release'o (vartotojo sprendimas, neprašyta šioje sesijoje).
+
 **Acceptance:**
-- [ ] `.dmg` atsidaro ir instaliuojasi macOS
-- [ ] `.AppImage` veikia švariame Ubuntu
-- [ ] Ikona teisinga abiejose platformose
+- [x] `.dmg` atsidaro ir instaliuojasi macOS — patvirtinta REALIAI (mount, paleidimas)
+- [ ] `.AppImage` veikia švariame Ubuntu — CI build'as PRAĖJO, bet REALUS paleidimas Ubuntu
+      sistemoje NEpatikrintas (žr. ADR-035 pastabą)
+- [x] Ikona teisinga abiejose platformose — macOS patvirtinta vizualiai realiame `.app`;
+      Linux bundle'o ikonos rinkinys sugeneruotas per tą pačią `pnpm tauri icon` komandą,
+      bet vizualiai Linux darbalaukyje NEpatikrinta (ta pati priežastis kaip aukščiau)
 
 ---
 
@@ -2741,7 +2777,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai (P8.1/P8.2 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
-| 9 — Polish (P9.1/P9.2/P9.3 baigti; P9.4 `[!]` — CPU 150%→60% pagerinta, bet ne <15%, idle atmintis ~296MB) | 6 | 3 | 50 % |
+| 9 — Polish (P9.1/P9.2/P9.3 baigti; P9.4/P9.5 `[!]` — žr. jų pastabas) | 6 | 3 | 50 % |
 | **Viso** | **52** | **44** | **85 %** |
 
 ---
@@ -4004,6 +4040,50 @@ pagerėjimą (commit'as `a1a94fe`) ir palikti likusį ~45 procentinių punktų a
 tikslo ATVIRĄ ateičiai, NE spėlioti toliau be tikro profiliuotojo — ta pati filosofija kaip
 ADR-033 idle atminties sprendimas (dokumentuoti realų, patikrintą radinį, nesmulkinti be
 tinkamo įrankio).
+
+---
+
+### ADR-035 — Ikona (vartotojo dizainas), identifikatoriaus fix'as, REALUS release CI paleidimas (P9.5)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Ikona:** vartotojas sukūrė realų dizainą AI įrankiu („nano banana") — neoninė kaukolė iš
+binarinių skaičių, D-pad kryžiai akių vietoje, permatoma per ekrano/CRT rėmelio motyvą.
+Pirminė versija — žalios neoninės spalvos. Pasiūlyta perspalvinti į violetinę (app'o
+`app.css --primary` akcentas). Ištaisyta TIKSLIAI: HSV histogramos analizė rado dominuojantį
+šaltinio atspalvį (~126°, žalia), apskaičiuotas tikslus poslinkis iki `#8b5cf6` (Tailwind
+violet-500, app'o realus akcentas) atspalvio (~258°) — hue rotacija +132° per PIL, sotis/
+šviesumas nepaliesti (švytėjimo kontrastas išliko nepakitęs, keitėsi TIK spalva).
+
+Vartotojas tada pateikė ANTRĄ, kitokį dizainą — daugiaspalvė (rožinė/žydra/žalia) kaukolės
+linijinė iliustracija, be užpildytų formų. Prieš tikrinant buvo abejonių, ar plonos linijos
+išliks įskaitomos mažuose dydžiuose (16-32px) — REALIAI patikrinus (padengta iki kvadrato
+tamsiu fonu, sugeneruoti 16/32/64/128px peržiūros vaizdai), šis dizainas laikėsi GERIAU už
+abu ankstesnius variantus net mažiausiame dydyje — neoninis švytėjimas suteikė linijoms
+pakankamai vizualinio „svorio", kad neišnyktų mažinant. Vartotojas pasirinko šią, ANTRĄJĄ,
+daugiaspalvę versiją TOKIĄ, kokia yra — sąmoningas pasirinkimas nesutapti su app'o
+vienspalviu violetiniu akcentu, ne apsirikimas.
+
+**Identifikatorius:** `fr.nullbyte.app` → `io.github.montynau.nullbyte`. P4.0.5 (anksčiau
+šioje sesijoje) PATI pastebėjo šį TIKSLIAI TĄ PATĮ Tauri CLI įspėjimą (`.app` galūnė
+konfliktuoja su macOS bundle plėtiniu) ir sąmoningai PALIKO nepaliestą, vadindama tai
+„vartotojo sprendimu" dėl galimo poveikio duomenų izoliacijai. Prieš keičiant PATIKRINTA:
+`crates/nullbyte-app/src/paths.rs::data_dir()` naudoja HARDKODINTĄ „Nullbyte"/„nullbyte"
+katalogo pavadinimą, VISIŠKAI NEPRIKLAUSOMĄ nuo Tauri `identifier` reikšmės — tad šis
+pakeitimas NEPERKELIA jokių esamų vartotojo duomenų, rizika minimali (paveikia tik macOS/
+Linux bundle identitetą — code signing, `.deb` paketo vardą ir pan., ne mūsų pačių valdomą
+duomenų katalogą).
+
+**Release CI — REALIAI paleista ir patvirtinta (vartotojo sutikimu, `v0.1.0` tag'as):**
+`.github/workflows/release.yml` (naujas, `tauri-apps/tauri-action`, trigerinamas TIK `v*`
+tag'u/rankiniu paleidimu, `releaseDraft: true` — niekada automatiškai nepublikuoja). ABI
+matricos darbai PRAĖJO SĖKMINGAI: macOS universal (14m30s), Linux ubuntu-latest (9m44s,
+webkit2gtk/gtk3/appindicator3 sistemos priklausomybės — TAS PATS sąrašas, jau patikrintas
+`ci.yml`). Sukurtas TIKRAS draft GitHub Release'as su realiais artefaktais: `.dmg` (universal),
+`.deb`, `.AppImage`, IR papildomas `.rpm` (Tauri `targets: "all"` bonusas). **NEPATIKRINTA:**
+ar `.AppImage`/`.deb` REALIAI PALEIDŽIA aplikaciją Ubuntu darbalaukyje — CI runner'is
+headless, tauri-action tik sustato ir įkelia, nepaleidžia GUI. Draft release'as vis dar su
+ANKSTESNE ikona (paleistas prieš du ikonos pakeitimo commit'us) — naujas tag'as paliktas
+vartotojo sprendimui, jei norės release'o su galutine ikona.
 
 ---
 
