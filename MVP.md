@@ -3009,6 +3009,17 @@ diske. Ateities scraping'ai automatiškai užpildys naujus žaidimus per `media.
 kvadratiniai su pilnai matomu „PlayStation" logotipu, SNES platūs, Genesis aukšti — visi BE
 apkirpimo, fiksuoto aukščio eilutėse, kaip prašyta.
 
+**Papildomas realaus pasaulio patvirtinimas (edge case):** „Final Fantasy IV" (SNES) ROM'o
+CRC32 sutapo su JAPONIŠKA ScreenScraper įrašo versija (žinomas atvejis — JAV SNES leidimas
+buvo perkrikštytas į „Final Fantasy II", kitas ROM/CRC) — jos vienintelis `box-2D` variantas
+buvo `region: jp`, 478×864 (AUKŠTAS, VISIŠKAI kitokia proporcija nei įprastas SNES 680×497).
+Naujas „packed row" layout'as tvarkingai atvaizdavo šią kortelę SAVO tikra, neapkirpta
+proporcija — tiksliai tam ir buvo kurtas šis sprendimas. Vartotojas rankiniu būdu pakeitė
+viršelį į JAV „Final Fantasy II" atitikmenį (rasta per papildomą `romnom`-pagrįstą paiešką TAI
+PAČIAI ScreenScraper API'jai, ne kodo pakeitimas), tada nusprendė žaidimą visai pašalinti iš
+bibliotekos testavimo metu — abu veiksmai atlikti tiesiogiai per DB/failų sistemą vartotojo
+prašymu, NE per app'o UI (nėra `delete_game` komandos — post-MVP, jei prireiks).
+
 ---
 
 ## 15. Po MVP — idėjų sąrašas
