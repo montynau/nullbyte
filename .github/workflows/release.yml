@@ -1,0 +1,79 @@
+name: Release
+
+# MVP.md P9.5 — paleidžiama TIK rankiniu tag'o push'u (v*) arba rankiniu workflow_dispatch,
+# NIEKADA automatiškai kiekvienam commit'ui (skirtingai nuo ci.yml). `releaseDraft: true` —
+# GitHub Release'as sukuriamas kaip DRAFT, ne iškart publikuojamas — žmogus peržiūri ir
+# paspaudžia "Publish" pats prieš tai, kai jis tampa viešai matomas.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+          - platform: ubuntu-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libasound2-dev \
+            libudev-dev \
+            patchelf \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Universal macOS build reikalauja ABIEJŲ architektūrų — žr.
+          # scripts/build-sidecar.sh (release profilis Darwin'e stato tiek
+          # aarch64-apple-darwin, tiek x86_64-apple-darwin, tada `lipo -create`).
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Nullbyte ${{ github.ref_name }}"
+          releaseBody: "See the assets below to download and install this version."
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

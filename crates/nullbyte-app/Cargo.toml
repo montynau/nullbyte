@@ -1,8 +1,11 @@
 [package]
 name = "nullbyte-app"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "A cross-platform (macOS + Linux) retro game emulation frontend built on libretro cores"
+authors = ["MontyNau"]
+homepage = "https://github.com/montynau/nullbyte"
+repository = "https://github.com/montynau/nullbyte"
+license = "MIT"
 edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
