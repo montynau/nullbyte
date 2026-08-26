@@ -2402,10 +2402,11 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 
 ---
 
-### P8.2 — SRAM `[ ]`
+### P8.2 — SRAM `[!]`
 
 **Priklausomybės:** P1.7
-**Failai:** `crates/nullbyte-core/src/core/savestate.rs`
+**Failai:** `crates/nullbyte-core/src/core/sram.rs`, `crates/nullbyte-core/src/core/loader.rs`,
+`crates/nullbyte-core/src/core/runner.rs`, `crates/nullbyte-core/src/ipc.rs`
 
 **Ką daryti:**
 - `retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)` + `retro_get_memory_size(...)`
@@ -2414,10 +2415,31 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 - Išsaugok: uždarant žaidimą, kas 30 s, ir kai `size > 0` bei turinys pasikeitė
 - Atominis rašymas: `.tmp` → `rename`
 
+> **Pastaba (ADR-029, 2026-08-26):** įgyvendinta ATSKIRAME `core::sram` modulyje (ne
+> `savestate.rs`, kaip pirminis MVP.md juodraštis siūlė) — CLAUDE.md §8.8 pati sako „Atskirai
+> nuo save state'ų", ir realybėje tai skirtinga libretro operacija bei skirtinga panaudojimo
+> semantika (progresyvus in-game save, ne vienas užšaldytas taškas). `EmuCommand::Load` gavo
+> naują PRIVALOMĄ `sram_path: PathBuf` lauką (analogiškai `states_dir` iš P8.1, bet PILNAS
+> failo kelias, ne katalogas — SRAM turi tik VIENĄ failą vienam žaidimui, tėvas jį jau žino iš
+> DB) — `IPC_PROTOCOL_VERSION` pakelta į `3`. Periodinis 30s flush'as SĄMONINGAI dirty-check'ina
+> (`RunnerState.last_saved_sram`) prieš rašydamas — vengia disko I/O, kai žaidėjas tiesiog
+> nesikeičia jokio in-game save'o; uždarant žaidimą (`cleanup`) naudojamas ATSKIRAS,
+> BESĄLYGIŠKAS kelias (visada įrašo dabartinę būseną, nepriklausomai nuo dirty-check'o), kad
+> paskutinės kelios sekundės progreso NIEKADA nebūtų prarastos.
+
 **Acceptance:**
-- [ ] RPG in-game save išlieka po perkrovimo
-- [ ] `.srm` failas nesugadinamas staigiai uždarius
-- [ ] Core'ai be SRAM (`size == 0`) nesulaužo
+- [x] RPG in-game save išlieka po perkrovimo — patikrinta VIENETO teste
+      (`core::sram::tests::save_then_load_on_a_fresh_core_restores_identical_sram_prefix`) su
+      REALIU snes9x core'u + realiu SNES ROM'u (kuris REALIAI praneša size > 0 SRAM), rankiniu
+      būdu užrašant atpažįstamą baitų šabloną, save → NAUJAS `CoreHandle` → load → sutampa
+      baitas-į-baitą. **NEpatikrinta** per pilną gyvą procesą/realų žaidimą su tikru in-game
+      save meniu (žr. P8.1 analogišką pastabą — `commands::`/UI laukia P9.1).
+- [x] `.srm` failas nesugadinamas staigiai uždarius — atominis `.tmp` → `rename` (tas pats
+      `savestate::write_atomic`, pakartotinai naudojamas iš `core::sram`), tad joks pusiau
+      įrašytas failas niekada nepakeičia seno per `rename` (POSIX atomiškumo garantija)
+- [x] Core'ai be SRAM (`size == 0`) nesulaužo — `CoreHandle::sram`/`sram_mut` grąžina `None`
+      kai `size == 0` ARBA rodyklė `NULL`, `save_sram`/`load_sram` tada tyliai grąžina `Ok(())`
+      (žr. `core::sram` doc); testuota netiesiogiai (kelio šaka egzistuoja ir aptarnaujama)
 
 ---
 
@@ -2565,7 +2587,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
-| 8 — Išsaugojimai (P8.1 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
+| 8 — Išsaugojimai (P8.1/P8.2 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
 | **Viso** | **52** | **41** | **79 %** |
 
@@ -3568,6 +3590,56 @@ identiška baitas-į-baitą). `cargo clippy --workspace --all-targets -D warning
 `crates/nullbyte-app/src/db/save_states.rs` (CRUD, `UNIQUE(game_id, slot)` upsert) — 5 testai,
 visi praeina, bet modulis kol kas be kviečiančiojo (`#![allow(dead_code)]`, žr. P8.1 pastabą) —
 laukia P9.1 paleidimo pipeline'o, kad būtų iš ko realiai kviesti.
+
+### ADR-029 — SRAM: atskiras `core::sram` modulis + antras `IPC_PROTOCOL_VERSION` pakėlimas (P8.2)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** P8.2 (in-game save'ai, CLAUDE.md §8.8) pirminiame MVP.md juodraštyje buvo
+priskirtas TAM PAČIAM failui kaip P8.1 (`core/savestate.rs`). CLAUDE.md §8.8 pati eksplicitiškai
+sako „Atskirai nuo save state'ų" — patikrinus abi operacijas paaiškėjo, kad jos NIEKUR
+nesikerta kode (skirtingi libretro simboliai — `retro_get_memory_data`/`size`, ne
+`retro_serialize`/`unserialize`; skirtinga panaudojimo semantika — SRAM atsinaujina
+PROGRESYVIAI visos sesijos metu, save state'as „užšaldo" VIENĄ tašką), tad sukurtas ATSKIRAS
+`crates/nullbyte-core/src/core/sram.rs` modulis. Bendra tik `savestate::write_atomic` (dabar
+`pub(super)`) — abu moduliai naudoja TĄ PATĮ `.tmp` → `rename` šabloną, nėra prasmės dubliuoti.
+
+**`CoreHandle::sram()`/`sram_mut()`:** `&[u8]`/`&mut [u8]` tiesiogiai virš core'o
+`retro_get_memory_data`/`size()` grąžintos rodyklės — `None`, jei `size == 0` ARBA rodyklė
+`NULL` (daug core'ų, pvz. arcade, SRAM tiesiog neturi — CLAUDE.md §8.8 tai numato kaip normalų
+atvejį, ne klaidą). `sram_mut()` reikalavo `#[allow(clippy::mut_from_ref)]` — clippy įtaria
+klasikinį aliasing pažeidimą (`&mut` kilęs iš `&self`), bet realybėje `&self` tik suteikia
+prieigą prie core'o SYMBOLS funkcijų rodyklių, ne prie pačių duomenų; realų aliasing draudimą
+užtikrina CLAUDE.md §3.2 taisyklė #1 (visi `retro_*` kvietimai TIK iš emuliavimo gijos, tad
+niekada nėra dviejų gyvų šio buferio nuorodų vienu metu).
+
+**`EmuCommand::Load.sram_path` + trečias `IPC_PROTOCOL_VERSION` pakėlimas:** analogiškai P8.1
+`states_dir` sprendimui — bet SKIRTINGAI: SRAM turi TIK VIENĄ failą vienam žaidimui (ne
+sloto-priklausomą pavadinimą), tad tėvas siunčia PILNĄ, jau išspręstą `sram_path: PathBuf`
+(ne katalogą, iš kurio vaikas pats sudarytų pavadinimą — vaikas neturėtų spėlioti
+`{rom_basename}` iš ROM'o kelio, kuris gali būti archyvo viduje ar turėti neįprastų simbolių).
+Kadangi tai DAR VIENAS naujas PRIVALOMAS laukas `Load` variante, `IPC_PROTOCOL_VERSION` pakelta
+iš `2` į `3` (žr. `ipc.rs` doc — antras šio konstantos pakėlimas per tą pačią dieną, abu kartus
+dėl TO PATIES `EmuCommand::Load` varianto, bet skirtingų laukų).
+
+**Periodinio flush'o dirty-check:** MVP.md „Ką daryti" reikalauja įrašyti „kas 30 s IR kai
+turinys pasikeitė" — įgyvendinta kaip `RunnerState.last_saved_sram: Option<Vec<u8>>`
+(paskutinio SĖKMINGAI įrašyto turinio kopija). Kas `SRAM_SAVE_INTERVAL` (30s) `run_loop`
+palygina dabartinį `core.sram()` su šia kopija — jei sutampa, PRALEIDŽIA rašymą (vengia
+nereikalingo disko I/O, kai žaidėjas tiesiog stovi meniu ar neišsaugo). **Uždarant žaidimą**
+(`cleanup`) šis dirty-check SĄMONINGAI APEINAMAS — visada įrašoma BESĄLYGIŠKAI, PRIEŠ
+`unload_game()`/`deinit()`, kad paskutinės (galimai < 30s senumo) žaidėjo progreso sekundės
+niekada nebūtų prarastos vien todėl, kad periodinis taimeris dar nespėjo suveikti.
+
+**Patikrinta:** `cargo test --workspace` — 90 nullbyte-core testų (0 failed, +2 nuo P8.1),
+įskaitant `core::sram::tests::save_then_load_on_a_fresh_core_restores_identical_sram_prefix`
+(realus snes9x core + realus SNES ROM, KURIS REALIAI praneša SRAM `size > 0` — ne dirbtinis
+mock'as; rankiniu būdu užrašomas atpažįstamas baitų šablonas TIESIOG į core'o SRAM, `save_sram`
+→ NAUJAS `CoreHandle` → `load_sram` → baitas-į-baitą sutampa) ir
+`load_sram_with_missing_file_is_a_silent_noop_not_an_error` (nauja sesija be ankstesnio
+`.srm` — NĖRA klaida, skirtingai nuo `savestate::load_state`, kur trūkstamas failas YRA
+klaida, nes vartotojas eksplicitiškai paprašė konkretaus slot'o). `cargo clippy --workspace
+--all-targets -D warnings` švarus. **NEpatikrinta:** realus end-to-end per gyvą procesą/
+tikrą in-game save meniu — laukia P9.1 (ta pati situacija kaip P8.1, žr. ADR-028).
 
 ---
 

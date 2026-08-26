@@ -10,6 +10,7 @@ pub mod info;
 pub mod loader;
 pub mod runner;
 pub mod savestate;
+pub mod sram;
 
 // Testų-tik pagalbinė medžiaga bendra `core::*` moduliams.
 #[cfg(test)]

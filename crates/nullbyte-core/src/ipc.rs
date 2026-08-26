@@ -71,7 +71,10 @@ use crate::error::CoreError;
 /// `2` (P8.1, 2026-08-26): `EmuCommand::Load` gavo naują PRIVALOMĄ `states_dir: PathBuf`
 /// lauką (žr. `EmuCommand::Load` doc) — tai TIKSLIAI atvejis, kurį ši versija turi pagauti
 /// (senas sidecar'as, gavęs naują lauką kaip trūkstamą, nesuprastų žinutės formato).
-pub const IPC_PROTOCOL_VERSION: u32 = 2;
+///
+/// `3` (P8.2, 2026-08-26): `EmuCommand::Load` gavo dar vieną naują PRIVALOMĄ lauką —
+/// `sram_path: PathBuf` (žr. jo doc) — ta pati priežastis kaip `2`.
+pub const IPC_PROTOCOL_VERSION: u32 = 3;
 
 /// Protokolo versijos handshake — pirma žinutė, kurią kiekviena pusė siunčia SAVO, ir pirma
 /// žinutė, kurią kiekviena pusė TIKISI gauti iš kitos. Abi pusės naudoja TĄ PATĮ tipą (žr.

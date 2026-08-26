@@ -11,7 +11,7 @@ use crate::error::CoreError;
 use super::ffi::{
     retro_audio_sample_batch_t, retro_audio_sample_t, retro_environment_t, retro_game_info,
     retro_input_poll_t, retro_input_state_t, retro_system_av_info, retro_system_info,
-    retro_video_refresh_t, RETRO_API_VERSION,
+    retro_video_refresh_t, RETRO_API_VERSION, RETRO_MEMORY_SAVE_RAM,
 };
 
 /// Simbolis be gyvavimo trukmės parametro — leidžia laikyti jį kartu su `Library` tame
@@ -368,6 +368,55 @@ impl CoreHandle {
     /// `load_game()`.
     pub unsafe fn unserialize(&self, buffer: &[u8]) -> bool {
         unsafe { (self.symbols.retro_unserialize)(buffer.as_ptr() as *const c_void, buffer.len()) }
+    }
+
+    /// `retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)` + `retro_get_memory_size(...)`
+    /// (CLAUDE.md §8.8) kaip pasiskaitoma juostelė. `None`, jei core'as neturi SRAM
+    /// (`size == 0` arba core grąžina NULL rodyklę) — TAI NĖRA klaida, daug core'ų (pvz.
+    /// arcade) tiesiog neturi battery-backed atminties.
+    ///
+    /// # Safety
+    /// Turi būti kviečiama tik iš emuliavimo gijos, po sėkmingo `load_game()`. Grąžinta
+    /// nuoroda galioja tik tol, kol `core` gyvas ir kol NEIŠKVIESTA `run()`/`reset()`/
+    /// `unload_game()` (core'as gali perkelti/atlaisvinti savo vidinę atmintį).
+    pub unsafe fn sram(&self) -> Option<&[u8]> {
+        let size = unsafe { (self.symbols.retro_get_memory_size)(RETRO_MEMORY_SAVE_RAM) };
+        if size == 0 {
+            return None;
+        }
+        let ptr = unsafe { (self.symbols.retro_get_memory_data)(RETRO_MEMORY_SAVE_RAM) };
+        if ptr.is_null() {
+            return None;
+        }
+        // SAFETY: core'as (per libretro kontraktą) garantuoja, kad `ptr` rodo į bent `size`
+        // baitų validų buferį tol, kol jis įkeltas.
+        Some(unsafe { std::slice::from_raw_parts(ptr as *const u8, size) })
+    }
+
+    /// Kaip [`Self::sram`], bet rašomu (`&mut`) pavidalu — naudoja `load_sram` in-game save'o
+    /// atkūrimui (kopijuoja `.srm` failo turinį TIESIOG į core'o vidinę SRAM atmintį).
+    ///
+    /// # Safety
+    /// Tos pačios sąlygos kaip [`Self::sram`].
+    #[allow(clippy::mut_from_ref)] // grąžinta &mut [u8] rodo į CORE'O (ne &self) FFI atmintį —
+                                   // clippy įtaria klasikinį aliasing pažeidimą (&mut kilęs iš &self), bet čia `&self`
+                                   // TIK suteikia prieigą prie core'o SYMBOLS funkcijų rodyklių, ne prie pačių duomenų;
+                                   // realus aliasing draudimas užtikrinamas per CLAUDE.md §3.2 taisyklę #1 (visi retro_*
+                                   // kvietimai TIK iš emuliavimo gijos) — niekada nėra dviejų gyvų šio buferio nuorodų
+                                   // vienu metu, nes callerio kodas (core::sram) niekada nelaiko dviejų vienu metu.
+    pub unsafe fn sram_mut(&self) -> Option<&mut [u8]> {
+        let size = unsafe { (self.symbols.retro_get_memory_size)(RETRO_MEMORY_SAVE_RAM) };
+        if size == 0 {
+            return None;
+        }
+        let ptr = unsafe { (self.symbols.retro_get_memory_data)(RETRO_MEMORY_SAVE_RAM) };
+        if ptr.is_null() {
+            return None;
+        }
+        // SAFETY: žr. `sram()` — čia papildomai reikalaujame, kad nebūtų jokios kitos
+        // gyvos nuorodos į tą patį buferį (caller'is garantuoja per &self skolinimo taisykles
+        // ir tai, kad tik viena emuliavimo gija kada nors kviečia šiuos metodus, CLAUDE.md §3.2).
+        Some(unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, size) })
     }
 }
 

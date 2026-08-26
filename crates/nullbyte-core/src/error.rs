@@ -64,6 +64,11 @@ pub enum CoreError {
     #[error("save state klaida: {0}")]
     SaveState(String),
 
+    /// SRAM (in-game save, CLAUDE.md §8.8) skaitymo/rašymo klaida — ATSKIRAI nuo `SaveState`,
+    /// nes semantiškai skirtinga operacija (retro_get_memory_data/size, ne retro_serialize).
+    #[error("SRAM klaida: {0}")]
+    Sram(String),
+
     #[error("{0}")]
     Other(String),
 }
@@ -81,6 +86,7 @@ impl CoreError {
             CoreError::MissingBios { .. } => "missing_bios",
             CoreError::UnsupportedPixelFormat { .. } => "unsupported_pixel_format",
             CoreError::SaveState(_) => "save_state",
+            CoreError::Sram(_) => "sram",
             CoreError::Other(_) => "other",
         }
     }
@@ -186,6 +192,7 @@ mod tests {
                 format: 0,
             },
             CoreError::SaveState(String::new()),
+            CoreError::Sram(String::new()),
             CoreError::Other(String::new()),
         ];
         let kinds: std::collections::HashSet<_> = variants.iter().map(CoreError::kind).collect();

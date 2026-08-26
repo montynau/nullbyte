@@ -26,6 +26,7 @@ use crate::core::ffi::{
 };
 use crate::core::loader::{CoreHandle, LoadedGameInfo, RetroCallbacks};
 use crate::core::savestate;
+use crate::core::sram;
 use crate::error::CoreError;
 use crate::ipc::{EmuStatus, StatusSender};
 use crate::video::frame_buffer::{self, FrameConsumer, FrameProducer, VideoFrameData};
@@ -46,6 +47,10 @@ const BUFFER_HIGH_WATERMARK: f64 = 0.6;
 /// Kiek laukti, kol vėl patikrinti, ar audio ring buferyje atsirado vietos (throttled
 /// pacing) — pakankamai trumpai, kad nebūtų girdimo delsimo, bet ne busy-spin.
 const THROTTLE_POLL_INTERVAL: Duration = Duration::from_millis(1);
+/// P8.2/CLAUDE.md §8.8: kas kiek tikriname, ar SRAM turinys pasikeitė nuo paskutinio
+/// įrašymo (periodinis in-game save flush'as). Uždarant žaidimą naudojamas ATSKIRAS,
+/// besąlygiškas kelias (žr. `cleanup`) — šis intervalas taikomas TIK gyvo žaidimo metu.
+const SRAM_SAVE_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Vieno porto įvestis (`RETRO_DEVICE_JOYPAD` bitmask). Kol P4.x mapping'as neparašytas,
 /// tai minimali reprezentacija tiesiogiai atitinkanti `EmuContext.input_state`.
@@ -74,6 +79,12 @@ pub enum EmuCommand {
         /// sudaro `{states_dir}/{slot}.state`/`.png` — jokio round-trip į tėvą per KIEKVIENĄ
         /// paspaudimą nereikia, kelias žinomas nuo `Load` momento.
         states_dir: PathBuf,
+        /// P8.2: TĖVO PUSĖ išsprendžia PILNĄ `.srm` failo kelią PRIEŠ siųsdama `Load` — kitaip
+        /// nei `states_dir` (kuriame vaikas PATS sudaro `{slot}.state` pavadinimus), SRAM
+        /// turi TIK VIENĄ failą vienam žaidimui, tad nėra prasmės vaikui spėlioti pavadinimą
+        /// iš ROM'o kelio (kuris gali būti archyvo viduje, turėti keistų simbolių ir pan.) —
+        /// tėvas jį jau žino iš DB (CLAUDE.md §9 duomenų modelio, `saves_dir()/{rom_basename}.srm`).
+        sram_path: PathBuf,
     },
     Run,
     Pause,
@@ -196,6 +207,16 @@ struct RunnerState {
     /// `handle_load` metu iš `EmuCommand::Load.states_dir` (žr. jo doc). `None`, kol niekas
     /// dar neįkelta.
     states_dir: Option<PathBuf>,
+    /// P8.2: šio žaidimo `.srm` failo kelias — nustatomas `handle_load` metu iš
+    /// `EmuCommand::Load.sram_path` (žr. jo doc). `None`, kol niekas dar neįkelta.
+    sram_path: Option<PathBuf>,
+    /// P8.2: paskutinio SĖKMINGAI įrašyto SRAM turinio kopija — leidžia periodiniam
+    /// flush'ui (`maybe_periodic_sram_save`) praleisti rašymą, kai nieko nepasikeitė nuo
+    /// paskutinio karto (CLAUDE.md §8.8 „kai... turinys pasikeitė"). `None` reiškia „dar
+    /// niekada neįrašyta šioje sesijoje" — pirmas patikrinimas visada įrašo (jei size > 0).
+    last_saved_sram: Option<Vec<u8>>,
+    /// P8.2: kada paskutinį kartą TIKRINTA (ne būtinai įrašyta) periodinė SRAM būsena.
+    last_sram_check: Instant,
     running: bool,
     /// P3.4: `true` kai fast-forward įjungtas — jokio audio-driven throttle'o, audio
     /// sample'ai meta (nepublikuojami).
@@ -216,6 +237,9 @@ impl RunnerState {
             core: None,
             game_info: None,
             states_dir: None,
+            sram_path: None,
+            last_saved_sram: None,
+            last_sram_check: Instant::now(),
             running: false,
             fast_forward: false,
             resampler: None,
@@ -273,6 +297,7 @@ fn handle_load(
     core_path: &std::path::Path,
     rom_path: &std::path::Path,
     states_dir: &std::path::Path,
+    sram_path: &std::path::Path,
     status_sender: Option<&StatusSender>,
 ) {
     cleanup(state);
@@ -315,12 +340,24 @@ fn handle_load(
                 }
             };
 
+            // P8.2/CLAUDE.md §8.8: „Įkelk po retro_load_game()" — TIESIOG PRIEŠ pirmą
+            // retro_run(), kad in-game save'as būtų matomas nuo pat pirmo kadro. `Ok(())`
+            // ir tada, kai core'as neturi SRAM, ir tada, kai `.srm` failo dar nėra (žr.
+            // `sram::load_sram` doc) — tikra klaida čia reikštų tik sugadintą/neskaitomą
+            // esamą failą, verta įspėti, bet NE atmesti visą Load'ą dėl to.
+            if let Err(error) = unsafe { sram::load_sram(&core, sram_path) } {
+                tracing::warn!(%error, path = %sram_path.display(), "nepavyko įkelti SRAM (.srm)");
+            }
+
             if let Some(sender) = status_sender {
                 sender.send_important(EmuStatus::Loaded(info.clone()));
             }
             state.core = Some(core);
             state.game_info = Some(info);
             state.states_dir = Some(states_dir.to_path_buf());
+            state.sram_path = Some(sram_path.to_path_buf());
+            state.last_saved_sram = None;
+            state.last_sram_check = Instant::now();
         }
         Err(error) => {
             tracing::error!(%error, core = %core_path.display(), rom = %rom_path.display(), "nepavyko įkelti core'o/ROM'o");
@@ -333,7 +370,18 @@ fn handle_load(
 
 /// `unload_game()` → `deinit()` → `drop(Library)` (CLAUDE.md §8.2 žingsnis 14).
 /// `Library` iškraunama automatiškai, kai `core` čia `take()`'inamas ir dingsta iš scope.
+///
+/// P8.2: prieš unload'inant core'ą, BESĄLYGIŠKAI (ne per `last_saved_sram` dirty-check, žr.
+/// `maybe_periodic_sram_save`) įrašo dabartinį SRAM turinį — uždarant žaidimą PRIVALO
+/// sugauti PAČIĄ NAUJAUSIĄ būseną, nepriklausomai nuo to, kada paskutinį kartą suveikė
+/// periodinis 30s patikrinimas (CLAUDE.md §8.8).
 fn cleanup(state: &mut RunnerState) {
+    if let (Some(core), Some(path)) = (&state.core, &state.sram_path) {
+        // SAFETY: emuliavimo gija, core dar įkeltas (unload_game() dar nekviestas žemiau).
+        if let Err(error) = unsafe { sram::save_sram(core, path) } {
+            tracing::warn!(%error, path = %path.display(), "nepavyko įrašyti SRAM uždarant žaidimą");
+        }
+    }
     if let Some(core) = state.core.take() {
         // SAFETY: kviečiama iš emuliavimo gijos, tos pačios, kurioje core buvo įkeltas.
         unsafe {
@@ -343,6 +391,8 @@ fn cleanup(state: &mut RunnerState) {
     }
     state.game_info = None;
     state.states_dir = None;
+    state.sram_path = None;
+    state.last_saved_sram = None;
     state.running = false;
     state.resampler = None;
 }
@@ -454,6 +504,39 @@ fn process_audio_frame(
     }
 }
 
+/// P8.2/CLAUDE.md §8.8 periodinis in-game save flush'as: kas `SRAM_SAVE_INTERVAL` patikrina,
+/// ar SRAM turinys pasikeitė nuo paskutinio SĖKMINGO įrašymo (`state.last_saved_sram`), ir
+/// jei taip — įrašo. Praleidžia be jokio disko I/O, kai core'as neturi SRAM, dar nieko
+/// neįkelta, arba turinys tiksliai toks pat kaip paskutinį kartą (vengia nereikalingo rašymo
+/// kas 30s, kai žaidėjas tiesiog nesikeičia jokio in-game save'o).
+fn maybe_periodic_sram_save(state: &mut RunnerState) {
+    if state.last_sram_check.elapsed() < SRAM_SAVE_INTERVAL {
+        return;
+    }
+    state.last_sram_check = Instant::now();
+
+    let Some(core) = &state.core else { return };
+    let Some(path) = state.sram_path.clone() else {
+        return;
+    };
+    // SAFETY: emuliavimo gija, core įkeltas (sram_path Some tik po sėkmingo load_game).
+    let Some(current) = (unsafe { core.sram() }) else {
+        return;
+    };
+    if state.last_saved_sram.as_deref() == Some(current) {
+        return;
+    }
+    let snapshot = current.to_vec();
+
+    // SAFETY: kaip aukščiau.
+    match unsafe { sram::save_sram(core, &path) } {
+        Ok(()) => state.last_saved_sram = Some(snapshot),
+        Err(error) => {
+            tracing::warn!(%error, path = %path.display(), "periodinis SRAM įrašymas nepavyko")
+        }
+    }
+}
+
 /// Emuliavimo gijos pagrindinis loop'as. `thread_local` `EmuContext` (CLAUDE.md §3.3)
 /// įdiegiama vieną kartą šios gijos pradžioje ir gyvena visą jos gyvavimo trukmę.
 fn run_loop(
@@ -490,8 +573,16 @@ fn run_loop(
                 core,
                 rom,
                 states_dir,
+                sram_path,
             }) => {
-                handle_load(&mut state, &core, &rom, &states_dir, status_sender.as_ref());
+                handle_load(
+                    &mut state,
+                    &core,
+                    &rom,
+                    &states_dir,
+                    &sram_path,
+                    status_sender.as_ref(),
+                );
                 frame_count = 0;
                 next_frame_deadline = Instant::now();
             }
@@ -626,6 +717,7 @@ fn run_loop(
             frame_count += 1;
             publish_video_frame(&mut video_producer, aspect_ratio);
             process_audio_frame(&mut state, &mut audio_producer, &mut audio_scratch);
+            maybe_periodic_sram_save(&mut state);
 
             // `send_stats` throttle'ina viduje (žr. crate::ipc modulio doc) — saugu kviesti
             // kas kadrą, realiai išeis ~2-4 Hz.
@@ -704,6 +796,10 @@ mod tests {
         std::env::temp_dir().join("nullbyte_runner_test/states")
     }
 
+    fn test_sram_path() -> PathBuf {
+        std::env::temp_dir().join("nullbyte_runner_test/sram/test.srm")
+    }
+
     fn snes9x_path() -> Option<PathBuf> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("cores/snes9x_libretro.dylib");
         path.exists().then_some(path)
@@ -741,6 +837,7 @@ mod tests {
             core,
             rom,
             states_dir: test_states_dir(),
+            sram_path: test_sram_path(),
         })
         .unwrap();
         emu.send(EmuCommand::Run).unwrap();
@@ -789,6 +886,7 @@ mod tests {
             core,
             rom,
             states_dir: test_states_dir(),
+            sram_path: test_sram_path(),
         })
         .unwrap();
         emu.send(EmuCommand::Run).unwrap();
@@ -816,6 +914,7 @@ mod tests {
             core: bad_core.to_path_buf(),
             rom: PathBuf::from("/nonexistent.sfc"),
             states_dir: test_states_dir(),
+            sram_path: test_sram_path(),
         })
         .unwrap();
         // Klaida turėtų būti logginama (žr. handle_load), gija turėtų likti gyva ir

@@ -91,7 +91,10 @@ pub unsafe fn load_state(core: &CoreHandle, path: &Path) -> Result<(), CoreError
 
 /// `.tmp` failas PRIE PILNO originalaus kelio (ne `with_extension`, kuris PAKEISTŲ, ne
 /// papildytų — `foo.state` → `foo.tmp` prarastų `.state` dalį, o mums reikia `foo.state.tmp`).
-fn write_atomic(path: &Path, data: &[u8]) -> Result<(), CoreError> {
+///
+/// `pub(super)`, nes `core::sram` (P8.2) naudoja TĄ PATĮ atominio rašymo šabloną SRAM
+/// failams — nėra prasmės dubliuoti.
+pub(super) fn write_atomic(path: &Path, data: &[u8]) -> Result<(), CoreError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
