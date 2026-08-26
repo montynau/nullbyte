@@ -32,17 +32,15 @@
     return preferences.find((p) => p.platformSlug === platformSlug)?.corePath ?? NONE;
   }
 
-  // Siūlo TIK core'us, kurių `validExtensions` sutampa su platformos plėtiniais — bet jei nė
-  // vienas nesutampa (pvz. netikslus core .info failas, ar core dar nežino apie šią
-  // platformą), rodom VISUS core'us vietoj tuščio sąrašo — geriau per daug pasirinkimų nei
-  // paslėptas tinkamas core'as.
-  function coresForPlatform(platformExtensions: string): CoreInfo[] {
-    const wanted = platformExtensions.split(",").map((e) => e.trim().toLowerCase());
-    const matching = cores.filter((c) =>
-      c.validExtensions.some((e) => wanted.includes(e.toLowerCase())),
-    );
-    return matching.length > 0 ? matching : cores;
-  }
+  // SĄMONINGAI NEfiltruojama pagal `validExtensions` sutapimą su platformos plėtiniais —
+  // patikrinta REALIAIS core'ais (2026-08-26): PicoDrive/Genesis Plus GX (Sega CD palaikymas)
+  // ir MAME (plati zip/7z deklaracija) taip pat atitinka PSX plėtinius (cue/chd/zip — TA
+  // PATI persidengianti aibė kaip ADR-020/023 skenavimo dviprasmybėje), todėl toks
+  // filtravimas rodydavo 6 „tinkamus" core'us vietoj realių 3 (Beetle PSX, Beetle PSX HW,
+  // SwanStation). `.info` failų (kuriuose būtų patikimesnis `systemname`) šioje aplinkoje
+  // apskritai nėra, tad NĖRA patikimo signalo automatiniam siaurinimui — vartotojas
+  // renkasi pats iš pilno sąrašo.
+  const sortedCores = $derived([...cores].sort((a, b) => a.name.localeCompare(b.name)));
 
   function coreLabel(core: CoreInfo): string {
     return core.version ? `${core.name} (${core.version})` : core.name;
@@ -101,7 +99,6 @@
       <h2 class="text-sm font-medium">Preferred core per platform</h2>
       <div class="flex flex-col gap-1">
         {#each library.platforms as platform (platform.id)}
-          {@const options = coresForPlatform(platform.extensions)}
           <div
             class="border-border flex items-center justify-between gap-3 rounded-md border px-3 py-1.5 text-sm"
           >
@@ -119,7 +116,7 @@
               </Select.Trigger>
               <Select.Content>
                 <Select.Item value={NONE} label="None" />
-                {#each options as core (core.path)}
+                {#each sortedCores as core (core.path)}
                   <Select.Item value={core.path} label={coreLabel(core)} />
                 {/each}
               </Select.Content>

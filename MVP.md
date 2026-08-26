@@ -3225,17 +3225,27 @@ išnaudojamas tik testuose").
 **Frontend:**
 - `CoresPanel.svelte` — dvi sekcijos: (1) aptiktų core'ų sąrašas (pavadinimas/versija/sistema/
   palaikomi plėtiniai, arba pagalbinis tekstas su TIKSLIU `cores_dir` keliu, jei tuščia); (2)
-  preferuojamo core'o `Select` kiekvienai platformai iš `library.platforms`, filtruojamas pagal
-  plėtinio sutapimą (`coresForPlatform`) — jei NĖ VIENAS core'as nesutampa pagal plėtinį (netikslus
-  `.info` arba dar nežinoma platforma), rodomi VISI core'ai vietoj tuščio sąrašo (geriau per
-  daug pasirinkimų nei paslėptas tinkamas core'as).
+  preferuojamo core'o `Select` kiekvienai platformai iš `library.platforms`.
 - Naudoja bits-ui `Select.Root` `onValueChange` callback'ą (NE `bind:value` masyvo elementui —
   tas šablonas netiktų sąrašui su keliais nepriklausomais `Select` egzemplioriais).
 
 **REALIAI patikrinta:** `cargo build/clippy/fmt -p nullbyte-app` švarūs, `pnpm check/lint/build`
-0 klaidų/warning'ų. Realaus `cores_dir` turinio (ar jame yra realių core'ų šioje aplinkoje)
-UI patvirtinimas — vartotojo atsakomybė per `pnpm tauri dev`, kaip visada šioje sesijoje
-(agento paties `cliclick` sąveika su native langu nepatikima, žr. atmintį).
+0 klaidų/warning'ų.
+
+**PATAISYTA po vartotojo realaus patikrinimo (2026-08-26):** iš pradžių `Select` sąrašas BUVO
+filtruojamas pagal `validExtensions` sutapimą su platformos plėtiniais (žr. pirminę
+`coresForPlatform` versiją) — vartotojas nukopijavo 11 realių core'ų į `cores_dir` ir pastebėjo,
+kad Sony PlayStation rodė 6 pasirinkimus, nors realiai PSX palaiko tik 3 (Beetle PSX, Beetle
+PSX HW, SwanStation). Patikrinau REALIAIS core'ais (laikinu `cargo run --example` diagnostikos
+skriptu, ištrintu po patikrinimo): PicoDrive ir Genesis Plus GX TAIP PAT deklaruoja
+`cue`/`iso`/`chd` (jie emuliuoja Sega CD), o MAME plačiai deklaruoja `zip`/`7z` — TA PATI
+persidengianti plėtinių aibė kaip ADR-020/023 skenavimo dviprasmybėje, dabar pasirodžiusi IR
+core'ų pasirinkime. `.info` failų (kuriuose būtų patikimesnis `systemname`) šioje aplinkoje
+NĖRA (jie yra atskiras, nebūtinas atsisiuntimas), tad nėra patikimo signalo automatiniam
+siaurinimui. **Sprendimas:** pašalintas filtravimas — `Select` dabar visada rodo VISUS
+aptiktus core'us (rūšiuotus pagal vardą), vartotojas renkasi pats. Sąžiningiau nei „protingas"
+filtras, kuris tyliai rodytų klaidingus rezultatus būtent toms platformoms, kur tikslumas
+svarbiausias (PSX/Saturn/SegaCD).
 
 ---
 
