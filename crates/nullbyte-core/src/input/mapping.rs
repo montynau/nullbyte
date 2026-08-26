@@ -14,7 +14,7 @@
 //! (`gilrs::Button::South`/`East`/`North`/`West`), tad automatiškai gerbia šį persidengimą —
 //! tai IR YRA standartinis RetroArch „RetroPad" numatytasis mapping'as, ne Nullbyte'o išradimas.
 
-use gilrs::Button;
+use gilrs::{Axis, Button};
 
 use crate::core::ffi::{
     RETRO_DEVICE_ID_JOYPAD_A, RETRO_DEVICE_ID_JOYPAD_B, RETRO_DEVICE_ID_JOYPAD_DOWN,
@@ -52,6 +52,35 @@ pub fn default_gamepad_mapping(button: Button) -> Option<u32> {
         Button::C | Button::Z | Button::Mode | Button::Unknown => None,
     }
 }
+
+/// D-pad kaip ANALOGINĖ ašis (`Axis::DPadX`/`Axis::DPadY`), NE atskiri `Button::DPad*` —
+/// realiu hardware'u patikrinta (2026-08-26, Xbox Wireless Controller, macOS): šis valdiklis
+/// D-pad'ą siunčia IŠIMTINAI kaip `AxisChanged` (švarios `-1.0`/`0.0`/`1.0` reikšmės, be
+/// analoginio triukšmo — funkciškai skaitmeninis „hat switch", tiesiog kitu gilrs API keliu
+/// nei `Button::DPad*`), NIEKADA kaip `ButtonChanged`. Be šios funkcijos toks valdiklis
+/// turėtų VISIŠKAI neveikiantį D-pad'ą realiame žaidime (patvirtinta prieš pridedant šią
+/// funkciją — `AxisChanged` anksčiau buvo sąmoningai ignoruojamas, žr. git istoriją).
+///
+/// Grąžina `(teigiamos_krypties_id, neigiamos_krypties_id)` — kviečiančioji pusė
+/// (`nullbyte-emu` `drain_gamepad_events`) sprendžia, kurį bitą įjungti/išjungti pagal ašies
+/// ženklą su `AXIS_DPAD_THRESHOLD` slenksčiu (skaitmeninis paversimas, NE analoginis judesio
+/// jautrumas — RetroPad D-pad pats savaime skaitmeninis).
+pub fn dpad_axis_ids(axis: Axis) -> Option<(u32, u32)> {
+    match axis {
+        Axis::DPadX => Some((RETRO_DEVICE_ID_JOYPAD_RIGHT, RETRO_DEVICE_ID_JOYPAD_LEFT)),
+        // Empiriškai patikrinta reikšmių ženklas (NE prielaida): paspaudus D-pad VIRŠŲ šis
+        // valdiklis siunčia `DPadY = +1.0`, APAČIĄ — `-1.0`. Tai priešinga standartinei
+        // ekrano/analoginio stiko Y ašies konvencijai (kur +Y dažnai reiškia žemyn), tad
+        // ženklas ČIA fiksuotas pagal REALIAI stebėtą elgesį, ne bendrą prielaidą.
+        Axis::DPadY => Some((RETRO_DEVICE_ID_JOYPAD_UP, RETRO_DEVICE_ID_JOYPAD_DOWN)),
+        _ => None,
+    }
+}
+
+/// Slenkstis, virš kurio `dpad_axis_ids` ašies reikšmė laikoma „paspausta" — analoginio
+/// triukšmo apsauga, nors realiu hardware'u pastebėtos reikšmės visada buvo švarios
+/// `-1.0`/`0.0`/`1.0` (žr. `dpad_axis_ids` doc).
+pub const AXIS_DPAD_THRESHOLD: f32 = 0.5;
 
 /// Minimalus, windowing-biblioteka-agnostiškas klavišų rinkinys (MVP.md P4.2 „Klaviatūros
 /// numatytieji: strėlės + Z/X/A/S + Enter/Shift"). `nullbyte-core` SĄMONINGAI nepriklauso nuo
@@ -218,5 +247,26 @@ mod tests {
         assert_eq!(joypad_bit(RETRO_DEVICE_ID_JOYPAD_B), 0b1);
         assert_eq!(joypad_bit(RETRO_DEVICE_ID_JOYPAD_Y), 0b10);
         assert_eq!(joypad_bit(RETRO_DEVICE_ID_JOYPAD_R3), 1u16 << 15);
+    }
+
+    /// Realiu hardware'u patikrintas ženklas (2026-08-26, Xbox Wireless Controller, macOS) —
+    /// žr. `dpad_axis_ids` doc. `DPadY = +1.0` → UP, `-1.0` → DOWN (priešinga standartinei
+    /// ekrano Y konvencijai — TYČIA, ne klaida).
+    #[test]
+    fn dpad_axis_ids_match_empirically_observed_sign_convention() {
+        assert_eq!(
+            dpad_axis_ids(Axis::DPadX),
+            Some((RETRO_DEVICE_ID_JOYPAD_RIGHT, RETRO_DEVICE_ID_JOYPAD_LEFT))
+        );
+        assert_eq!(
+            dpad_axis_ids(Axis::DPadY),
+            Some((RETRO_DEVICE_ID_JOYPAD_UP, RETRO_DEVICE_ID_JOYPAD_DOWN))
+        );
+    }
+
+    #[test]
+    fn non_dpad_axes_are_not_mapped() {
+        assert_eq!(dpad_axis_ids(Axis::LeftStickX), None);
+        assert_eq!(dpad_axis_ids(Axis::RightStickY), None);
     }
 }

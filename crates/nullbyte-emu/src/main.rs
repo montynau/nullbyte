@@ -1,9 +1,15 @@
 //! `nullbyte-emu` — vaiko procesas: winit langas, wgpu vaizdas, cpal garsas, emuliavimo gija
 //! (CLAUDE.md §3.4, ADR-016, MVP.md P4.0.2).
 //!
-//! P4.0.2 etape core/ROM kelias HARDKODINTAS testams (`test_core_and_rom` žemiau) — realų IPC
-//! `Load` srautą per `nullbyte-app` atneš P4.0.3. Tai tas pats verifikacijos hook'o principas,
-//! kokį naudojo P1.7/P2.4/P3.4 fazių testai prieš atsirandant komandų sluoksniui.
+//! P4.0.2 etape core/ROM kelias buvo HARDKODINTAS testams (`test_core_and_rom` hook'as
+//! `resumed()` viduje) — PAŠALINTA 2026-08-26, kai realaus IPC `Load` srauto testavimas
+//! (Xbox valdiklio D-pad patikrinimas) atskleidė, kad šis hook'as VISADA suveikdavo lange
+//! atsidarius, LENKTYNIAUDAMAS su bet kokia REALIA `Load` komanda, atsiunčiama per stdin —
+//! dvi `Load` komandos be tarpinio `retro_unload_game()` pažeidžia CLAUDE.md §3.2 taisyklę
+//! #2 („vienu metu tik VIENAS core"), o realiu bandymu tai baigėsi renderer'io būvio
+//! sugadinimu (juodas langas, procesas gyvas, bet joks kadras nepiešiamas). P4.0.3 (realus
+//! IPC `Load` srautas) buvo baigtas seniai — šis hook'as turėjo būti pašalintas TADA, ne
+//! liktas „laikinai".
 //!
 //! **`stdout` PRIKLAUSO P4.0.3 IPC protokolui** — šis procesas niekada į jį nerašo (CLAUDE.md
 //! §10). `init_tracing()` nukreipia visus logus į `stderr`.
@@ -29,7 +35,8 @@ use nullbyte_core::error::CoreError;
 use nullbyte_core::input::gamepad::{GamepadEvent, GamepadThread};
 use nullbyte_core::input::hotkeys::{resolve_hotkey, HotkeyAction, HotkeyKey};
 use nullbyte_core::input::mapping::{
-    default_gamepad_mapping, default_keyboard_mapping, joypad_bit, KeyboardKey,
+    default_gamepad_mapping, default_keyboard_mapping, dpad_axis_ids, joypad_bit, KeyboardKey,
+    AXIS_DPAD_THRESHOLD,
 };
 use nullbyte_core::ipc::StatusWriter;
 use nullbyte_core::video::frame_buffer::{FrameConsumer, VideoFrameData};
@@ -44,36 +51,13 @@ fn init_tracing() {
         .try_init();
 }
 
-/// P4.0.2 laikinas verifikacijos hook'as. Skenuoja tuos pačius `nullbyte-core` test fixture
-/// katalogus, kuriuos naudoja `core::loader` testai (`crates/nullbyte-core/{cores,roms}/`,
-/// `.gitignore`'inti) — jei jų lokaliai nėra (CI, švari mašina), langas atsidaro be žaidimo,
-/// be crash'o, nepriklausomai nuo konkretaus ROM'o pavadinimo kataloge.
-fn test_core_and_rom() -> Option<(PathBuf, PathBuf)> {
-    let core_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../nullbyte-core");
-    let core = core_root.join("cores/snes9x_libretro.dylib");
-    if !core.exists() {
-        return None;
-    }
-    let roms_dir = core_root.join("roms/snes");
-    let rom = std::fs::read_dir(&roms_dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .find(|p| {
-            p.extension()
-                .and_then(|e| e.to_str())
-                .map(str::to_lowercase)
-                .as_deref()
-                == Some("sfc")
-        })?;
-    Some((core, rom))
-}
-
 /// `system_dir`/`save_dir` — CLI argumentai `argv[1]`/`argv[2]` (`nullbyte-app` juos paduoda
 /// sidecar spawn metu, žr. `nullbyte_app::ipc::EmuClient::spawn`, MVP.md P9.1). Standalone
 /// dev paleidimui (`cargo run -p nullbyte-emu`, be `nullbyte-app`) trūkstami argumentai
-/// pakeičiami `nullbyte-core/{bios,saves}` test fixture katalogais — tas pats principas kaip
-/// `test_core_and_rom()` aukščiau.
+/// pakeičiami `nullbyte-core/{bios,saves}` test fixture katalogais (gitignore'inti, tik
+/// lokaliam testavimui) — nekelia P4.0.2 hook'o rizikos (žr. modulio doc), nes NEĮKELIA
+/// jokio žaidimo pati, tik parenka katalogų kelius realiai `Load` komandai, kuri VIS TIEK
+/// turi ateiti iš IPC.
 fn resolve_system_and_save_dirs() -> (PathBuf, PathBuf) {
     let mut args = std::env::args().skip(1);
     let system_dir = args.next().map(PathBuf::from);
@@ -285,9 +269,27 @@ impl App {
                     }
                     changed_ports.insert(port);
                 }
-                Ok(GamepadEvent::AxisChanged { .. }) => {
-                    // Analoginės ašys → skaitmeninis D-pad ekvivalentas NEĮTRAUKTA MVP metu —
-                    // MVP.md P4.2 „Ką daryti" prašo tik mygtukų mapping'o.
+                Ok(GamepadEvent::AxisChanged { id, axis, value }) => {
+                    // D-pad kaip ašis, NE `Button::DPad*` — REALIU hardware'u patikrinta
+                    // reikmė (2026-08-26, Xbox Wireless Controller macOS: D-pad ateina
+                    // IŠIMTINAI per `AxisChanged`, niekada `ButtonChanged` — žr.
+                    // `dpad_axis_ids` doc). Kiti ašių tipai (analoginiai stikai) TYČIA
+                    // toliau ignoruojami — RetroPad D-pad skaitmeninis, o analoginio stiko
+                    // kaip D-pad naudojimas — atskiras, čia neįtrauktas sprendimas.
+                    let (Some(&port), Some((positive_id, negative_id))) =
+                        (self.gamepad_ports.get(&id), dpad_axis_ids(axis))
+                    else {
+                        continue;
+                    };
+                    let positive_bit = joypad_bit(positive_id);
+                    let negative_bit = joypad_bit(negative_id);
+                    self.gamepad_port_buttons[port] &= !(positive_bit | negative_bit);
+                    if value >= AXIS_DPAD_THRESHOLD {
+                        self.gamepad_port_buttons[port] |= positive_bit;
+                    } else if value <= -AXIS_DPAD_THRESHOLD {
+                        self.gamepad_port_buttons[port] |= negative_bit;
+                    }
+                    changed_ports.insert(port);
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -572,21 +574,10 @@ impl ApplicationHandler<EmuUserEvent> for App {
             }
         };
 
-        if let Some((core, rom)) = test_core_and_rom() {
-            tracing::info!(
-                core = %core.display(),
-                rom = %rom.display(),
-                "P4.0.2 test hook: kraunam core+ROM"
-            );
-            if let Err(error) = emu_thread.send(EmuCommand::Load { core, rom }) {
-                tracing::error!(%error, "nepavyko nusiųsti Load komandos emuliavimo gijai");
-            }
-        } else {
-            tracing::warn!(
-                "nerasta nullbyte-core test fixture core/ROM (crates/nullbyte-core/cores|roms) \
-                 — langas atsidaro be žaidimo"
-            );
-        }
+        // Žaidimas VISADA ateina per realią IPC `Load` komandą (P4.0.3) — langas atsidaro
+        // tuščias, kol tėvo procesas (arba, kaip šioje sesijoje, rankinis stdin) ją atsiunčia.
+        // Žr. modulio doc dėl anksčiau čia buvusio P4.0.2 hardkodinto test hook'o, kuris
+        // LENKTYNIAUDAVO su realia `Load` komanda.
 
         self.window = Some(window);
         self.renderer = Some(renderer);

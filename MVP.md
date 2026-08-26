@@ -1200,7 +1200,7 @@ triple'ais, žr. pastabą aukščiau)
 
 ---
 
-### P4.1 — Gamepad aptikimas `[ ]` (DualShock 4 + hot-plug patikrinti realiai 2026-08-21; Xbox/8BitDo/Linux — ne)
+### P4.1 — Gamepad aptikimas `[!]` (DualShock 4 + Xbox + hot-plug patikrinti realiai; 8BitDo/Linux — ne)
 
 **Priklausomybės:** P0.3 (originaliai), P4.0.1 (kodo perkėlimui į naują crate — žr. pastabą aukščiau)
 **Failai:** `crates/nullbyte-core/src/input/gamepad.rs`
@@ -1240,9 +1240,11 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 **Acceptance:**
 - [!] Aptinka Xbox, DualShock 4/5, 8BitDo valdiklius — **DualShock 4 patikrintas REALIAI**
       (2026-08-21): `gilrs prijungtas name="PS4 Controller"`, X/Kvadratas/Trikampis/Nulis
-      visi teisingai atpažinti (`South`/`West`/`North`/`East`). Xbox/8BitDo — NEPATIKRINTA
-      (nė vieno neturėjo po ranka), nors `gilrs` abstrahuoja tarp gamintojų per SDL_GameControllerDB,
-      tad rizika žema, bet neįrodyta.
+      visi teisingai atpažinti (`South`/`West`/`North`/`East`). **Xbox Wireless Controller
+      PATIKRINTAS REALIAI (2026-08-26, macOS):** `gilrs prijungtas name="Xbox Wireless
+      Controller"` iškart, be jokio delsimo ar papildomo setup'o (žr. ADR-026). 8BitDo —
+      VIS DAR NEPATIKRINTA (nė vieno neturėjo po ranka), rizika žema (SDL_GameControllerDB
+      abstrakcija), bet neįrodyta.
 - [x] Prijungimas veikiant nesulaužo (hot-plug) — patikrinta REALIAI: `nullbyte-emu` jau
       veikė (paleistas PRIEŠ prijungiant valdiklį), `Connected` įvykis pagautas gyvai be
       crash'o.
@@ -1255,7 +1257,7 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 
 ---
 
-### P4.2 — Įvesties mapping'as `[ ]` (klaviatūra patikrinta REALIAI 2026-08-25; gamepad mygtukų mapping'as — tik testais, DualShock 4 nebuvo po ranka)
+### P4.2 — Įvesties mapping'as `[x]` (klaviatūra IR gamepad mygtukai/D-pad patikrinti REALIAI su Xbox valdikliu 2026-08-26)
 
 **Priklausomybės:** P4.1, P4.0.2 (klaviatūros mapping'ui reikia realių winit `KeyboardInput`
 įvykių iš `nullbyte-emu` — Tauri `Window` jų neturėjo, žr. ADR-016)
@@ -1289,6 +1291,20 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 > padengta (`joypad_bit`, SNES layout swap, D-pad/shoulders, unmapped buttons), bet fizinis
 > patikrinimas lieka atviras.
 
+> **Realiai patikrinta Xbox valdikliu (2026-08-26) — žr. ADR-026 pilnam sprendimų
+> žurnalui.** Visi mygtukai patikrinti PO VIENĄ, realiais paspaudimais, per specialiai tam
+> parašytą `gilrs`-lygio diagnostikos skriptą (parodo kiekvieno mygtuko `gilrs::Button`
+> pavadinimą IR jo `default_gamepad_mapping()` rezultatą gyvai): A→SNES B, B→SNES A, X→SNES
+> Y, Y→SNES X (SNES layout swap PATVIRTINTAS teisingas), LB→L, RB→R, LT→L2, RT→R2, Back→
+> SELECT, Start→START, kairio/dešinio stiko paspaudimai→L3/R3 — VISI teisingi. **D-pad
+> ATSKLEIDĖ realų bug'ą:** šis valdiklis D-pad siunčia KAIP AŠĮ (`Axis::DPadX`/`DPadY`), NE
+> kaip `Button::DPad*` — `nullbyte-emu` iki šiol VISIŠKAI ignoravo `AxisChanged` įvykius
+> realiame žaidimo kelyje (sąmoningas MVP apribojimas P4.2 metu, žr. senesnę pastabą kode),
+> tad D-pad šiuo valdikliu būtų neveikęs iš viso. Pataisyta (nauja
+> `mapping::dpad_axis_ids`/`AXIS_DPAD_THRESHOLD`, `main.rs` `AxisChanged` apdorojimas) IR
+> patvirtinta REALIU ŽAIDIMU (ActRaiser, SNES) — vartotojas patvirtino: „veikia, personažas
+> juda visomis kryptimis".
+
 **Ką daryti:**
 - Fizinis mygtukas → `RETRO_DEVICE_ID_JOYPAD_*` (B,Y,SELECT,START,UP,DOWN,LEFT,RIGHT,A,X,L,R,L2,R2,L3,R3)
 - ~~Numatytieji mapping'ai pagal valdiklio tipą~~ — NETEISINGA PRIELAIDA: `gilrs` jau
@@ -1300,8 +1316,9 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
   pastabą aukščiau), hardkodintas numatytasis mapping'as kol kas VIENINTELIS.
 
 **Acceptance:**
-- [!] SNES žaidimas valdomas gamepad'u teisingai — logika + testai OK, REALUS valdiklis
-      NEPATIKRINTAS (nebuvo po ranka)
+- [x] SNES žaidimas valdomas gamepad'u teisingai — REALIAI PATIKRINTA Xbox valdikliu
+      2026-08-26 (žr. pastabą aukščiau): visi mygtukai + D-pad (po fix'o) veikia teisingai
+      realiame žaidime
 - [x] Klaviatūra veikia — patikrinta REALIAI (žr. pastabą aukščiau)
 - [ ] Mapping'as išlieka po perkrovimo — N/A kol P5.1 neegzistuoja (žr. ADR-016 pastabą);
       hardkodintas mapping'as savaime „išlieka", nes nėra ką prarasti perkrovus
@@ -1338,6 +1355,12 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 > vienas DualShock 4 buvo po ranka P4.1 metu, šią sesiją — nė vieno) — logika ta pati, kuri
 > jau veikia vienam valdikliui (tik `gamepad_ports` priskyrimas), bet fizinis patikrinimas
 > su realiu 2-player žaidimu lieka atviras, tas pats apribojimų klasė kaip P4.1/P4.2.
+
+> **Papildomai patikrinta 2026-08-26:** vieno gamepad'o (Xbox, port 0) input routing per
+> `send_port_input`/`SetInput` REALIAI veikia žaidime — įsk. NAUJAI pridėtą D-pad-per-ašį
+> kelią (žr. P4.2 pastabą, ADR-026), kuris irgi eina per TĄ PATĮ port'ų priskyrimo
+> mechanizmą. 2 gamepad'ai vienu metu — VIS DAR NEPATIKRINTA (tik vienas Xbox valdiklis
+> buvo po ranka).
 
 **Ką daryti:**
 - `retro_set_input_poll` → atnaujina `EmuContext.input_state`
@@ -2509,13 +2532,13 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
-| 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
+| 4 — Įvestis (+P4.0.x migracija) | 9 | 6 | 67 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **40** | **77 %** |
+| **Viso** | **52** | **41** | **79 %** |
 
 ---
 
@@ -3361,6 +3384,63 @@ sesijoje.
 
 **P7.6 UŽBAIGTA** (visos 6 kortelės įgyvendintos) — žr. Progreso lentelę §12 (Faza 7 dabar
 100%).
+
+---
+
+### ADR-026 — Xbox valdiklio realus patikrinimas: D-pad-per-ašį bug'as + P4.0.2 test hook'o pašalinimas (P4.1/P4.2/P4.3)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** vartotojas gavo Xbox Wireless Controller prieigą (prijungtas prie Mac'o) —
+proga pagaliau realiai patikrinti P4.1/P4.2/P4.3 punktus, kurie nuo 2026-08-21/25 buvo
+pažymėti `[!]` dėl trūkstamo antro valdiklio tipo. Kadangi tiesioginė sąveika su native
+langu šioje sesijoje nepatikima (žr. atmintį), verifikacija atlikta DVIEM ETAPAIS: (1)
+grynas `gilrs`-lygio signalo patikrinimas be jokio winit lango (laikinas `cargo run
+--example` diagnostikos skriptas `nullbyte-core/examples/gamepad_probe.rs`, ištrintas po
+naudojimo — pakartotinai naudoja JAU esančius `GamepadThread`/`default_gamepad_mapping`,
+jokio naujo domeno kodo), (2) realaus žaidimo patvirtinimas vartotojo PAČIO terminale.
+
+**Radinys #1 — D-pad siunčiamas kaip ašis, ne mygtukas:** diagnostikos skriptas parodė, kad
+šis Xbox valdiklis macOS D-pad'ą siunčia IŠIMTINAI kaip `gilrs::EventType::AxisChanged`
+(`Axis::DPadX`/`DPadY`, švarios `-1.0`/`0.0`/`1.0` reikšmės — funkciškai skaitmeninis „hat
+switch", tiesiog kitu gilrs API keliu nei `Button::DPad*`), NIEKADA kaip
+`ButtonChanged(DPadUp/Down/Left/Right)`. `nullbyte-emu` realaus žaidimo įvesties kelias
+(`drain_gamepad_events`) iki šiol SĄMONINGAI ignoravo `AxisChanged` (P4.2 „Ką daryti" prašė
+tik mygtukų mapping'o) — praktiškai tai reiškė, kad D-pad ŠIUO valdikliu būtų VISIŠKAI
+neveikęs realiame žaidime. Empiriškai patikrintas ir ženklas: `DPadY = +1.0` → UP,
+`-1.0` → DOWN (priešinga standartinei ekrano/analoginio stiko Y konvencijai).
+
+**Sprendimas #1:** nauja `mapping::dpad_axis_ids(Axis) -> Option<(u32, u32)>`
+(teigiamos/neigiamos krypties `RETRO_DEVICE_ID_JOYPAD_*`) + `AXIS_DPAD_THRESHOLD = 0.5` —
+`nullbyte-emu` `drain_gamepad_events` dabar apdoroja `AxisChanged` LYGIAI TAIP PAT kaip
+`ButtonChanged` (nustato/išvalo teisingą bitą pagal ženklą). Du nauji unit testai
+(`dpad_axis_ids_match_empirically_observed_sign_convention`, `non_dpad_axes_are_not_mapped`).
+Analoginiai stikai TYČIA lieka neatvaizduoti (RetroPad D-pad skaitmeninis).
+
+**Radinys #2 — leftover P4.0.2 test hook'as lenktyniauja su realiomis komandomis:**
+tikrinant D-pad fix'ą pirmuoju bandymu (mano paties FIFO-pagrįstas rankinis paleidimas),
+žaidimas neatsivėrė vaizde (juodas langas). Tyrimas atskleidė `nullbyte-emu` `resumed()`
+viduje VISADA suveikiantį hardkodintą `test_core_and_rom()` hook'ą (P4.0.2 laikina
+scaffolding'o liekana, kurios modulio doc PATS sakė turėjo būti pašalinta, kai P4.0.3
+atnešė realų IPC `Load` srautą — bet nebuvo). Šis hook'as SIŲSDAVO SAVO `Load` komandą
+VISADA lango atidarymo metu, LENKTYNIAUDAMAS su bet kokia REALIA `Load` komanda iš IPC —
+dvi `Load` komandos be tarpinio `retro_unload_game()` pažeidžia CLAUDE.md §3.2 taisyklę #2
+(„vienu metu tik VIENAS core"). **Pašalinta pilnai** (`test_core_and_rom()` funkcija +
+kvietimo vieta `resumed()`).
+
+**Svarbu:** Radinio #2 pašalinimas PATS SAVAIME NEIŠSPRENDĖ juodo lango — dar vienas
+bandymas (agento fono procesas, be test hook'o) IR TOLIAU rodė juodą langą. Šaknis paaiškėjo
+esanti MANO PAČIO testavimo aplinkoje: `cargo run`/procesas, paleistas per agento fono Bash
+įrankį (ne interaktyvi vartotojo terminalo sesija), matyt neturi tinkamos CoreAudio/lango
+sesijos prieigos, reikalingos audio-driven pacing kilpai judėti į priekį (žr. CLAUDE.md
+§8.5) — `audio_buffer_occupancy` liko `0.0` amžinai. Kai VARTOTOJAS PATS paleido TĄ PATĮ
+komandų rinkinį savo terminale — žaidimas atsivėrė IŠKART, D-pad veikė visomis 4 kryptimis.
+**Pamoka:** agento paties bandymas paleisti/testuoti GUI+audio procesus fone yra NEPATIKIMAS
+signalo šaltinis šiam projektui — tikras patvirtinimas visada turi ateiti iš vartotojo
+paties interaktyvios sesijos (žr. atmintį „native window input").
+
+**REALIAI patikrinta:** `cargo fmt/clippy --workspace -D warnings`, `cargo test --workspace`
+(visi testai, įsk. 2 naujus), IR realus žaidimas (ActRaiser, SNES, Xbox valdiklis, vartotojo
+paties terminale) — visi mygtukai + D-pad veikia teisingai.
 
 ---
 
