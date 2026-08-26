@@ -4,9 +4,11 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   AppInfo,
+  CoreInfo,
   Game,
   GameFilter,
   InputBinding,
+  PlatformCorePreference,
   PlatformSummary,
   QuotaSnapshot,
   RomDirectory,
@@ -116,4 +118,16 @@ export function setInputMapping(bindings: InputBinding[]): Promise<void> {
 
 export function resetInputMapping(): Promise<void> {
   return invoke("reset_input_mapping");
+}
+
+export function listCores(): Promise<CoreInfo[]> {
+  return invoke("list_cores");
+}
+
+export function getPreferredCores(): Promise<PlatformCorePreference[]> {
+  return invoke("get_preferred_cores");
+}
+
+export function setPreferredCores(preferences: PlatformCorePreference[]): Promise<void> {
+  return invoke("set_preferred_cores", { preferences });
 }

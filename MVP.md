@@ -2225,8 +2225,11 @@ API kvietimu vien atidarius ekraną), regionų prioritetas/media tipai READ-ONLY
 UI + DB persistencija įgyvendinta (`InputPanel.svelte`, naujos komandos
 `get_input_mapping`/`set_input_mapping`/`reset_input_mapping`, `settings` lentelės raktas
 `input.mapping`, JSON masyvas), bet **SĄMONINGAI dar NEVEIKIA realiame žaidime** — žr. detalų
-paaiškinimą po šia pastaba. **Cores/Video/Audio** — vis dar „coming soon" stub'ai,
-neįgyvendinta.
+paaiškinimą po šia pastaba. **Cores** — dabar įgyvendinta (žr. ADR-024): aptiktų core'ų sąrašo
+rodymas PILNAI FUNKCIONALUS (perpanaudoja P1.3 `nullbyte_core::core::info::scan_cores_dir` be
+pakeitimų — jokio P9.1 bloko), preferuojamo core'o pasirinkimas per platformą — TIK
+persistencija, tas pats P9.1 apribojimas kaip Input. **Video/Audio** — vis dar „coming soon"
+stub'ai, neįgyvendinta.
 
 **Input panelės apribojimas (aptikta PRIEŠ rašant kodą, aptarta su vartotoju):** mygtukų/
 klavišų mapping'as šiuo metu yra HARDKODINTAS `nullbyte-emu/src/main.rs` (vaiko procese), be
@@ -2254,10 +2257,24 @@ mapping'o — reikėtų `InputBinding` papildyti `port` lauku ir DB raktą
 (`input.mapping.port{N}`) vietoj vieno `input.mapping`. Vartotojas sąmoningai pasirinko
 NEDARYTI šio išplėtimo dabar (žr. pokalbį) — bendra lentelė pakanka realiam co-op scenarijui.
 
+**Cores panelė — daliai funkcijos NĖRA P9.1 bloko:** aptiktų core'ų sąrašo rodymas
+(`list_cores` komanda) tiesiog perpanaudoja JAU PARAŠYTĄ ir testuotą P1.3
+`nullbyte_core::core::info::scan_cores_dir` — jokio naujo domeno kodo, tik plonas DTO
+suplokštinimas (`CoreInfoDto`, `PathBuf` → `String`). Tai VEIKIA ŠIANDIEN, be jokio
+apribojimo — vartotojas iš karto mato, kokie core'ai realiai rasti `cores_dir` kataloge, su
+pavadinimu/versija/sistema/palaikomais plėtiniais. Tuščias katalogas → tuščias sąrašas (NE
+klaida) su nuoroda į tikslų `cores_dir` kelią (iš `get_app_info`). Preferuojamo core'o
+pasirinkimas PER PLATFORMĄ (naujos komandos `get_preferred_cores`/`set_preferred_cores`,
+`settings` raktas `core.preferred`, `Vec<PlatformCorePreference>` JSON) turi TĄ PATĮ P9.1
+apribojimą kaip Input mapping'as — išsaugoma, bet niekas dar realiai nepaleidžia žaidimo su
+pasirinktu core'u.
+
 **Acceptance:**
 - [ ] Visi nustatymai išsaugomi DB ir taikomi — DALINIAI: scraper credentials TAIP (žr.
-      ADR-022), input mapping IŠSAUGOMAS bet DAR NETAIKOMAS (žr. pastabą aukščiau);
-      core/video/audio nustatymai dar neturi jokio backend'o
+      ADR-022); input mapping ir preferuojamas core'as PER PLATFORMĄ IŠSAUGOMI bet DAR
+      NETAIKOMI (P9.1 blokas, žr. pastabas aukščiau); core'ų SĄRAŠO rodymas TAIKOMAS (skaito
+      realų `cores_dir` turinį — jokio DB saugojimo tam nereikia); video/audio nustatymai dar
+      neturi jokio backend'o
 - [ ] Mygtukų perrišimas veikia — UI VEIKIA (persistuoja), bet realiame žaidime NETAIKOMA
       (blokuoja P9.1, žr. pastabą aukščiau)
 - [x] Neteisingi ScreenScraper credentials duoda aiškią klaidą — `ScreenScraperCredentials::load`
@@ -3174,6 +3191,51 @@ sąrašas reiškia joks failas niekada neatitiks, nepriklausomai nuo hint'o).
 
 **REALIAI patikrinta:** `cargo test --workspace` (77 testai `nullbyte-app`, įsk. naują),
 `cargo clippy --workspace -D warnings`, `pnpm check/lint/build` — visi švarūs.
+
+---
+
+### ADR-024 — Cores panelė: pilnai funkcionalus core'ų sąrašas + preferuojamo core'o persistencija (P7.6)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** P7.6 „Cores" skiltis buvo paskutinis „coming soon" stub'as prieš pereinant
+prie Video/Audio arba P9.1. Skirtingai nuo Input/Scraper credentials pakeitimų — DALIS šios
+funkcijos VEIKIA ŠIANDIEN be jokio P9.1 apribojimo, nes P1.3 (`nullbyte-core/src/core/info.rs`)
+JAU turėjo pilnai parašytą ir testuotą `scan_cores_dir`/`CoreInfo`/`extension_to_cores`, tiesiog
+be jokio Tauri komandų sluoksnio virš jo (modulio doc komentaras tiesiogiai nurodė:
+„Naudos commands/settings.rs (list_cores)... kol jie neparašyti, šis modulis pilnai
+išnaudojamas tik testuose").
+
+**Sprendimas:**
+- Naujas `commands/settings.rs` (PIRMAS kartas, kai šis failas užpildomas — anksčiau
+  `commands/mod.rs` doc komentaras jį žymėjo kaip „dar neužpildyta, liks vėlesnei fazei").
+- `list_cores` — PLONAS DTO suplokštinimas (`CoreInfoDto`, `PathBuf` → `String` per
+  `to_string_lossy`) virš NEPAKEISTO `scan_cores_dir`. Tuščias `cores_dir` (naujas diegimas,
+  core'ų dar neatsisiųsta) grąžina TUŠČIĄ sąrašą, NE klaidą — patikrinama PRIEŠ kviečiant
+  `scan_cores_dir` (kuris pats grąžintų `Err`, jei katalogo nėra, nes viduje kviečia
+  `std::fs::read_dir` be apsaugos).
+- `get_preferred_cores`/`set_preferred_cores` — TAS PATS `settings` lentelės vienas-JSON-raktas
+  šablonas kaip `input.mapping` (ADR — žr. `commands/input.rs`) ir `core.preferred`: visas
+  `Vec<PlatformCorePreference>` saugomas/skaitomas kaip VIENAS atomiškas JSON blob'as po raktu
+  `"core.preferred"`, ne per-platformos eilutės — nuoseklu su anksčiau šioje sesijoje
+  pasikartojusiu šablonu.
+- **Preferuojamo core'o pasirinkimas TURI TĄ PATĮ P9.1 apribojimą kaip Input mapping'as** —
+  išsaugoma, bet joks realaus žaidimo paleidimo kelias jo dar nenaudoja. UI aiškiai tai
+  pažymi (tas pats banner stilius kaip `InputPanel.svelte`).
+
+**Frontend:**
+- `CoresPanel.svelte` — dvi sekcijos: (1) aptiktų core'ų sąrašas (pavadinimas/versija/sistema/
+  palaikomi plėtiniai, arba pagalbinis tekstas su TIKSLIU `cores_dir` keliu, jei tuščia); (2)
+  preferuojamo core'o `Select` kiekvienai platformai iš `library.platforms`, filtruojamas pagal
+  plėtinio sutapimą (`coresForPlatform`) — jei NĖ VIENAS core'as nesutampa pagal plėtinį (netikslus
+  `.info` arba dar nežinoma platforma), rodomi VISI core'ai vietoj tuščio sąrašo (geriau per
+  daug pasirinkimų nei paslėptas tinkamas core'as).
+- Naudoja bits-ui `Select.Root` `onValueChange` callback'ą (NE `bind:value` masyvo elementui —
+  tas šablonas netiktų sąrašui su keliais nepriklausomais `Select` egzemplioriais).
+
+**REALIAI patikrinta:** `cargo build/clippy/fmt -p nullbyte-app` švarūs, `pnpm check/lint/build`
+0 klaidų/warning'ų. Realaus `cores_dir` turinio (ar jame yra realių core'ų šioje aplinkoje)
+UI patvirtinimas — vartotojo atsakomybė per `pnpm tauri dev`, kaip visada šioje sesijoje
+(agento paties `cliclick` sąveika su native langu nepatikima, žr. atmintį).
 
 ---
 

@@ -113,6 +113,9 @@ pub fn run() {
             commands::input::get_input_mapping,
             commands::input::set_input_mapping,
             commands::input::reset_input_mapping,
+            commands::settings::list_cores,
+            commands::settings::get_preferred_cores,
+            commands::settings::set_preferred_cores,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

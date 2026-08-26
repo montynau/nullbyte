@@ -169,3 +169,22 @@ export interface InputBinding {
   /** Naršyklės Gamepad API `button` indeksas. `null` = nepriskirta. */
   gamepadButton: number | null;
 }
+
+/** Atitinka `CoreInfoDto` (crates/nullbyte-app/src/commands/settings.rs, P7.6). */
+export interface CoreInfo {
+  path: string;
+  name: string;
+  version: string;
+  validExtensions: string[];
+  needFullpath: boolean;
+  systemName: string | null;
+  manufacturer: string | null;
+}
+
+/** Atitinka `PlatformCorePreference` (crates/nullbyte-app/src/commands/settings.rs, P7.6) —
+ * **TIK persistencija**, dar NEVEIKIA realiame žaidime (tas pats P9.1 apribojimas kaip
+ * `InputBinding`). */
+export interface PlatformCorePreference {
+  platformSlug: string;
+  corePath: string;
+}

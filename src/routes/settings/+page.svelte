@@ -1,6 +1,7 @@
 <script lang="ts">
   import { resolve } from "$app/paths";
   import * as Tabs from "$lib/components/ui/tabs/index.js";
+  import CoresPanel from "$lib/components/settings/CoresPanel.svelte";
   import InputPanel from "$lib/components/settings/InputPanel.svelte";
   import PathsPanel from "$lib/components/settings/PathsPanel.svelte";
   import ScraperPanel from "$lib/components/settings/ScraperPanel.svelte";
@@ -35,7 +36,7 @@
         <PathsPanel />
       </Tabs.Content>
       <Tabs.Content value="cores">
-        <p class="text-muted-foreground text-sm">Core management — coming soon.</p>
+        <CoresPanel />
       </Tabs.Content>
       <Tabs.Content value="video">
         <p class="text-muted-foreground text-sm">Video settings — coming soon.</p>
