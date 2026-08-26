@@ -28,6 +28,17 @@ export default ts.config(
     },
   },
   {
+    // Svelte 5 runes store failai (`*.svelte.ts`) — eslint-plugin-svelte priverstinai naudoja
+    // `svelte-eslint-parser` (žr. jo `base.js`), bet reikia deleguoti tikrą TS scenarijaus
+    // parsinimą `typescript-eslint` parseriui, kitaip lūžta ant `import type { ... }`.
+    files: ["**/*.svelte.ts", "**/*.svelte.js"],
+    languageOptions: {
+      parserOptions: {
+        parser: ts.parser,
+      },
+    },
+  },
+  {
     // shadcn-svelte generuoti komponentai — generinis `href` prop, ne app-lygio
     // SvelteKit maršrutas, todėl resolve() reikalavimas čia netaikytinas (CLAUDE.md §7.4).
     files: ["src/lib/components/ui/**"],

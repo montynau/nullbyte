@@ -1981,7 +1981,7 @@ CREATE TABLE scrape_cache (
 **Tikslas:** tikras, gražus, naudojamas interfeisas.
 **Rizika:** 🟢 maža. **Įvertis:** 4–5 dienos.
 
-### P7.1 — Layout ir navigacija `[ ]`
+### P7.1 — Layout ir navigacija `[x]`
 
 **Priklausomybės:** P0.2, P5.4
 **Failai:** `src/routes/+layout.svelte`, `src/lib/components/layout/*`
@@ -1992,10 +1992,25 @@ CREATE TABLE scrape_cache (
 - Command palette (`Cmd/Ctrl+K`) — shadcn `command` komponentas
 - Tamsi tema, tanki, klaviatūra naviguojama
 
+**Įgyvendinta:** `src/lib/api/index.ts` (tipizuoti `invoke` wrapper'iai), `src/lib/stores/library.svelte.ts`
+(Svelte 5 runes store — `platforms`, `games`, `filter`, dalinamasi Sidebar/TopBar/CommandPalette/
+`+page.svelte`), `src/lib/components/layout/{Sidebar,TopBar,CommandPalette}.svelte`. Nustatymų
+mygtukas TopBar'e sąmoningai `disabled` su tooltip „netrukus" — reali funkcija P7.6. `+page.svelte`
+laikinai rodo paprastą sąrašą (P7.2 pakeis virtualizuotu grid'u su viršeliais).
+
+**Pastaba dėl `eslint.config.js`:** `eslint-plugin-svelte` priverstinai naudoja `svelte-eslint-parser`
+`*.svelte.ts`/`*.svelte.js` failams (Svelte 5 runes store'ams), bet be papildomo delegavimo į
+`typescript-eslint` parserį jis lūžta ant `import type { ... }`. Pridėtas naujas override
+(`files: ["**/*.svelte.ts", "**/*.svelte.js"]` → `parserOptions.parser: ts.parser`) — reikalingas
+visiems būsimiems `.svelte.ts` store'ams (`emulator.svelte.ts`, `settings.svelte.ts`).
+
 **Acceptance:**
-- [ ] Sidebar rodo tikras platformas iš DB
-- [ ] `Cmd+K` atidaro paletę
-- [ ] Klaviatūros navigacija veikia (Tab, strėlės)
+- [x] Sidebar rodo tikras platformas iš DB — `list_platforms` sukviečiamas `+layout.svelte`
+      `onMount`; REALIAI patikrinta `pnpm tauri dev` — kompiliuojasi, startuoja be klaidų/panic'ų
+- [x] `Cmd+K` atidaro paletę — patikrinta naršyklėje (Chrome DevTools automation), veikia
+- [x] Klaviatūros navigacija veikia (Tab, strėlės) — patikrinta REALIAI: `Tab` perkelia fokusą per
+      Sidebar mygtukus DOM tvarka (BODY → Visi → Mėgstami → Neseniai žaisti), `ArrowDown` paletėje
+      perkelia highlight'ą per punktus (bits-ui `Command` primityvas)
 
 ---
 
@@ -2291,10 +2306,10 @@ CREATE TABLE scrape_cache (
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
-| 7 — UI | 6 | 0 | 0 % |
+| 7 — UI | 6 | 1 | 17 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **34** | **65 %** |
+| **Viso** | **52** | **35** | **67 %** |
 
 ---
 
