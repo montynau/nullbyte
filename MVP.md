@@ -2006,7 +2006,9 @@ visiems būsimiems `.svelte.ts` store'ams (`emulator.svelte.ts`, `settings.svelt
 
 **Acceptance:**
 - [x] Sidebar rodo tikras platformas iš DB — `list_platforms` sukviečiamas `+layout.svelte`
-      `onMount`; REALIAI patikrinta `pnpm tauri dev` — kompiliuojasi, startuoja be klaidų/panic'ų
+      `onMount`; REALIAI patikrinta vartotojo `pnpm tauri dev` sesijoje 2026-08-26 — platformų
+      sąrašas rodomas teisingai (žr. P7.2 pastabą — pirminis agento sesijos patikrinimas buvo
+      klaidingai neigiamas dėl agento aplinkos apribojimo, ne kodo klaidos, žr. ADR-017)
 - [x] `Cmd+K` atidaro paletę — patikrinta naršyklėje (Chrome DevTools automation), veikia
 - [x] Klaviatūros navigacija veikia (Tab, strėlės) — patikrinta REALIAI: `Tab` perkelia fokusą per
       Sidebar mygtukus DOM tvarka (BODY → Visi → Mėgstami → Neseniai žaisti), `ArrowDown` paletėje
@@ -2014,7 +2016,7 @@ visiems būsimiems `.svelte.ts` store'ams (`emulator.svelte.ts`, `settings.svelt
 
 ---
 
-### P7.2 — Žaidimų grid'as ir kortelės `[x]` (kodas baigtas, ⚠️ reikia vartotojo rankinio patvirtinimo)
+### P7.2 — Žaidimų grid'as ir kortelės `[x]` (architektūra patvirtinta veikianti, ⚠️ viršeliai/60 FPS dar nepatikrinti su realiais duomenimis)
 
 **Priklausomybės:** P7.1
 **Failai:** `src/lib/components/library/GameCard.svelte`, `GameGrid.svelte`,
@@ -2035,19 +2037,28 @@ virtualizatoriaus `count`/`estimateSize` (žr. ADR-017). Įjungtas Tauri `assetP
 NIEKADA nebūtų pasiekiami. Placeholder — platformos `chart-*` spalva (CLAUDE.md §7.5, jokių
 hardcode'intų hex) + pavadinimas.
 
-**⚠️ Patikrinimo apribojimas (SVARBU perskaityti):** ši sesija veikia per automatizuotą fono
-procesą, ne interaktyvią GUI sesiją — realiai patikrinau su REALIA 5000 įrašų DB (laikinai
-įterpta, po to atstatyta), kad Rust pusė (`list_games`/`list_platforms`) grąžina teisingus
-duomenis IR kad grid'as/korta atvaizduoja teisingai (screenshot'ais), BET native lango OS input
-(pelės paspaudimai, timer'iai) nepasiekė webview'o šioje aplinkoje — negalėjau realiai paspausti
-mygtukų ar patvirtinti 60 FPS slinkimo AR kad `list_platforms` pažadas išsisprendžia realioje
-vartotojo sesijoje (žr. ADR-017 pilną diagnostiką). **Paprašyk vartotojo paleisti `pnpm tauri
-dev` savo terminale ir patvirtinti acceptance punktus žemiau prieš pažymint juos `[x]`.**
+**Patikrinimo istorija:** agento automatizuota sesija (fono `bash` procesas) negalėjo realiai
+paspausti mygtukų/patvirtinti timer'ių — native lango OS input tokioje aplinkoje nepasiekia
+webview'o (žr. ADR-017 pilną diagnostiką: `list_platforms` Rust pusėje grąžindavo teisingus
+duomenis per kelias milisekundes, patvirtinta `tracing` log'ais, bet JS pažadas niekada
+neišsisprędavo agento sesijoje). **2026-08-26 vartotojas paleido `pnpm tauri dev` REALIOJE
+sesijoje ir patvirtino:** platformų sąrašas Sidebar'e rodomas teisingai, tuščios bibliotekos
+būsena („No games found...") rodoma teisingai, paieška/`Cmd+K`/paspaudimai veikia normaliai.
+Tai PATVIRTINA, kad ADR-017 diagnozė buvo teisinga (agento aplinkos apribojimas, ne kodo
+klaida) — `list_platforms`/IPC/interaktyvumas realiai veikia.
+
+**Kas DAR nepatikrinta** (biblioteka kol kas tuščia, joks ROM katalogas nenuskenuotas):
+viršelių rodymas (`convertFileSrc` + `assetProtocol` su tikru scrape'intu vaizdu) ir 5000
+žaidimų grid'o slinkimo sklandumas. Šiuos du punktus reikės patikrinti, kai bibliotekoje bus
+realių (ar bent testinių) žaidimų su viršeliais — natūraliai atsiras kartu su P7.5
+(Skenavimo/scraping'o UI) arba anksčiau paskenavus ROM katalogą rankiniu būdu.
 
 **Acceptance:**
-- [ ] 5000 žaidimų grid'as slenka 60 FPS — reikia vartotojo patvirtinimo
-- [ ] Viršeliai rodomi — reikia vartotojo patvirtinimo
-- [ ] Be viršelio — tvarkingas placeholder — reikia vartotojo patvirtinimo
+- [x] Sidebar rodo tikras platformas iš DB, IPC/paspaudimai veikia — patvirtinta vartotojo
+      2026-08-26
+- [ ] 5000 žaidimų grid'as slenka 60 FPS — reikia realių duomenų bibliotekoje
+- [ ] Viršeliai rodomi — reikia realių duomenų bibliotekoje
+- [ ] Be viršelio — tvarkingas placeholder — reikia realių duomenų bibliotekoje
 
 ---
 
@@ -2697,9 +2708,12 @@ nuo programos savo event loop). Tai agento vykdymo aplinkos apribojimas (GUI pro
 iš fono shell'o, neturi pilnos interaktyvios sesijos), NE Nullbyte/Tauri kodo klaida — vienas
 klik'as/timeris neveiktų VISUR, jei tai būtų reali Tauri/aplikacijos klaida. Dėl to `list_platforms`
 IPC pažadas realioje agento sesijoje niekada neišsisprendė (matyti Sidebar tuščias „Platforms"
-sąrašas), nors Rust pusė grąžino teisingus duomenis — tai TIKĖTINA, kad išnyks normalioje
-vartotojo sesijoje (reikalinga vartotojo patvirtinimo). Žr. pokalbio istoriją dėl pilnos
-diagnostikos sekos.
+sąrašas), nors Rust pusė grąžino teisingus duomenis.
+
+**Patvirtinta 2026-08-26:** vartotojas paleido `pnpm tauri dev` savo (realioje, ne agento) sesijoje
+— Sidebar platformų sąrašas rodomas teisingai, paieška/`Cmd+K`/paspaudimai veikia normaliai.
+Diagnozė (agento aplinkos apribojimas, ne kodo klaida) PASITVIRTINO. Žr. pokalbio istoriją dėl
+pilnos diagnostikos sekos.
 
 ---
 
