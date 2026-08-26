@@ -688,4 +688,72 @@ mod tests {
             elapsed.as_secs_f64() * 1000.0
         );
     }
+
+    /// P9.4 acceptance: „Bibliotekos užkrovimas su 5000 žaidimų < 500 ms". SKIRTINGAI nuo
+    /// `search_under_50ms_with_5000_rows` (P5.4, paieškos FTS5 kelias, in-memory DB) — šis
+    /// testas matuoja PRADINĮ, NEFILTRUOTĄ bibliotekos užkrovimą (tas pats `GameFilter::
+    /// default()`, kurį `+layout.svelte`/`library.svelte.ts` iš tikrųjų naudoja pirmo
+    /// atidarymo metu), TIKRAME faile su WAL/foreign_keys (`migrations::open_and_migrate`,
+    /// TIKSLIAI ta pati funkcija, kurią naudoja `AppState::new()`) — ne in-memory DB, kad
+    /// disko I/O (WAL, ne vien atminties operacijos) būtų dalis pamatuoto laiko, kaip
+    /// realiai vyksta paleidus aplikaciją.
+    #[test]
+    fn initial_library_load_under_500ms_with_5000_rows() {
+        let db_path = std::env::temp_dir().join(format!(
+            "nullbyte_perf_test_{}_{}.db",
+            std::process::id(),
+            "initial_load"
+        ));
+        std::fs::remove_file(&db_path).ok();
+        std::fs::remove_file(db_path.with_extension("db-wal")).ok();
+        std::fs::remove_file(db_path.with_extension("db-shm")).ok();
+
+        let conn = crate::db::migrations::open_and_migrate(&db_path)
+            .expect("realus failas turėtų sukurtis ir migruoti");
+        let snes = snes_platform_id(&conn);
+        let genesis = genesis_platform_id(&conn);
+
+        for i in 0..5000 {
+            let platform_id = if i % 2 == 0 { snes } else { genesis };
+            insert_game(
+                &conn,
+                platform_id,
+                &format!("Game {i}"),
+                &format!("/roms/g{i}.rom"),
+            );
+        }
+
+        // `page_size: 200` TIESIOGIAI, NE `GameFilter::default()` (kurio Rust pusės
+        // numatytoji `page_size` yra 50, žr. `DEFAULT_PAGE_SIZE`) — frontend'as (`library.
+        // svelte.ts` `DEFAULT_FILTER`) VISADA siunčia eksplicitišką `pageSize: 200`, tad
+        // Rust'o numatytoji reikšmė realiame paleidime niekada faktiškai nenaudojama.
+        let filter = GameFilter {
+            page_size: 200,
+            ..Default::default()
+        };
+        let start = std::time::Instant::now();
+        let results = list_games(&conn, &filter).unwrap();
+        let elapsed = start.elapsed();
+
+        eprintln!(
+            "pradinis bibliotekos užkrovimas (5000 įrašų, realus WAL failas): {:.2}ms, {} rezultatų",
+            elapsed.as_secs_f64() * 1000.0,
+            results.len()
+        );
+        assert_eq!(
+            results.len(),
+            200,
+            "page_size 200 turėtų grąžinti 200 rezultatų"
+        );
+        assert!(
+            elapsed.as_millis() < 500,
+            "bibliotekos užkrovimas užtruko {:.2}ms, tikėtasi < 500ms",
+            elapsed.as_secs_f64() * 1000.0
+        );
+
+        drop(conn);
+        std::fs::remove_file(&db_path).ok();
+        std::fs::remove_file(db_path.with_extension("db-wal")).ok();
+        std::fs::remove_file(db_path.with_extension("db-shm")).ok();
+    }
 }

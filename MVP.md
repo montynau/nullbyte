@@ -2601,9 +2601,10 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 
 ---
 
-### P9.4 — Našumas `[ ]`
+### P9.4 — Našumas `[!]`
 
 **Priklausomybės:** visos ankstesnės
+**Failai:** `crates/nullbyte-app/src/db/games.rs` (naujas benchmark testas)
 
 **Ką daryti:**
 - Profiliuok: SNES turi veikti < 15 % CPU šiuolaikiniame procesoriuje
@@ -2611,9 +2612,52 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 - Atminties naudojimas idle < 200 MB
 - Pašalink `--release` build'e visus `debug!` iš karštų kelių
 
+> **Pastaba (ADR-033, 2026-08-26):** keturi punktai patikrinti SKIRTINGAIS būdais —
+> pirmi trys automatiškai (agento sesija), du paskutiniai laukia vartotojo (reikia realaus
+> garso srauto, kurio agento fono paleidimai negauna, žr. [[feedback_background_launched_emu_no_audio]]).
+>
+> **Metodologijos pastaba:** #1-#3 patikrinti automatiškai šios sesijos metu; #4 (CPU%,
+> 30 min be nutekėjimo) reikalauja realaus garso srauto — nustatyta anksčiau šioje sesijoje
+> (Xbox/Linux hardware testai), kad agento fono paleidimai `nullbyte-emu` negauna veikiančio
+> garso (audio-driven pacing tada stringa po kelių kadrų), tad CPU skaičius iš agento
+> paleidimo būtų neteisingas — vartotojas paleido pats.
+>
+> 1. **Bibliotekos užkrovimas — PRAĖJO su dideliu atsargos rezervu.** Naujas testas
+>    `db::games::tests::initial_library_load_under_500ms_with_5000_rows` — REALUS failas
+>    diske (`migrations::open_and_migrate`, WAL+foreign_keys, TIKSLIAI ta pati funkcija,
+>    kurią naudoja `AppState::new()`, ne in-memory DB), 5000 įrašų per 2 platformas,
+>    `page_size: 200` (TIKSLI frontend'o `DEFAULT_FILTER` reikšmė, ne Rust pusės numatytoji
+>    50 — pastebėtas IR IŠTAISYTAS neatitikimas tarp abiejų numatytųjų reikšmių komentare,
+>    pačios reikšmės liko nepakeistos, nes tai atskiri, sąmoningai skirtingi valdymo taškai).
+>    Rezultatas: **0.99ms** — ~500× po 500ms biudžeto.
+> 2. **`debug!` karštuose keliuose — JAU ŠVARU, jokių pakeitimų nereikėjo.** Grep per
+>    `core::runner::run_loop`, `video/`, `audio/`, `input/`, `nullbyte-emu/main.rs` — visi
+>    `tracing::debug!`/`info!` kvietimai arba event-driven (hotkey paspaudimas, gamepad
+>    connect/disconnect, lango resize), arba jau apriboti periodika (statistikos log'as kas
+>    5s), arba tik klaidų šakose (retos, ne kas-kadrą). CLAUDE.md §6.4 taisyklė jau buvo
+>    laikomasi nuo ankstesnių fazių — nieko naujo taisyti.
+> 3. **Idle atmintis — NEPASIEKTA, dokumentuota kaip realus radinys.** Išmatuota TRIMIS
+>    būdais: (a) grynas `./target/release/nullbyte-app` be `tauri build` paketavimo — TUŠČIAS
+>    langas (asset'ų kelio problema paleidus binarą tiesiogiai, ne per `.app`), matavimas
+>    NEGALIOJA; (b) `pnpm tauri dev` (debug, pilnai pasikrovęs UI) — main procesas ~117MB +
+>    WebKit `WebContent`/`Networking`/`GPU` XPC pagalbiniai procesai (patikrinta, kad
+>    priklauso IŠIMTINAI šiai app instancijai — visi dingsta uždarius) ~267MB = **~384MB
+>    iš viso**; (c) TIKRAS `pnpm tauri build` → `Nullbyte.app`, paleistas per `open` (ne
+>    žalias binaras) — main procesas ~106MB + WebKit pagalbiniai ~196MB = **~296MB iš
+>    viso**. Vartotojo sprendimas: **palikti kaip nepasiektą tikslą**, ne keisti MVP.md
+>    ribą — ~2/3 (196MB iš 296MB net release režime) yra WKWebView variklio bazinė kaina
+>    (`WebContent`/`Networking`/`GPU` XPC procesai), nepriklausanti nuo mūsų Svelte kodo
+>    dydžio; likę ~106MB yra mūsų `nullbyte-app` procesas (SQLite, DB ryšys, Rust būvis).
+> 4. **SNES CPU% ir 30 min be nutekėjimo — LAUKIA vartotojo.** Paruoštas stebėjimo
+>    skriptas (`ps -o %cpu,rss` kas 30s per 30 min, `~/Desktop/nullbyte_perf_log.txt`) —
+>    vartotojas paleido realiu žaidimu, bet rezultatas dar negautas šios sesijos pabaigoje.
+
 **Acceptance:**
-- [ ] Visi trys skaičiai pasiekti
-- [ ] Nėra atminties nutekėjimo po 30 min žaidimo
+- [x] Bibliotekos užkrovimas < 500 ms — **0.99ms**, žr. ADR-033 #1
+- [ ] SNES CPU < 15% — laukia vartotojo (žr. ADR-033 #4)
+- [ ] Idle atmintis < 200 MB — **NEPASIEKTA** (~296MB release, ~384MB debug — žr. ADR-033 #3,
+      vartotojo sprendimu paliekama kaip žinomas, dokumentuotas apribojimas)
+- [ ] Nėra atminties nutekėjimo po 30 min žaidimo — laukia vartotojo (žr. ADR-033 #4)
 
 ---
 
@@ -2682,7 +2726,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai (P8.1/P8.2 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
-| 9 — Polish (P9.1 patvirtinta REALIU vartotojo paleidimu, P9.2 automatiniu testu) | 6 | 3 | 50 % |
+| 9 — Polish (P9.1/P9.2/P9.3 baigti; P9.4 `[!]` — dalinai, idle atmintis nepasiekta) | 6 | 3 | 50 % |
 | **Viso** | **52** | **44** | **85 %** |
 
 ---
@@ -3838,6 +3882,72 @@ Automatinis testas dokumentuoja IR įrodo tiek crash-saugumą (hard assert), tie
 elgesį (informacinis log'as) tam scenarijui, kurio produktas niekada nesukuria — vertinga
 kaip papildomas pasitikėjimas `core::runner`'io cleanup sekos patikimumu, ne kaip
 produkcinio rizikos mažinimo priemonė.
+
+---
+
+### ADR-032 — Vieninga klaidų apdorojimo vieta (`$lib/utils/errors.ts`), Toast'ai, tuščios būsenos (P9.3)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** P9.3 reikalauja, kad kiekviena `AppError` variacija turėtų žmogui suprantamą
+tekstą UI. Rust pusės `AppError`/`CoreError` `message` laukas VISADA buvo (ir liko) lietuviškas
+tekstas (kodo kalbos konvencija, CLAUDE.md §1) — bet CLAUDE.md §7.5 reikalauja VISO vartotojui
+matomo UI teksto angliškai. Šie du dalykai anksčiau NIEKADA nebuvo susidūrę, nes iki šios
+sesijos beveik NIEKAS frontend'e nerodė klaidų vartotojui apskritai.
+
+**Radinys (bug'as):** `library.svelte.ts` tikrino `e instanceof Error ? e.message : String(e)`.
+Tauri `invoke()` reject'ina PAPRASTU `{kind, message}` OBJEKTU, ne `Error` instancija — šis
+patikrinimas VISADA buvo `false`, tad vartotojas matydavo `"[object Object]"` — BLOGIAU nei
+Rust panic tekstas būtų.
+
+**Sprendimas:** naujas `src/lib/utils/errors.ts` — kuruotas `Record<string, string>`
+`AppError.kind()`/`CoreError.kind()` → angliškas tekstas (`describeError`/`showErrorToast`).
+Backend'o `message` NIEKADA nerodomas tiesiogiai, tik loginamas konsolėn. Sweep'as per VISUS
+9 frontend'o failus, kviečiančius `$lib/api` — kiekvienas rizikingas `await` gavo `try`/`catch`.
+`<Toaster theme="dark" />` primontuota šakniniame layout'e (priverstas dark, nes app'as neturi
+šviesios temos); root layout papildomai klausosi `"game-error"` Tauri event'o (siųsto nuo P9.1,
+bet anksčiau niekieno nesiklausomo). Bibliotekos tuščia būsena dabar skiria „siauras filtras"
+nuo „apskritai tuščia" — atskiri veiksmo mygtukai. Onboarding sąmoningai NE atskiras
+wizard'as — tuščios būsenos + `start_game`'o „nėra core'o" pranešimas jau sudaro aiškų kelią
+organiškai (CLAUDE.md „nekurk pusiau baigtų implementacijų"/spekuliatyvių abstrakcijų dvasia).
+
+**Patikrinta:** `pnpm check`/`lint`/`build` švarūs. Realaus vykdymo laiko elgsena (ar toast'ai
+realiai pasirodo, ar spalvos teisingos tamsioje temoje) NEpatikrinta interaktyviai šios
+sesijos metu.
+
+---
+
+### ADR-033 — Našumo matavimai: bibliotekos benchmark'as automatinis, idle atmintis nepasiekta (P9.4)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** P9.4 turi keturis skaitinius/kokybinius tikslus. Du (bibliotekos užkrovimas,
+`debug!` sweep) patikrinami vien kodu/automatiniu testu. Du (SNES CPU%, 30 min be nutekėjimo)
+reikalauja REALAUS, ilgai veikiančio garso srauto — šios sesijos agento fono paleidimai
+`nullbyte-emu` jo negauna (nustatyta anksčiau, Xbox/Linux hardware testų metu), tad šiuos du
+punktus turėjo patikrinti vartotojas savo terminale (paruoštas `ps -o %cpu,rss` stebėjimo
+skriptas, 30 min, `~/Desktop/nullbyte_perf_log.txt`).
+
+**Bibliotekos užkrovimas:** naujas testas, REALUS WAL failas diske (`migrations::
+open_and_migrate`, ne in-memory), 5000 įrašų, `page_size: 200` (tiksli frontend'o numatytoji
+reikšmė — pastebėtas, bet NEKEISTAS, neatitikimas su Rust pusės numatytąja 50, nes abi
+reikšmės yra sąmoningai atskiri valdymo taškai). Rezultatas: **0.99ms** (500ms biudžetas).
+
+**Idle atmintis — realus, dokumentuotas trūkumas:** išmatuota TRIMIS būdais. Grynas
+`./target/release/nullbyte-app` be `tauri build` paketavimo davė TUŠČIĄ langą (asset'ų kelio
+problema, paleidus binarą tiesiogiai apeinant `.app` struktūrą) — šis matavimas atmestas kaip
+negaliojantis. TIKRAS `pnpm tauri build` → `Nullbyte.app` (paleistas per `open`, ne žalias
+binaras): main procesas ~106MB + WebKit `WebContent`/`Networking`/`GPU` XPC pagalbiniai
+procesai (patikrinta `ps`'u, kad jie priklauso IŠIMTINAI šiai app instancijai — visi dingsta
+uždarius pagrindinį procesą) ~196MB = **~296MB iš viso**, ~50% virš 200MB tikslo. `pnpm tauri
+dev` (debug) davė dar didesnį ~384MB. Apie 2/3 release'o skaičiaus yra WKWebView variklio
+BAZINĖ kaina — struktūriškai nepriklauso nuo mūsų Svelte kodo dydžio (panašus fiksuotas
+mokestis būdingas bet kuriam webview-pagrįstam desktop frameworkui, WKWebView yra lengvesnis
+už Chromium/Electron, bet nėra nulinis).
+
+**Sprendimas:** vartotojui pasiūlyta rinktis tarp „dokumentuoti kaip žinomą apribojimą ir
+keisti MVP.md ribą" ir „palikti kaip nepasiektą tikslą". Vartotojas pasirinko PALIKTI kaip
+nepasiektą — P9.4 acceptance sąraše šis punktas lieka `[ ]` su realiais skaičiais, MVP.md
+200MB riba NEKEISTA. Galimi ateities sprendimai (NEDARYTA šią sesiją): WebKit cache/GPU
+proceso apribojimų tyrimas, nors tikėtina ribotas poveikis fiksuotai bazinei kainai.
 
 ---
 
