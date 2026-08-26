@@ -1,7 +1,10 @@
 <script lang="ts">
   import { resolve } from "$app/paths";
+  import * as Tabs from "$lib/components/ui/tabs/index.js";
   import PathsPanel from "$lib/components/settings/PathsPanel.svelte";
   import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
+
+  let activeTab = $state("paths");
 </script>
 
 <div class="h-full overflow-y-auto p-6">
@@ -16,6 +19,34 @@
   </div>
 
   <div class="max-w-2xl">
-    <PathsPanel />
+    <Tabs.Root bind:value={activeTab}>
+      <Tabs.List class="mb-6">
+        <Tabs.Trigger value="paths">Paths</Tabs.Trigger>
+        <Tabs.Trigger value="cores">Cores</Tabs.Trigger>
+        <Tabs.Trigger value="video">Video</Tabs.Trigger>
+        <Tabs.Trigger value="audio">Audio</Tabs.Trigger>
+        <Tabs.Trigger value="input">Input</Tabs.Trigger>
+        <Tabs.Trigger value="scraper">Scraper</Tabs.Trigger>
+      </Tabs.List>
+
+      <Tabs.Content value="paths">
+        <PathsPanel />
+      </Tabs.Content>
+      <Tabs.Content value="cores">
+        <p class="text-muted-foreground text-sm">Core management — coming soon.</p>
+      </Tabs.Content>
+      <Tabs.Content value="video">
+        <p class="text-muted-foreground text-sm">Video settings — coming soon.</p>
+      </Tabs.Content>
+      <Tabs.Content value="audio">
+        <p class="text-muted-foreground text-sm">Audio settings — coming soon.</p>
+      </Tabs.Content>
+      <Tabs.Content value="input">
+        <p class="text-muted-foreground text-sm">Controller rebinding — coming soon.</p>
+      </Tabs.Content>
+      <Tabs.Content value="scraper">
+        <p class="text-muted-foreground text-sm">ScreenScraper credentials — coming soon.</p>
+      </Tabs.Content>
+    </Tabs.Root>
   </div>
 </div>
