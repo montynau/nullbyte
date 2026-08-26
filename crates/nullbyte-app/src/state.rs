@@ -1,9 +1,9 @@
 //! Aplikacijos globalus būvis, laikomas kaip Tauri managed state.
 //!
-//! Laiko išspręstus duomenų katalogus ir DB ryšį. `nullbyte-emu` vaiko proceso rankena
-//! (`crate::ipc::EmuClient`) — P9.1, kai bus realus žaidimo paleidimo srautas (žr.
-//! `crate::commands` modulio doc dėl P2.3-eros lokalaus `Renderer`/`EmuThread` pašalinimo
-//! P4.0.3 metu — ADR-016 juos perkėlė į atskirą procesą).
+//! Laiko išspręstus duomenų katalogus, DB ryšį, ir (nuo P9.1) `nullbyte-emu` vaiko proceso
+//! rankeną (`emu_session`, žr. jo doc) — žr. `crate::commands` modulio doc dėl P2.3-eros
+//! lokalaus `Renderer`/`EmuThread` pašalinimo P4.0.3 metu (ADR-016 juos perkėlė į atskirą
+//! procesą, kurio gyvavimo ciklą nuo P9.1 valdo `commands::emulator`).
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -43,6 +43,12 @@ pub struct AppState {
     /// atnaujinama TIK kaip `scrape_game`/`scrape_library` šalutinis produktas
     /// (`commands::scraper`). P7.6 Settings ekranas ją rodo pasyviai.
     pub last_quota: Mutex<Option<crate::commands::scraper::QuotaSnapshot>>,
+    /// P9.1: veikiančio `nullbyte-emu` vaiko proceso rankena — `None`, kai joks žaidimas
+    /// nepaleistas. ADR-016: vienam žaidimo paleidimui tenka VIENAS vaiko procesas, tad
+    /// šioje aplikacijoje vienu metu gali veikti tik VIENAS žaidimas (žr.
+    /// `commands::emulator::start_game` doc dėl KODĖL — antras `start_game` kvietimas, kol
+    /// šis `Some`, grąžina aiškią klaidą, o ne tyliai pakeičia/nutraukia esamą sesiją).
+    pub emu_session: Mutex<Option<crate::ipc::EmuClient>>,
 }
 
 impl AppState {
@@ -63,6 +69,7 @@ impl AppState {
             rate_limiter: crate::scraper::rate_limit::RateLimiter::new(),
             scrape_cancellation: Mutex::new(None),
             last_quota: Mutex::new(None),
+            emu_session: Mutex::new(None),
         })
     }
 }

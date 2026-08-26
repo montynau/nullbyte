@@ -2156,12 +2156,15 @@ niekas nepatikrino. Tas pats apribojimas kaip P7.2 viršeliams — natūraliai p
 **Įgyvendinta:** `GameCard` dabar `<a href={resolve("/game/[id]", ...)}>` — visas grid'as
 naviguojamas. „Mėgstamas" ir „Scrape iš naujo" — REALIAI veikiantys mygtukai (`set_favorite`,
 `scrape_game` per Tauri `Channel<ScrapeProgress>`, abu jau parašyti P5.4/P6.4). „Žaisti" —
-sąmoningai `disabled` su tooltip „coming soon (P9.1)", nes `nullbyte-emu` paleidimo IPC klientas
-dar neparašytas (žr. P9.1). Save states sekcija — tuščios būsenos placeholder'is („coming in
-P8.1"), nes joks backend'as tam dar neegzistuoja — sąmoningai NEBUVO kurta pilna UI be duomenų
-šaltinio (CLAUDE.md „nekurk pusiau baigtų implementacijų"). Trūkstami duomenys (aprašymas,
-kūrėjas ir t.t.) tvarkomi filtruojant `null`/tuščias reikšmes iš `metaRows` prieš atvaizduojant —
-layout nelūžta, tiesiog tas badge'as nerodomas.
+**nuo P9.1 REALIAI veikia** (`startGame`, žr. ADR-030): rodo „Launching..." kol laukia
+backend'o atsakymo, „Playing" kai patvirtinta, klaidos pranešimą (`text-destructive`), jei
+`start_game` grąžina `Err`. Klausosi `"game-closed"` Tauri event'o, kad atnaujintų statistiką
+grįžus iš žaidimo. Save states sekcija — tuščios būsenos placeholder'is („coming in P8.1"),
+nes joks `commands::` sluoksnis tam dar neegzistuoja (P8.1 core mechanizmas baigtas, bet be
+Tauri komandų — žr. P8.1 pastabą) — sąmoningai NEBUVO kurta pilna UI be duomenų šaltinio
+(CLAUDE.md „nekurk pusiau baigtų implementacijų"). Trūkstami duomenys (aprašymas, kūrėjas ir
+t.t.) tvarkomi filtruojant `null`/tuščias reikšmes iš `metaRows` prieš atvaizduojant — layout
+nelūžta, tiesiog tas badge'as nerodomas.
 
 **⚠️ Patikrinimo apribojimas:** `pnpm check`/`lint`/`build` švarūs (įskaitant prerender
 sprendimą dinaminiam maršrutui — SPA fallback per `adapter-static`), REALIAI paleista
@@ -2171,7 +2174,8 @@ apribojimas kaip P7.2/P7.3, natūraliai išsispręs kartu su P7.5 (skenavimo UI)
 
 **Acceptance:**
 - [ ] Visi metaduomenys rodomi — reikia realių duomenų
-- [ ] „Žaisti" paleidžia žaidimą — priklauso nuo P9.1 (dar neparašyta), sąmoningai atidėta
+- [x] „Žaisti" paleidžia žaidimą — kodas veikia (P9.1, žr. ADR-030), **NEpatikrinta REALIU
+      interaktyviu paspaudimu** (žr. P9.1 pastabą dėl agento sesijos apribojimo)
 - [ ] Trūkstami duomenys nesulaužo layout'o — kodas tam paruoštas (filtruoja `null`), reikia
       realaus patikrinimo
 
@@ -2448,9 +2452,12 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 **Tikslas:** viskas veikia kartu, atrodo baigta.
 **Rizika:** 🟡 vidutinė. **Įvertis:** 3–4 dienos.
 
-### P9.1 — Žaidimo paleidimo srautas `[ ]`
+### P9.1 — Žaidimo paleidimo srautas `[!]`
 
 **Priklausomybės:** P7.4, P2.5, P3.4, P4.4
+**Failai:** `crates/nullbyte-app/src/commands/emulator.rs` (naujas), `crates/nullbyte-app/src/ipc.rs`,
+`crates/nullbyte-app/src/state.rs`, `crates/nullbyte-app/src/paths.rs`, `crates/nullbyte-app/src/db/games.rs`,
+`crates/nullbyte-app/src/commands/settings.rs`, `src/routes/game/[id]/+page.svelte`
 
 > **Priešdarbis atliktas (2026-08-25):** `system_dir`/`save_dir` (`GET_SYSTEM_DIRECTORY`/
 > `GET_SAVE_DIRECTORY`, CLAUDE.md §8.3) dabar realiai keliauja `nullbyte-app` → `nullbyte-emu`
@@ -2458,8 +2465,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 > `core::runner::make_initial_context`), abu katalogai sukuriami, jei jų dar nėra. Anksčiau
 > visada buvo `NULL` — dauguma core'ų (SNES9x, Genesis Plus GX) tai toleruoja, bet MAME
 > besąlygiškai dereferencina ir be šios pataisos segfault'ina kraunant bet kurį žaidimą
-> (atrasta rankiniu MAME core smoke testu). Likusi P9.1 dalis (UI srautas, core parinkimas,
-> `last_played`/`play_time`) nepradėta — priklauso nuo P5.1/P7.4/P4.4.
+> (atrasta rankiniu MAME core smoke testu).
 
 **Ką daryti:**
 - UI „Žaisti" → parink core'ą (per `platform_core_prefs`, arba klausk) → paleisk
@@ -2467,10 +2473,35 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 - Klaidos (trūksta core'o, trūksta BIOS, blogas ROM) → aiškūs pranešimai, ne stack trace
 - Uždarius žaidimą → grįžti į biblioteką, atnaujinti `last_played` ir `play_time`
 
+> **Pastaba (ADR-030, 2026-08-26):** UI srautas, core parinkimas ir `last_played`/`play_time`
+> ĮGYVENDINTI IR REALIAI PALEISTA `pnpm tauri dev`. `commands::emulator::start_game` LAUKIA
+> tikro `EmuStatus::Loaded`/`Error` (ne tik to, kad `Load`/`Run` nusiuntimas per stdin
+> pavyko) prieš grąžindama rezultatą UI — žr. ADR-030 dėl `crate::ipc::EmuClient::spawn`
+// oneshot handshake dizaino. Core parinkimas — TIK per Nustatymų → Cores preferenciją
+> (`resolve_preferred_core_path`); jei nenustatyta, aiškus klaidos pranešimas su nuoroda į
+> Nustatymus — JOKIO automatinio spėjimo/interaktyvaus picker'io (paprasčiau, atitinka P9.3
+> „aiškus pranešimas" filosofiją). **NEPADARYTA šioje sesijoje:** realaus žaidimo/core'o
+> paleidimo NEPAVYKO patikrinti INTERAKTYVIAI (reikia realaus ROM'o+core'o bibliotekoje,
+> paspausti Play, matyti langą) — pati agento sesija negali patikimai spausti/matyti
+> natūralaus (native) `nullbyte-emu` lango (ta pati priežastis, kodėl anksčiau šios sesijos
+> Xbox/Linux hardware testai buvo perduoti vartotojui rankiniu būdu), tad TIK backend'as
+> (`cargo test --workspace`, visos IPC/DB/paths funkcijos) ir `pnpm tauri dev` PATS
+> APLIKACIJOS STARTAS (be klaidų, DB migruoja, komandos registruojasi) patikrinti
+> automatiškai — realus „paspaudžiu Play, matau žaidimą" ciklas laukia vartotojo rankinio
+> patikrinimo.
+
 **Acceptance:**
-- [ ] Paleidimas iš bibliotekos veikia visoms platformoms
-- [ ] Trūkstamas core → suprantamas pranešimas su nurodymu ką daryti
-- [ ] Žaidimo laikas fiksuojamas
+- [x] Paleidimas iš bibliotekos veikia visoms platformoms — kodas platform-agnostiškas
+      (core'as visada renkamas per `platform_slug`, ne hardkodintas), **NEpatikrinta REALIU
+      paleidimu visoms platformoms** (žr. ADR-030 pastabą aukščiau)
+- [x] Trūkstamas core → suprantamas pranešimas su nurodymu ką daryti — `start_game` grąžina
+      „nėra pasirinkto core'o platformai „X" — nueikite į Nustatymus → Cores..." PRIEŠ
+      bandant spawn'inti bet ką
+- [x] Žaidimo laikas fiksuojamas — `on_terminated` callback'as (kviečiamas TIK per realų
+      proceso pabaigos signalą, ne PID pollinimą, žr. CLAUDE.md §10) skaičiuoja
+      `Instant::elapsed()` nuo `start_game` pradžios ir kviečia `db::games::record_play`
+      (P9.1 acceptance testuota per `db::games::record_play_increments_count_and_time`,
+      jau egzistavusį testą — orkestracijos sluoksnis virš jo dar be savo integracinio testo)
 
 ---
 
@@ -2588,7 +2619,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai (P8.1/P8.2 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
-| 9 — Polish | 6 | 0 | 0 % |
+| 9 — Polish (P9.1 `[!]` — kodas baigtas, interaktyvus patikrinimas laukia vartotojo) | 6 | 0 | 0 % |
 | **Viso** | **52** | **41** | **79 %** |
 
 ---
@@ -3640,6 +3671,66 @@ mock'as; rankiniu būdu užrašomas atpažįstamas baitų šablonas TIESIOG į c
 klaida, nes vartotojas eksplicitiškai paprašė konkretaus slot'o). `cargo clippy --workspace
 --all-targets -D warnings` švarus. **NEpatikrinta:** realus end-to-end per gyvą procesą/
 tikrą in-game save meniu — laukia P9.1 (ta pati situacija kaip P8.1, žr. ADR-028).
+
+### ADR-030 — Žaidimo paleidimo srautas: `EmuClient` oneshot handshake + `game_id`-keyed keliai (P9.1)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** P9.1 pirmą kartą realiai sujungia core'o pasirinkimą (P7.6), žaidimo DB
+įrašą (P5.4) ir `nullbyte-emu` vaiko procesą (`crate::ipc::EmuClient`, veikęs nuo P4.0.3 tik
+kaip handshake+fire-and-forget siųstuvas). Iki šiol `EmuClient::spawn` grąžindavo `Result<Self,
+AppError>` IŠKART po sėkmingo protokolo handshake'o — jokio būdo sužinoti, ar VĖLIAU nusiųstas
+`Load` realiai pavyko, ar core'as atmetė ROM'ą/trūko BIOS'o (ta informacija atkeliauja
+ASINCHRONIŠKAI, per `EmuStatus::Error` stdout eilutę).
+
+**Sprendimas #1 (`oneshot` handshake pirmam Loaded/Error):** `EmuClient::spawn` dabar grąžina
+`(Self, oneshot::Receiver<EmuStatus>)` — `drain_loop` (VISADA veikianti fono užduotis, žr.
+`crate::ipc` modulio doc) PIRMĄ gautą `EmuStatus::Loaded`/`Error` nusiunčia per šį kanalą, o
+`commands::emulator::start_game` juo REALIAI LAUKIA (`.await`), prieš grąžindama rezultatą
+UI. Tai paverčia P9.1 acceptance „Trūkstamas core → suprantamas pranešimas" TIKRAI TIESA net
+klaidoms, kurios paaiškėja TIK core'ui bandant įkelti ROM'ą (ne vien akivaizdžioms spawn-metu
+klaidoms). VĖLESNI (po pirmojo atsakymo) `EmuStatus::Error` — persiunčiami į frontend'ą kaip
+Tauri event'as `"game-error"`, PAKARTOTINAI naudojant JAU egzistuojantį `AppError`'io
+`{kind, message}` Serialize impl'ą (konvertuota per `serde_json::Value`, nes `Emitter::emit`
+reikalauja `Serialize + Clone`, o `AppError` pati NĖRA `Clone` — apgaubia `std::io::Error`
+ir pan.) — jokio naujo suplokštinimo tipo/kodo.
+
+**Sprendimas #2 (`on_terminated` callback proceso pabaigai):** `EmuClient::spawn` dabar taip
+pat ima `on_terminated: impl FnOnce() + Send + 'static`, kviečiamą TIKSLIAI VIENĄ kartą, kai
+vaiko procesas PILNAI baigia darbą (`CommandEvent::Terminated` ARBA kanalas užsidaro be jo).
+Tai VIENINTELIS patikimas „žaidimo sesija pasibaigė" signalas (CLAUDE.md §10: NE PID
+pollinimas) — `start_game` juo `db::games::record_play(id, elapsed_seconds)` ir atlaisvina
+`AppState::emu_session`, kad kitas `start_game` galėtų vėl paleisti. Veikia NEPRIKLAUSOMAI
+nuo to, KAIP procesas baigėsi — vartotojas uždarė `nullbyte-emu` langą PATS (winit
+`WindowEvent::CloseRequested` → `event_loop.exit()` → `process::exit()`), ARBA tėvas iškvietė
+`shutdown_gracefully()` (stdin EOF, tas pats mechanizmas kaip P4.0.4 orphan apsauga).
+
+**Sprendimas #3 (`game_id`-keyed `states_dir`/`sram_path`, ne `rom_basename`):** MVP.md P8.1/
+P8.2 juodraštis siūlė `states_dir()/{game_id}_{slot}.state` (jau `game_id`-keyed) ir
+`saves_dir()/{rom_basename}.srm` (NE) — pastarasis būtų turėjęs kolizijos riziką (du žaidimai
+skirtinguose kataloguose gali dalintis TUO PAČIU ROM failo vardu). `paths::game_states_dir`/
+`game_sram_path` (nauji) abu naudoja `game_id` — DB primary key, garantuotai unikalus ir
+stabilus, skirtingai nuo failo vardo.
+
+**Sprendimas #4 (viena sesija vienu metu, aiški klaida — ne tylus pakeitimas):** ADR-016
+numato VIENĄ vaiko procesą vienam paleidimui, bet NEIŠSPRENDŽIA, kas vyksta, jei
+`start_game` iškviečiamas, kol ankstesnė sesija dar veikia. P9.1 apimtyje pasirinkta
+PAPRASČIAUSIA, saugiausia elgsena: antras kvietimas grąžina aiškią klaidą („žaidimas jau
+paleistas — pirma uždarykite jį"), NE tyliai nutraukia/pakeičia senąją sesiją. Kelių vienu
+metu veikiančių žaidimų palaikymas — NEĮTRAUKTAS į MVP apimtį (žr. §1.3 „NEĮEINA").
+`stop_game`/`is_game_running` komandos pridėtos kaip atsarginis kelias (naudoja TIK
+`shutdown_gracefully()` — jokio „force kill" UI veiksmo šioje sesijoje neprašyta).
+
+**Patikrinta:** `cargo test --workspace` — nullbyte-app 93 testai (0 failed, +4 nuo P8.2:
+`get_platform_slug`, du `resolve_preferred_core_path`, per-game `paths` testas).
+`cargo clippy --workspace --all-targets -D warnings` švarus. `pnpm check`/`lint`/`build`
+švarūs. `pnpm run build:sidecar` perkompiliuotas (IPC laidas nepakito nuo P8.2 —
+`IPC_PROTOCOL_VERSION` LIEKA `3`, P9.1 nepridėjo naujų PRIVALOMŲ `EmuCommand` laukų). REALIAI
+paleista `pnpm tauri dev` — aplikacija startuoja be klaidų (DB migruoja, visos komandos
+registruojasi, sidecar handshake infrastruktūra paruošta). **NEpatikrinta interaktyviai:**
+realus „paspaudžiu Play → core'as įkeliamas → žaidimas rodomas → uždarau → play_time
+atsinaujina" ciklas su realiu ROM'u/core'u — laukia vartotojo rankinio patikrinimo (agento
+sesija negali patikimai spausti/matyti natūralaus `nullbyte-emu` lango, ta pati priežastis
+kaip ankstesnių šios sesijos Xbox/Linux hardware testų).
 
 ---
 

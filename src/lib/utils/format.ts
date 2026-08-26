@@ -27,3 +27,12 @@ export function formatFileSize(bytes: number): string {
   }
   return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
+
+/** Rust `AppError` serializuojasi kaip `{ kind, message }` (CLAUDE.md §6.1) — Tauri `invoke()`
+ * reject'ina su ta pačia forma. Naudinga bet kuriam `catch` blokui, kuris rodo klaidą UI. */
+export function errorMessage(error: unknown): string {
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
+}

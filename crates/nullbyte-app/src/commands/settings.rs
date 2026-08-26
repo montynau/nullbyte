@@ -1,9 +1,12 @@
 //! Settings Tauri komandos (CLAUDE.md §6.3) — P7.6 Cores panelė.
 //!
-//! `list_cores` yra PILNAI FUNKCIONALUS (skaito `cores_dir`, jokio P9.1 blokerio — žr.
-//! `commands::input` modulio doc dėl to bloko). `get_preferred_cores`/`set_preferred_cores`
-//! kenčia nuo TO PATIES apribojimo kaip `commands::input` mapping'as: išsaugoma, bet
-//! realaus žaidimo paleidimo dar niekas nenaudoja (P9.1 dar neįgyvendinta).
+//! `list_cores` yra PILNAI FUNKCIONALUS (skaito `cores_dir`). Nuo P9.1
+//! `get_preferred_cores`/`set_preferred_cores` REALIAI naudojama —
+//! `resolve_preferred_core_path` (žr. jo doc) yra tas mechanizmas, kuriuo
+//! `commands::emulator::start_game` renkasi, kurį core'ą paleisti konkrečiai platformai.
+//! Video/audio nustatymai (žemiau) VIS DAR kenčia nuo TO PATIES apribojimo kaip
+//! `commands::input` mapping'as — žr. jo modulio doc dėl KODĖL (reikia naujų `EmuCommand`
+//! variantų, ne paties P9.1 paleidimo srauto).
 
 use tauri::State;
 
@@ -144,16 +147,37 @@ pub struct PlatformCorePreference {
 
 const PREFERRED_CORES_KEY: &str = "core.preferred";
 
+fn read_preferred_cores(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<PlatformCorePreference>, AppError> {
+    match settings::get(conn, PREFERRED_CORES_KEY)? {
+        Some(json) => serde_json::from_str(&json)
+            .map_err(|error| AppError::Other(format!("sugadintas core.preferred JSON: {error}"))),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// P9.1: konkrečios platformos pasirinktas core'o kelias, jei vartotojas jį nustatė
+/// Nustatymų → Cores panelėje (`set_preferred_cores`). `None`, jei DAR NENUSTATYTA —
+/// `commands::emulator::start_game` tada grąžina aiškų „nueik į Nustatymus" klaidos
+/// pranešimą, NE bando spėti pati (žr. `known_core_platforms` doc aukščiau dėl KODĖL
+/// automatinis spėjimas iš extension'ų sutapimo yra nepatikimas).
+pub fn resolve_preferred_core_path(
+    conn: &rusqlite::Connection,
+    platform_slug: &str,
+) -> Result<Option<String>, AppError> {
+    Ok(read_preferred_cores(conn)?
+        .into_iter()
+        .find(|pref| pref.platform_slug == platform_slug)
+        .map(|pref| pref.core_path))
+}
+
 #[tauri::command]
 pub fn get_preferred_cores(
     state: State<'_, AppState>,
 ) -> Result<Vec<PlatformCorePreference>, AppError> {
     let conn = state.db.lock().expect("Mutex poisoned");
-    match settings::get(&conn, PREFERRED_CORES_KEY)? {
-        Some(json) => serde_json::from_str(&json)
-            .map_err(|error| AppError::Other(format!("sugadintas core.preferred JSON: {error}"))),
-        None => Ok(Vec::new()),
-    }
+    read_preferred_cores(&conn)
 }
 
 #[tauri::command]
@@ -303,6 +327,43 @@ pub fn list_audio_devices() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn open_test_db() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::migrations::MIGRATIONS
+            .iter()
+            .for_each(|(_, sql)| conn.execute_batch(sql).unwrap());
+        conn
+    }
+
+    #[test]
+    fn resolve_preferred_core_path_finds_matching_platform_and_none_otherwise() {
+        let conn = open_test_db();
+        settings::set(
+            &conn,
+            PREFERRED_CORES_KEY,
+            &serde_json::to_string(&[PlatformCorePreference {
+                platform_slug: "snes".to_string(),
+                core_path: "/cores/snes9x_libretro.dylib".to_string(),
+            }])
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolve_preferred_core_path(&conn, "snes")
+                .unwrap()
+                .as_deref(),
+            Some("/cores/snes9x_libretro.dylib")
+        );
+        assert_eq!(resolve_preferred_core_path(&conn, "genesis").unwrap(), None);
+    }
+
+    #[test]
+    fn resolve_preferred_core_path_is_none_when_nothing_ever_configured() {
+        let conn = open_test_db();
+        assert_eq!(resolve_preferred_core_path(&conn, "snes").unwrap(), None);
+    }
 
     const KNOWN_CORE_NAMES: &[&str] = &[
         "Snes9x",

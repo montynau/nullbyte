@@ -2,13 +2,13 @@
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { getGame, scrapeGame, setFavorite } from "$lib/api";
+  import { listen } from "@tauri-apps/api/event";
+  import { getGame, isGameRunning, scrapeGame, setFavorite, startGame } from "$lib/api";
   import { app } from "$lib/stores/app.svelte";
   import { platformAccentClass } from "$lib/utils/platforms";
-  import { formatDate, formatFileSize, formatPlayTime } from "$lib/utils/format";
+  import { errorMessage, formatDate, formatFileSize, formatPlayTime } from "$lib/utils/format";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
-  import * as Tooltip from "$lib/components/ui/tooltip/index.js";
   import PlayIcon from "@lucide/svelte/icons/play";
   import StarIcon from "@lucide/svelte/icons/star";
   import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
@@ -21,6 +21,9 @@
   let notFound = $state(false);
   let scraping = $state(false);
   let scrapeStatusText = $state<string | null>(null);
+  let launching = $state(false);
+  let running = $state(false);
+  let launchError = $state<string | null>(null);
 
   async function load(id: number) {
     game = null;
@@ -36,6 +39,43 @@
   $effect(() => {
     load(gameId);
   });
+
+  // `nullbyte-emu` turi SAVO winit langą (ADR-016) — jis NEĮDĖTAS į šį Tauri langą, tad
+  // vienintelis būdas šiam puslapiui sužinoti, kad sesija pasibaigė, yra "game-closed"
+  // event'as (žr. `commands::emulator::start_game` doc). Atnaujina statistiką (last played/
+  // play count/time), jei tai BUVO šis žaidimas — kitaip ignoruoja (vartotojas galėjo
+  // paleisti, tada pereiti į kitą žaidimo puslapį, kol pirmasis dar veikė).
+  $effect(() => {
+    const unlisten = listen<number>("game-closed", (event) => {
+      if (event.payload === gameId) {
+        running = false;
+        load(gameId);
+      }
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+  });
+
+  $effect(() => {
+    isGameRunning().then((value) => {
+      running = value;
+    });
+  });
+
+  async function play() {
+    if (!game || launching || running) return;
+    launching = true;
+    launchError = null;
+    try {
+      await startGame(game.id);
+      running = true;
+    } catch (error) {
+      launchError = errorMessage(error);
+    } finally {
+      launching = false;
+    }
+  }
 
   async function toggleFavorite() {
     if (!game) return;
@@ -120,17 +160,16 @@
 
     <div class="flex flex-col gap-6 p-6">
       <div class="flex flex-wrap items-center gap-2">
-        <Tooltip.Provider>
-          <Tooltip.Root>
-            <Tooltip.Trigger>
-              <Button disabled>
-                <PlayIcon class="size-4" />
-                Play
-              </Button>
-            </Tooltip.Trigger>
-            <Tooltip.Content>Game launching — coming soon (P9.1)</Tooltip.Content>
-          </Tooltip.Root>
-        </Tooltip.Provider>
+        <Button onclick={play} disabled={launching || running}>
+          <PlayIcon class={launching ? "size-4 animate-pulse" : "size-4"} />
+          {#if running}
+            Playing
+          {:else if launching}
+            Launching...
+          {:else}
+            Play
+          {/if}
+        </Button>
 
         <Button variant={game.favorite ? "default" : "outline"} onclick={toggleFavorite}>
           <StarIcon class={game.favorite ? "size-4 fill-current" : "size-4"} />
@@ -142,6 +181,10 @@
           {scraping ? (scrapeStatusText ?? "Scraping...") : "Re-scrape"}
         </Button>
       </div>
+
+      {#if launchError}
+        <p class="text-destructive text-sm">{launchError}</p>
+      {/if}
 
       {#if game.description}
         <p class="text-foreground/90 max-w-3xl text-sm leading-relaxed">{game.description}</p>

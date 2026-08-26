@@ -3,10 +3,13 @@
 //! `get_input_mapping`/`set_input_mapping`/`reset_input_mapping` (P7.6 Input panelė) —
 //! **TIK persistencija**, dar NEVEIKIA realiame žaidime. Realus mygtukų mapping'as (žr.
 //! `nullbyte_core::input::mapping`) šiuo metu HARDKODINTAS `nullbyte-emu/src/main.rs`, be
-//! jokio IPC kanalo jam perduoti — o realus žaidimo paleidimo srautas per
-//! `crate::ipc::EmuClient` yra P9.1, DAR NEĮGYVENDINTA. Šios komandos tiesiog leidžia
-//! vartotojui iš anksto susikonfigūruoti norimą mapping'ą Settings ekrane, kad jis būtų
-//! paruoštas, kai P9.1 sujungs UI pasirinkimą su realiu vaiko procesu.
+//! jokio IPC kanalo jam perduoti. Nuo P9.1 žaidimo paleidimo srautas (`crate::ipc::EmuClient`,
+//! `commands::emulator::start_game`) JAU REALIAI paleidžia žaidimus — TAI NEBĖRA blokatorius.
+//! Likęs trūkumas — SPECIFINIS šiai funkcijai: reikėtų NAUJO `EmuCommand` varianto (pvz.
+//! `SetInputMapping`), kurio dar nėra, kad `start_game` galėtų nusiųsti šį persistuotą
+//! mapping'ą vaikui prieš `Run`. Šios komandos tiesiog leidžia vartotojui iš anksto
+//! susikonfigūruoti norimą mapping'ą Settings ekrane, kad jis būtų paruoštas, kai atsiras
+//! tas IPC kanalas.
 
 use tauri::{AppHandle, Emitter, State};
 

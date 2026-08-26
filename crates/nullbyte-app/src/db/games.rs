@@ -2,7 +2,7 @@
 //! rūšiavimas, puslapiavimas), pavienio žaidimo CRUD, platformos su žaidimų kiekiu
 //! (MVP.md P5.4).
 
-use rusqlite::{params_from_iter, Connection, Row};
+use rusqlite::{params_from_iter, Connection, OptionalExtension, Row};
 
 use crate::db::models::{Game, Platform};
 use crate::error::AppError;
@@ -211,6 +211,19 @@ pub fn get_game(conn: &Connection, id: i64) -> Result<Option<Game>, AppError> {
             rusqlite::Error::QueryReturnedNoRows => Ok(None),
             other => Err(AppError::from(other)),
         })
+}
+
+/// Platformos `slug` pagal jos ID — P9.1: reikia sutampimui su `PlatformCorePreference.
+/// platform_slug` (žr. `commands::settings::resolve_preferred_core_path`), renkant, kurį
+/// core'ą paleisti konkrečiam žaidimui.
+pub fn get_platform_slug(conn: &Connection, platform_id: i64) -> Result<Option<String>, AppError> {
+    conn.query_row(
+        "SELECT slug FROM platforms WHERE id = ?1",
+        [platform_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(AppError::from)
 }
 
 pub fn set_favorite(conn: &Connection, id: i64, favorite: bool) -> Result<(), AppError> {
@@ -498,6 +511,18 @@ mod tests {
         assert_eq!(game.play_count, 2);
         assert_eq!(game.play_time_seconds, 180);
         assert!(game.last_played.is_some());
+    }
+
+    #[test]
+    fn get_platform_slug_returns_slug_for_known_id_and_none_for_unknown() {
+        let conn = open_test_db();
+        let snes = snes_platform_id(&conn);
+
+        assert_eq!(
+            get_platform_slug(&conn, snes).unwrap().as_deref(),
+            Some("snes")
+        );
+        assert_eq!(get_platform_slug(&conn, 999_999).unwrap(), None);
     }
 
     #[test]

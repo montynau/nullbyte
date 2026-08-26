@@ -7,6 +7,7 @@
   } from "$lib/api";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
+  import { errorMessage } from "$lib/utils/format";
   import type { QuotaSnapshot, ScraperCredentialStatus } from "$lib/types";
 
   // Atitinka `REGION_PRIORITY`/media tipų lentelę CLAUDE.md §9.2 ir
@@ -49,13 +50,6 @@
   $effect(() => {
     loadStatus();
   });
-
-  function errorMessage(error: unknown): string {
-    if (error && typeof error === "object" && "message" in error) {
-      return String((error as { message: unknown }).message);
-    }
-    return String(error);
-  }
 
   function startEditing() {
     devIdInput = "";

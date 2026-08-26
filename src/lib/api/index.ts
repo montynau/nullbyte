@@ -158,3 +158,19 @@ export function setAudioSettings(value: AudioSettings): Promise<void> {
 export function listAudioDevices(): Promise<string[]> {
   return invoke("list_audio_devices");
 }
+
+/** Paleidžia žaidimą — LAUKIA, kol `nullbyte-emu` realiai patvirtina (arba atmeta) `Load`
+ * (MVP.md P9.1), tad `await` trukmė apima ne tik proceso spawn'inimą, bet ir core/ROM
+ * įkėlimą. Klaida (`AppError` `{kind, message}` forma) — nueik per `errorMessage()`
+ * ($lib/utils/format) prieš rodant vartotojui. */
+export function startGame(id: number): Promise<void> {
+  return invoke("start_game", { id });
+}
+
+export function stopGame(): Promise<void> {
+  return invoke("stop_game");
+}
+
+export function isGameRunning(): Promise<boolean> {
+  return invoke("is_game_running");
+}
