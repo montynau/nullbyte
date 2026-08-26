@@ -173,6 +173,11 @@
     <p class="text-muted-foreground text-sm">Loading...</p>
   {:else}
     <div class="flex flex-col gap-1">
+      <div class="text-muted-foreground flex items-center gap-3 px-3 text-xs font-medium">
+        <span class="w-32 shrink-0"></span>
+        <span class="flex-1">Keyboard</span>
+        <span class="flex-1">Gamepad</span>
+      </div>
       {#each LAYOUT as row (row.button)}
         {@const binding = bindingFor(row.button)}
         <div class="border-border flex items-center gap-3 rounded-md border px-3 py-1.5 text-sm">
