@@ -158,3 +158,14 @@ export interface QuotaSnapshot {
   /** Unix sekundės. */
   checkedAt: number;
 }
+
+/** Atitinka `InputBinding` (crates/nullbyte-app/src/commands/input.rs, P7.6) — **TIK
+ * persistencija**, dar NEVEIKIA realiame žaidime (žr. Rust pusės modulio doc — trūksta P9.1
+ * paleidimo srauto). */
+export interface InputBinding {
+  retropadButton: string;
+  /** Naršyklės `KeyboardEvent.code`, pvz. `"ArrowUp"`, `"KeyZ"`. `null` = nepriskirta. */
+  keyboardKey: string | null;
+  /** Naršyklės Gamepad API `button` indeksas. `null` = nepriskirta. */
+  gamepadButton: number | null;
+}

@@ -2214,13 +2214,31 @@ Video/Audio/Input/Scraper). **Paths** — jau anksčiau P7.5 metu pilnai veikian
 `PathsPanel.svelte`). **Scraper** — dabar pilnai įgyvendintas (žr. ADR-022): credentials
 redaguojami UI (`settings` DB lentelė turi pirmenybę prieš `.env`), rodomas maskuotas `devid`,
 paskutinė žinoma kvota (`AppState.last_quota`, atnaujinama scrape'o metu — sąmoningai NE gyvu
-API kvietimu vien atidarius ekraną), regionų prioritetas/media tipai READ-ONLY info. **Cores/
-Video/Audio/Input** — vis dar „coming soon" stub'ai, neįgyvendinta.
+API kvietimu vien atidarius ekraną), regionų prioritetas/media tipai READ-ONLY info. **Input** —
+UI + DB persistencija įgyvendinta (`InputPanel.svelte`, naujos komandos
+`get_input_mapping`/`set_input_mapping`/`reset_input_mapping`, `settings` lentelės raktas
+`input.mapping`, JSON masyvas), bet **SĄMONINGAI dar NEVEIKIA realiame žaidime** — žr. detalų
+paaiškinimą po šia pastaba. **Cores/Video/Audio** — vis dar „coming soon" stub'ai,
+neįgyvendinta.
+
+**Input panelės apribojimas (aptikta PRIEŠ rašant kodą, aptarta su vartotoju):** mygtukų/
+klavišų mapping'as šiuo metu yra HARDKODINTAS `nullbyte-emu/src/main.rs` (vaiko procese), be
+jokio DB saugojimo ir be jokio IPC kanalo jam perduoti — o realus žaidimo paleidimo srautas
+(`nullbyte-app` → `nullbyte-emu` per `EmuClient`) yra P9.1, DAR NEĮGYVENDINTA. Todėl UI leidžia
+vartotojui iš anksto susikonfigūruoti norimą mapping'ą (klaviatūros klavišas per `keydown`
+capture, gamepad mygtukas per naršyklės Gamepad API poll'inimą su `requestAnimationFrame`),
+bet pasirinkimas kol kas TIK persistuojamas `settings` lentelėje — jis nepaveikia jokio
+realaus žaidimo, kol P9.1 nepastatys vamzdyno, sujungiančio šį pasirinkimą su vaiko procesu
+(naujas `EmuCommand::SetMapping` ar panašus). Panelėje rodomas aiškus perspėjimo tekstas apie
+tai. Vartotojas EKSPLICITIŠKAI pasirinko šį apribotą apimties variantą vietoj laukimo iki P9.1
+arba gilesnio engine pakeitimo dabar.
 
 **Acceptance:**
 - [ ] Visi nustatymai išsaugomi DB ir taikomi — DALINIAI: scraper credentials TAIP (žr.
-      ADR-022); core/video/audio/input nustatymai dar neturi jokio backend'o
-- [ ] Mygtukų perrišimas veikia — neįgyvendinta (Input panelis dar stub'as)
+      ADR-022), input mapping IŠSAUGOMAS bet DAR NETAIKOMAS (žr. pastabą aukščiau);
+      core/video/audio nustatymai dar neturi jokio backend'o
+- [ ] Mygtukų perrišimas veikia — UI VEIKIA (persistuoja), bet realiame žaidime NETAIKOMA
+      (blokuoja P9.1, žr. pastabą aukščiau)
 - [x] Neteisingi ScreenScraper credentials duoda aiškią klaidą — `ScreenScraperCredentials::load`
       grąžina `AppError::Other` su aiškiu tekstu, kai nei DB, nei `.env` neturi `devid`/
       `devpassword`; `set_scraper_credentials` atmeta tuščius privalomus laukus prieš įrašymą.

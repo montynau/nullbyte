@@ -6,6 +6,7 @@ import type {
   AppInfo,
   Game,
   GameFilter,
+  InputBinding,
   PlatformSummary,
   QuotaSnapshot,
   RomDirectory,
@@ -103,4 +104,16 @@ export function setScraperCredentials(
 
 export function clearScraperCredentials(): Promise<void> {
   return invoke("clear_scraper_credentials");
+}
+
+export function getInputMapping(): Promise<InputBinding[]> {
+  return invoke("get_input_mapping");
+}
+
+export function setInputMapping(bindings: InputBinding[]): Promise<void> {
+  return invoke("set_input_mapping", { bindings });
+}
+
+export function resetInputMapping(): Promise<void> {
+  return invoke("reset_input_mapping");
 }

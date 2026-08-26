@@ -1,6 +1,7 @@
 <script lang="ts">
   import { resolve } from "$app/paths";
   import * as Tabs from "$lib/components/ui/tabs/index.js";
+  import InputPanel from "$lib/components/settings/InputPanel.svelte";
   import PathsPanel from "$lib/components/settings/PathsPanel.svelte";
   import ScraperPanel from "$lib/components/settings/ScraperPanel.svelte";
   import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
@@ -19,7 +20,7 @@
     <h1 class="text-lg font-semibold">Settings</h1>
   </div>
 
-  <div class="max-w-2xl">
+  <div class="max-w-3xl">
     <Tabs.Root bind:value={activeTab}>
       <Tabs.List class="mb-6">
         <Tabs.Trigger value="paths">Paths</Tabs.Trigger>
@@ -43,7 +44,7 @@
         <p class="text-muted-foreground text-sm">Audio settings — coming soon.</p>
       </Tabs.Content>
       <Tabs.Content value="input">
-        <p class="text-muted-foreground text-sm">Controller rebinding — coming soon.</p>
+        <InputPanel />
       </Tabs.Content>
       <Tabs.Content value="scraper">
         <ScraperPanel />
