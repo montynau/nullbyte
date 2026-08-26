@@ -2174,8 +2174,7 @@ apribojimas kaip P7.2/P7.3, natūraliai išsispręs kartu su P7.5 (skenavimo UI)
 
 **Acceptance:**
 - [ ] Visi metaduomenys rodomi — reikia realių duomenų
-- [x] „Žaisti" paleidžia žaidimą — kodas veikia (P9.1, žr. ADR-030), **NEpatikrinta REALIU
-      interaktyviu paspaudimu** (žr. P9.1 pastabą dėl agento sesijos apribojimo)
+- [x] „Žaisti" paleidžia žaidimą — patikrinta REALIAI vartotojo (P9.1, žr. ADR-030)
 - [ ] Trūkstami duomenys nesulaužo layout'o — kodas tam paruoštas (filtruoja `null`), reikia
       realaus patikrinimo
 
@@ -2452,7 +2451,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 **Tikslas:** viskas veikia kartu, atrodo baigta.
 **Rizika:** 🟡 vidutinė. **Įvertis:** 3–4 dienos.
 
-### P9.1 — Žaidimo paleidimo srautas `[!]`
+### P9.1 — Žaidimo paleidimo srautas `[x]`
 
 **Priklausomybės:** P7.4, P2.5, P3.4, P4.4
 **Failai:** `crates/nullbyte-app/src/commands/emulator.rs` (naujas), `crates/nullbyte-app/src/ipc.rs`,
@@ -2477,23 +2476,19 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 > ĮGYVENDINTI IR REALIAI PALEISTA `pnpm tauri dev`. `commands::emulator::start_game` LAUKIA
 > tikro `EmuStatus::Loaded`/`Error` (ne tik to, kad `Load`/`Run` nusiuntimas per stdin
 > pavyko) prieš grąžindama rezultatą UI — žr. ADR-030 dėl `crate::ipc::EmuClient::spawn`
-// oneshot handshake dizaino. Core parinkimas — TIK per Nustatymų → Cores preferenciją
+> oneshot handshake dizaino. Core parinkimas — TIK per Nustatymų → Cores preferenciją
 > (`resolve_preferred_core_path`); jei nenustatyta, aiškus klaidos pranešimas su nuoroda į
 > Nustatymus — JOKIO automatinio spėjimo/interaktyvaus picker'io (paprasčiau, atitinka P9.3
-> „aiškus pranešimas" filosofiją). **NEPADARYTA šioje sesijoje:** realaus žaidimo/core'o
-> paleidimo NEPAVYKO patikrinti INTERAKTYVIAI (reikia realaus ROM'o+core'o bibliotekoje,
-> paspausti Play, matyti langą) — pati agento sesija negali patikimai spausti/matyti
-> natūralaus (native) `nullbyte-emu` lango (ta pati priežastis, kodėl anksčiau šios sesijos
-> Xbox/Linux hardware testai buvo perduoti vartotojui rankiniu būdu), tad TIK backend'as
-> (`cargo test --workspace`, visos IPC/DB/paths funkcijos) ir `pnpm tauri dev` PATS
-> APLIKACIJOS STARTAS (be klaidų, DB migruoja, komandos registruojasi) patikrinti
-> automatiškai — realus „paspaudžiu Play, matau žaidimą" ciklas laukia vartotojo rankinio
-> patikrinimo.
+> „aiškus pranešimas" filosofiją). **Patikrinta REALIAI vartotojo (2026-08-26):** paspaudus
+> „Play" tikru žaidimu bibliotekoje, `nullbyte-emu` paleido core'ą ir žaidimas realiai
+> veikė — vartotojo žodžiais, „veikia puikiai". Nepatikrinta VISOMS platformoms iš eilės
+> (tik ta, kurią vartotojas išbandė) — kodas pats platform-agnostiškas (core'as visada
+> renkamas per `platform_slug`, ne hardkodintas), tad likusių platformų veikimas tikėtinas,
+> bet ne kiekviena atskirai patvirtinta.
 
 **Acceptance:**
-- [x] Paleidimas iš bibliotekos veikia visoms platformoms — kodas platform-agnostiškas
-      (core'as visada renkamas per `platform_slug`, ne hardkodintas), **NEpatikrinta REALIU
-      paleidimu visoms platformoms** (žr. ADR-030 pastabą aukščiau)
+- [x] Paleidimas iš bibliotekos veikia — patikrinta REALIAI vartotojo (žr. ADR-030 pastabą
+      aukščiau); ne kiekviena platforma atskirai patvirtinta, bet kodas platform-agnostiškas
 - [x] Trūkstamas core → suprantamas pranešimas su nurodymu ką daryti — `start_game` grąžina
       „nėra pasirinkto core'o platformai „X" — nueikite į Nustatymus → Cores..." PRIEŠ
       bandant spawn'inti bet ką
@@ -2619,8 +2614,8 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai (P8.1/P8.2 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
-| 9 — Polish (P9.1 `[!]` — kodas baigtas, interaktyvus patikrinimas laukia vartotojo) | 6 | 0 | 0 % |
-| **Viso** | **52** | **41** | **79 %** |
+| 9 — Polish (P9.1 patvirtinta REALIU vartotojo paleidimu) | 6 | 1 | 17 % |
+| **Viso** | **52** | **42** | **81 %** |
 
 ---
 
@@ -3724,13 +3719,13 @@ metu veikiančių žaidimų palaikymas — NEĮTRAUKTAS į MVP apimtį (žr. §1
 `get_platform_slug`, du `resolve_preferred_core_path`, per-game `paths` testas).
 `cargo clippy --workspace --all-targets -D warnings` švarus. `pnpm check`/`lint`/`build`
 švarūs. `pnpm run build:sidecar` perkompiliuotas (IPC laidas nepakito nuo P8.2 —
-`IPC_PROTOCOL_VERSION` LIEKA `3`, P9.1 nepridėjo naujų PRIVALOMŲ `EmuCommand` laukų). REALIAI
-paleista `pnpm tauri dev` — aplikacija startuoja be klaidų (DB migruoja, visos komandos
-registruojasi, sidecar handshake infrastruktūra paruošta). **NEpatikrinta interaktyviai:**
-realus „paspaudžiu Play → core'as įkeliamas → žaidimas rodomas → uždarau → play_time
-atsinaujina" ciklas su realiu ROM'u/core'u — laukia vartotojo rankinio patikrinimo (agento
-sesija negali patikimai spausti/matyti natūralaus `nullbyte-emu` lango, ta pati priežastis
-kaip ankstesnių šios sesijos Xbox/Linux hardware testų).
+`IPC_PROTOCOL_VERSION` LIEKA `3`, P9.1 nepridėjo naujų PRIVALOMŲ `EmuCommand` laukų). **REALIAI
+patikrinta VARTOTOJO (2026-08-26):** `pnpm tauri dev` paleista, „Play" paspaustas tikru
+žaidimu bibliotekoje — pilnas ciklas (core parinkimas → `nullbyte-emu` spawn → handshake →
+`Load` → `EmuStatus::Loaded` → langas rodo žaidimą) suveikė realiai, vartotojo patvirtinta
+kaip „veikia puikiai". `play_time`/`last_played` fiksavimo (`on_terminated` → `record_play`)
+ir „game-closed" event'o atskirai, per stebimą DB įrašo pasikeitimą, NEpatvirtinta — tik
+netiesiogiai per `db::games::record_play_increments_count_and_time` vieneto testą.
 
 ---
 
