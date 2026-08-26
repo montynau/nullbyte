@@ -20,11 +20,17 @@ class LibraryStore {
   filter = $state<GameFilter>({ ...DEFAULT_FILTER });
   loading = $state(false);
   error = $state<string | null>(null);
+  platformsError = $state<string | null>(null);
 
   totalGameCount = $derived(this.platforms.reduce((sum, p) => sum + p.gameCount, 0));
 
   async loadPlatforms() {
-    this.platforms = await listPlatforms();
+    try {
+      this.platforms = await listPlatforms();
+      this.platformsError = null;
+    } catch (e) {
+      this.platformsError = e instanceof Error ? e.message : String(e);
+    }
   }
 
   async loadGames() {

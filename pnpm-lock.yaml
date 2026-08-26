@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@tanstack/svelte-virtual':
+        specifier: ^3.13.36
+        version: 3.13.36(svelte@5.56.9(@typescript-eslint/types@8.67.0))
       '@tauri-apps/api':
         specifier: ^2
         version: 2.11.1
@@ -645,6 +648,14 @@ packages:
     resolution: {integrity: sha512-yYU8cogLeSh/ms2jh8Fj7jaba/EWa7Ja6GoUqYZaraEuCI5YS6ms6ObZgjjedm+jm6XZjdNRWBpPP6Z86oOxcw==}
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
+
+  '@tanstack/svelte-virtual@3.13.36':
+    resolution: {integrity: sha512-q5z39QWDQriLDc0aAcDY/htR0Sg9mrItQnhXNy/DNtEDQsdkTFTR7ZnMA6idJpLwnUg6PYa8Fb9O3RcCu+H7FQ==}
+    peerDependencies:
+      svelte: ^3.48.0 || ^4.0.0 || ^5.0.0
+
+  '@tanstack/virtual-core@3.17.8':
+    resolution: {integrity: sha512-BfEvehNpOT75r5Ksc5xW6NZuXujTfb7nlSEyVu4XHG3gdxNg1KqXruWbDewXOUaUYIo4oRbSfkjIajz4MAT8tA==}
 
   '@tauri-apps/api@2.11.1':
     resolution: {integrity: sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA==}
@@ -1953,6 +1964,13 @@ snapshots:
       '@tailwindcss/oxide': 4.3.3
       tailwindcss: 4.3.3
       vite: 6.4.3(jiti@2.7.0)(lightningcss@1.32.0)
+
+  '@tanstack/svelte-virtual@3.13.36(svelte@5.56.9(@typescript-eslint/types@8.67.0))':
+    dependencies:
+      '@tanstack/virtual-core': 3.17.8
+      svelte: 5.56.9(@typescript-eslint/types@8.67.0)
+
+  '@tanstack/virtual-core@3.17.8': {}
 
   '@tauri-apps/api@2.11.1': {}
 

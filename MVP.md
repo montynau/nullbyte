@@ -2014,10 +2014,12 @@ visiems būsimiems `.svelte.ts` store'ams (`emulator.svelte.ts`, `settings.svelt
 
 ---
 
-### P7.2 — Žaidimų grid'as ir kortelės `[ ]`
+### P7.2 — Žaidimų grid'as ir kortelės `[x]` (kodas baigtas, ⚠️ reikia vartotojo rankinio patvirtinimo)
 
 **Priklausomybės:** P7.1
-**Failai:** `src/lib/components/library/GameCard.svelte`, `GameGrid.svelte`
+**Failai:** `src/lib/components/library/GameCard.svelte`, `GameGrid.svelte`,
+`src/lib/utils/platforms.ts`, `src/lib/stores/app.svelte.ts` (naujas — `mediaDir` viršeliams),
+`src/lib/api/index.ts` (`getAppInfo`)
 
 **Ką daryti:**
 - Responsive grid, viršelio proporcijos, `Skeleton` kol kraunasi
@@ -2026,10 +2028,26 @@ visiems būsimiems `.svelte.ts` store'ams (`emulator.svelte.ts`, `settings.svelt
 - Placeholder žaidimams be viršelio (platformos spalva + pavadinimas)
 - Hover: pakilimas, šešėlis, pavadinimo overlay
 
+**Įgyvendinta:** `GameGrid.svelte` virtualizuoja EILUTES (ne pavienes korteles) —
+kolonų skaičius skaičiuojamas iš `bind:clientWidth`, `$effect` sinchronizuoja
+virtualizatoriaus `count`/`estimateSize` (žr. ADR-017). Įjungtas Tauri `assetProtocol`
+(anksčiau visai nekonfigūruotas — žr. ADR-017), be jo `convertFileSrc()` viršeliai
+NIEKADA nebūtų pasiekiami. Placeholder — platformos `chart-*` spalva (CLAUDE.md §7.5, jokių
+hardcode'intų hex) + pavadinimas.
+
+**⚠️ Patikrinimo apribojimas (SVARBU perskaityti):** ši sesija veikia per automatizuotą fono
+procesą, ne interaktyvią GUI sesiją — realiai patikrinau su REALIA 5000 įrašų DB (laikinai
+įterpta, po to atstatyta), kad Rust pusė (`list_games`/`list_platforms`) grąžina teisingus
+duomenis IR kad grid'as/korta atvaizduoja teisingai (screenshot'ais), BET native lango OS input
+(pelės paspaudimai, timer'iai) nepasiekė webview'o šioje aplinkoje — negalėjau realiai paspausti
+mygtukų ar patvirtinti 60 FPS slinkimo AR kad `list_platforms` pažadas išsisprendžia realioje
+vartotojo sesijoje (žr. ADR-017 pilną diagnostiką). **Paprašyk vartotojo paleisti `pnpm tauri
+dev` savo terminale ir patvirtinti acceptance punktus žemiau prieš pažymint juos `[x]`.**
+
 **Acceptance:**
-- [ ] 5000 žaidimų grid'as slenka 60 FPS
-- [ ] Viršeliai rodomi
-- [ ] Be viršelio — tvarkingas placeholder
+- [ ] 5000 žaidimų grid'as slenka 60 FPS — reikia vartotojo patvirtinimo
+- [ ] Viršeliai rodomi — reikia vartotojo patvirtinimo
+- [ ] Be viršelio — tvarkingas placeholder — reikia vartotojo patvirtinimo
 
 ---
 
@@ -2306,10 +2324,10 @@ visiems būsimiems `.svelte.ts` store'ams (`emulator.svelte.ts`, `settings.svelt
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
-| 7 — UI | 6 | 1 | 17 % |
+| 7 — UI | 6 | 2 | 33 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **35** | **67 %** |
+| **Viso** | **52** | **36** | **69 %** |
 
 ---
 
@@ -2644,6 +2662,44 @@ scraping'u, UI).
   NEPADARYTA šios sesijos metu (šis ADR — dokumentacijos/sprendimo fiksavimas). Kitas
   žingsnis: implementuoti, tada grįžti prie P4.2 (mapping) ir P4.3 (polling) su nauja
   architektūra.
+
+---
+
+### ADR-017 — `@tanstack/svelte-virtual` grid'o virtualizacijai + Tauri `assetProtocol` viršeliams (P7.2)
+**Data:** 2026-08-26 · **Statusas:** priimta
+**Sprendimas:** `@tanstack/svelte-virtual` (jau numatyta MVP.md P7.2 spec'e) žaidimų grid'o
+virtualizacijai — virtualizuojamos EILUTĖS (ne pavieniai kortų elementai), kolonų skaičius
+skaičiuojamas reaktyviai iš konteinerio pločio (`bind:clientWidth`) ir minimalaus kortos pločio.
+`GameGrid.svelte` sinchronizuoja virtualizatoriaus `count`/`estimateSize` per `$effect` +
+`setOptions()`, nes `createVirtualizer()` priima juos tik kaip pradinę reikšmę (Svelte 5
+`state_referenced_locally` — tikslingai nuslopinta `svelte-ignore` komentaru).
+
+Kartu įjungtas Tauri `assetProtocol` (`tauri.conf.json` `app.security.assetProtocol.enable` +
+`scope`), kad viršeliai galėtų kirsti IPC ribą per `convertFileSrc()` (CLAUDE.md §10, ne
+base64) — anksčiau visiškai neegzistavo, taigi bet koks bandymas rodyti viršelį anksčiau būtų
+tyliai žlugęs. `scope` — `$HOME`-pagrįsti absoliutūs keliai abiem platformoms (macOS
+`Library/Application Support/Nullbyte/media`, Linux `.local/share/nullbyte/media`), NE Tauri
+`$APPDATA` kintamasis, nes `paths.rs` naudoja savo katalogo pavadinimą („Nullbyte"), o ne
+`identifier` (`fr.nullbyte.app`), su kuriuo `$APPDATA` būtų susietas. `tauri-build` automatiškai
+pridėjo `tauri` priklausomybei `features = ["protocol-asset"]` (`Cargo.toml`) — patikrinta
+realiai, kompiliuojasi.
+
+**Pastaba dėl P7.2 patikrinimo apribojimo:** ši sesija veikia per automatizuotą fono `bash`
+procesą (agento aplinka), o ne interaktyvią vartotojo GUI sesiją. Realiai patikrinta REALIU
+`pnpm tauri dev` + tikra 5000 sintetinių įrašų DB (laikinai įterpta testavimui, po to
+atstatyta iš backup'o): Rust pusė (`list_platforms`, `list_games`) veikia teisingai ir grąžina
+teisingus duomenis (patvirtinta `tracing` log'ais), grid'as atvaizduoja korteles su placeholder'iais
+teisingai. TAČIAU pačiame lange (native macOS window) OS lygio input įvykiai (pelės paspaudimai
+per `cliclick`, `setTimeout`/`setInterval` timer'iai) NEPASIEKĖ webview'o — patvirtinta: net
+paprastas Sidebar mygtuko paspaudimas nepakeitė aktyvios būsenos, nors procesas gyvas ir langas
+matomas ekrane (screenshot'ai veikia, nes tai WindowServer kompozicijos lygis, nepriklausomas
+nuo programos savo event loop). Tai agento vykdymo aplinkos apribojimas (GUI procesas, paleistas
+iš fono shell'o, neturi pilnos interaktyvios sesijos), NE Nullbyte/Tauri kodo klaida — vienas
+klik'as/timeris neveiktų VISUR, jei tai būtų reali Tauri/aplikacijos klaida. Dėl to `list_platforms`
+IPC pažadas realioje agento sesijoje niekada neišsisprendė (matyti Sidebar tuščias „Platforms"
+sąrašas), nors Rust pusė grąžino teisingus duomenis — tai TIKĖTINA, kad išnyks normalioje
+vartotojo sesijoje (reikalinga vartotojo patvirtinimo). Žr. pokalbio istoriją dėl pilnos
+diagnostikos sekos.
 
 ---
 

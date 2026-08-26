@@ -2,7 +2,11 @@
 // kai jų prisikaups daugiau; kol kas viskas telpa čia.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { Game, GameFilter, PlatformSummary } from "$lib/types";
+import type { AppInfo, Game, GameFilter, PlatformSummary } from "$lib/types";
+
+export function getAppInfo(): Promise<AppInfo> {
+  return invoke("get_app_info");
+}
 
 export function listGames(filter: GameFilter): Promise<Game[]> {
   return invoke("list_games", { filter });

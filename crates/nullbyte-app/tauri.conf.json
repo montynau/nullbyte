@@ -18,7 +18,14 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/Library/Application Support/Nullbyte/media/**/*",
+          "$HOME/.local/share/nullbyte/media/**/*"
+        ]
+      }
     }
   },
   "bundle": {

@@ -57,6 +57,9 @@
     </li>
   </ul>
 
+  {#if library.platformsError}
+    <p class="text-destructive px-2 text-xs">{library.platformsError}</p>
+  {/if}
   {#if library.platforms.length > 0}
     <div class="flex flex-col gap-0.5">
       <h2 class="text-muted-foreground px-2 pb-1 text-xs font-medium tracking-wide uppercase">
