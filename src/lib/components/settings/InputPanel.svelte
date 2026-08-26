@@ -185,10 +185,17 @@
 
           <div class="flex flex-1 items-center gap-1.5">
             {#if listening?.button === row.button && listening.kind === "keyboard"}
-              <span class="text-muted-foreground text-xs">Press any key... (Esc to cancel)</span>
+              <span class="text-muted-foreground w-28 shrink-0 truncate text-xs"
+                >Press a key...</span
+              >
+            {:else}
+              <span class="w-28 shrink-0 truncate font-mono text-xs">
+                {binding?.keyboardKey ?? "Not set"}
+              </span>
+            {/if}
+            {#if listening?.button === row.button && listening.kind === "keyboard"}
               <Button variant="ghost" size="sm" onclick={cancelListening}>Cancel</Button>
             {:else}
-              <span class="font-mono text-xs">{binding?.keyboardKey ?? "Not set"}</span>
               <Button
                 variant="outline"
                 size="sm"
@@ -196,28 +203,31 @@
               >
                 Rebind
               </Button>
-              {#if binding?.keyboardKey}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onclick={() => clearBinding(row.button, "keyboard")}
-                >
-                  Clear
-                </Button>
-              {/if}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!binding?.keyboardKey}
+                class={binding?.keyboardKey ? "" : "invisible"}
+                onclick={() => clearBinding(row.button, "keyboard")}
+              >
+                Clear
+              </Button>
             {/if}
           </div>
 
           <div class="flex flex-1 items-center gap-1.5">
             {#if listening?.button === row.button && listening.kind === "gamepad"}
-              <span class="text-muted-foreground text-xs"
-                >Press a gamepad button... (Esc to cancel)</span
+              <span class="text-muted-foreground w-28 shrink-0 truncate text-xs"
+                >Press a button...</span
               >
-              <Button variant="ghost" size="sm" onclick={cancelListening}>Cancel</Button>
             {:else}
-              <span class="font-mono text-xs">
+              <span class="w-28 shrink-0 truncate font-mono text-xs">
                 {binding?.gamepadButton != null ? `Button ${binding.gamepadButton}` : "Not set"}
               </span>
+            {/if}
+            {#if listening?.button === row.button && listening.kind === "gamepad"}
+              <Button variant="ghost" size="sm" onclick={cancelListening}>Cancel</Button>
+            {:else}
               <Button
                 variant="outline"
                 size="sm"
@@ -225,15 +235,15 @@
               >
                 Rebind
               </Button>
-              {#if binding?.gamepadButton != null}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onclick={() => clearBinding(row.button, "gamepad")}
-                >
-                  Clear
-                </Button>
-              {/if}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={binding?.gamepadButton == null}
+                class={binding?.gamepadButton != null ? "" : "invisible"}
+                onclick={() => clearBinding(row.button, "gamepad")}
+              >
+                Clear
+              </Button>
             {/if}
           </div>
         </div>
