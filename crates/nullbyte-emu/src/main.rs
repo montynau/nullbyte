@@ -18,6 +18,7 @@ mod ipc;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -86,6 +87,21 @@ fn open_audio(mut consumer: AudioConsumer) -> Result<AudioOutput, CoreError> {
 enum EmuUserEvent {
     StdinClosed,
 }
+
+/// P9.4: `about_to_wait()` cikliškumo intervalas, kai NĖRA ką iškart daryti (nei naujo
+/// kadro, nei OS įvykio). Iki šio fix'o `ControlFlow::Poll` leisdavo winit event loop'ui
+/// suktis BE JOKIO apribojimo — `about_to_wait()` (taigi ir `drain_gamepad_events()`)
+/// buvo kviečiama milijonus kartų per sekundę tuščiai, be jokio naudingo darbo tarp
+/// kadrų. Realiai išmatuota (30 min žaidimo, `ps -o %cpu`, 2026-08-26): 150-200% CPU
+/// (t.y. 1.5-2 pilnus branduolius), vietoj MVP.md P9.4 tikslo < 15%. `ControlFlow::
+/// WaitUntil` PRIEŠINGAI — leidžia OS giją tikrai USNTABDYTI iki numatyto momento (0%
+/// CPU tarp tikrinimų), IR VIS TIEK garantuoja periodinį pabudimą gamepad/kadro
+/// tikrinimui — natūralūs OS įvykiai (klaviatūra, lango uždarymas) IR `EventLoopProxy::
+/// send_event` (`StdinClosed`) VISADA pažadina event loop'ą nepriklausomai nuo šio
+/// intervalo (winit garantija), tad jokio reagavimo laiko nepraradome. ~60Hz — atitinka
+/// tipinį ekrano atnaujinimo dažnį ir gerokai viršija bet kokį pastebimą įvesties delsos
+/// slenkstį.
+const IDLE_POLL_INTERVAL: Duration = Duration::from_millis(16);
 
 struct App {
     event_loop_proxy: EventLoopProxy<EmuUserEvent>,
@@ -481,7 +497,9 @@ impl ApplicationHandler<EmuUserEvent> for App {
             // resume ciklas) — jau inicializuota, nekurk visko iš naujo.
             return;
         }
-        event_loop.set_control_flow(ControlFlow::Poll);
+        // P9.4: WaitUntil, NE Poll — žr. IDLE_POLL_INTERVAL doc. about_to_wait() persistato
+        // šį intervalą kas ciklą, tad tai TIK pradinė reikšmė.
+        event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + IDLE_POLL_INTERVAL));
 
         // Kaip anksti, kaip įmanoma — StatusWriter::spawn() PATS sinchroniškai parašo
         // IpcHello kaip pačią pirmą stdout eilutę (žr. nullbyte_core::ipc modulio doc).
@@ -615,7 +633,13 @@ impl ApplicationHandler<EmuUserEvent> for App {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // P9.4: persistatoma KIEKVIENĄ kartą, PRIEŠ bet kokį ankstyvą `return` žemiau —
+        // kitaip (pvz. `frame_consumer` dar `None`, arba nėra naujo kadro) event loop'as
+        // liktų su SENU `WaitUntil` momentu (praeityje), o winit tokiu atveju grįžta prie
+        // Poll elgsenos (nuolatinio sukimosi) — žr. IDLE_POLL_INTERVAL doc.
+        event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + IDLE_POLL_INTERVAL));
+
         self.drain_gamepad_events();
 
         let Some(consumer) = self.frame_consumer.as_mut() else {
