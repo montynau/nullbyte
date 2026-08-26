@@ -2,6 +2,7 @@
   import { resolve } from "$app/paths";
   import * as Tabs from "$lib/components/ui/tabs/index.js";
   import PathsPanel from "$lib/components/settings/PathsPanel.svelte";
+  import ScraperPanel from "$lib/components/settings/ScraperPanel.svelte";
   import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
 
   let activeTab = $state("paths");
@@ -45,7 +46,7 @@
         <p class="text-muted-foreground text-sm">Controller rebinding — coming soon.</p>
       </Tabs.Content>
       <Tabs.Content value="scraper">
-        <p class="text-muted-foreground text-sm">ScreenScraper credentials — coming soon.</p>
+        <ScraperPanel />
       </Tabs.Content>
     </Tabs.Root>
   </div>

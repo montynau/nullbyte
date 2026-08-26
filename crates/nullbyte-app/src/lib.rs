@@ -106,6 +106,10 @@ pub fn run() {
             commands::scraper::scrape_game,
             commands::scraper::scrape_library,
             commands::scraper::cancel_scrape,
+            commands::scraper::get_scraper_status,
+            commands::scraper::get_scraper_quota,
+            commands::scraper::set_scraper_credentials,
+            commands::scraper::clear_scraper_credentials,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

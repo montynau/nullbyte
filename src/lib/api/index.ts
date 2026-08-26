@@ -7,9 +7,11 @@ import type {
   Game,
   GameFilter,
   PlatformSummary,
+  QuotaSnapshot,
   RomDirectory,
   ScanProgress,
   ScanSummary,
+  ScraperCredentialStatus,
   ScrapeProgress,
   ScrapeSummary,
 } from "$lib/types";
@@ -80,4 +82,25 @@ export function scanLibrary(onProgress: (progress: ScanProgress) => void): Promi
   const channel = new Channel<ScanProgress>();
   channel.onmessage = onProgress;
   return invoke("scan_library", { progress: channel });
+}
+
+export function getScraperStatus(): Promise<ScraperCredentialStatus> {
+  return invoke("get_scraper_status");
+}
+
+export function getScraperQuota(): Promise<QuotaSnapshot | null> {
+  return invoke("get_scraper_quota");
+}
+
+export function setScraperCredentials(
+  devId: string,
+  devPassword: string,
+  ssid: string | null,
+  sspassword: string | null,
+): Promise<void> {
+  return invoke("set_scraper_credentials", { devId, devPassword, ssid, sspassword });
+}
+
+export function clearScraperCredentials(): Promise<void> {
+  return invoke("clear_scraper_credentials");
 }

@@ -55,6 +55,45 @@ impl ScreenScraperCredentials {
             sspassword: std::env::var("SCREENSCRAPER_SSPASSWORD").ok(),
         })
     }
+
+    /// Raktai, po kuriais UI redaguoti kredencialai laikomi `settings` lentelėje (P7.6
+    /// Scraper panelė) — vieša, kad `commands::scraper` galėtų juos naudoti rašydama, nesant
+    /// šio modulio viduje dviejų nesinchronizuotų raktų vardų sąrašų.
+    pub const KEY_DEV_ID: &'static str = "scraper.dev_id";
+    pub const KEY_DEV_PASSWORD: &'static str = "scraper.dev_password";
+    pub const KEY_SSID: &'static str = "scraper.ssid";
+    pub const KEY_SSPASSWORD: &'static str = "scraper.sspassword";
+
+    /// Kaip [`Self::from_env`], bet `settings` lentelėje (P7.6 UI) įrašytos reikšmės TURI
+    /// PIRMENYBĘ prieš `.env` — vartotojas redaguoja per Settings ekraną, ne failą, tad jo
+    /// paskutinis veiksmas laimi. Tuščia (arba nesanti) DB reikšmė krinta atgal į `.env`.
+    /// Klaida grąžinama TIK jei nei DB, nei `.env` neturi PRIVALOMŲ `devid`/`devpassword`.
+    pub fn load(conn: &rusqlite::Connection) -> Result<Self, AppError> {
+        use crate::db::settings;
+
+        let env = Self::from_env().ok();
+
+        let db_devid = settings::get(conn, Self::KEY_DEV_ID)?.filter(|s| !s.is_empty());
+        let db_devpassword = settings::get(conn, Self::KEY_DEV_PASSWORD)?.filter(|s| !s.is_empty());
+        let db_ssid = settings::get(conn, Self::KEY_SSID)?.filter(|s| !s.is_empty());
+        let db_sspassword = settings::get(conn, Self::KEY_SSPASSWORD)?.filter(|s| !s.is_empty());
+
+        let devid = db_devid.or_else(|| env.as_ref().map(|c| c.devid.clone()));
+        let devpassword = db_devpassword.or_else(|| env.as_ref().map(|c| c.devpassword.clone()));
+
+        let (Some(devid), Some(devpassword)) = (devid, devpassword) else {
+            return Err(AppError::Other(
+                "ScreenScraper dev credentials nesukonfigūruoti (Settings arba .env)".to_string(),
+            ));
+        };
+
+        Ok(Self {
+            devid,
+            devpassword,
+            ssid: db_ssid.or_else(|| env.as_ref().and_then(|c| c.ssid.clone())),
+            sspassword: db_sspassword.or_else(|| env.as_ref().and_then(|c| c.sspassword.clone())),
+        })
+    }
 }
 
 /// ROM'o identifikuojanti informacija, siunčiama ScreenScraper'iui — paprastai iš
@@ -320,6 +359,20 @@ fn pick_available_region(noms: &[RegionText]) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// Rust testai VIENAME binare paleidžiami LYGIAGREČIAI — trys testai šiame modulyje
+    /// mutuoja tuos pačius PROCESO GLOBALIUS `SCREENSCRAPER_*` env kintamuosius
+    /// (`credentials_from_env_reads_required_and_optional_fields`,
+    /// `load_prefers_settings_table_over_env`, `load_falls_back_to_env_when_settings_table_empty`).
+    /// Be šio lock'o jie realiai lenktyniauja (pastebėta: vieno testo `set_var` „laimėdavo"
+    /// prieš kito `assert`) — šis `Mutex` priverčia juos vykdytis nuosekliai vienas po kito.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// Sutrumpinta, kredencialų NETURINTI versija REALAUS ScreenScraper `jeuInfos.php`
     /// atsakymo (Super Metroid, SNES, `crc=AD2CBF9C`, gauta 2026-08-25) — laukų PAVADINIMAI
     /// ir FORMA (`noms`/`dates` masyvai, `developpeur`/`editeur` pavieniai objektai ir t.t.)
@@ -483,6 +536,7 @@ mod tests {
 
     #[test]
     fn credentials_from_env_reads_required_and_optional_fields() {
+        let _guard = lock_env();
         // VISI keturi kintamieji nustatomi EKSPLICITIŠKAI (ne pašalinami) — `dotenvy::dotenv()`
         // viduje `from_env()` NEPERRAŠO jau nustatytų kintamųjų (standartinis dotenv elgesys),
         // bet TIKRAS šio repo `.env` failas (kurį `dotenv()` randa einant per tėvinius
@@ -505,6 +559,53 @@ mod tests {
         std::env::remove_var("SCREENSCRAPER_DEV_PASSWORD");
         std::env::remove_var("SCREENSCRAPER_SSID");
         std::env::remove_var("SCREENSCRAPER_SSPASSWORD");
+    }
+
+    fn open_test_db() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::migrations::MIGRATIONS
+            .iter()
+            .for_each(|(_, sql)| conn.execute_batch(sql).unwrap());
+        conn
+    }
+
+    /// P7.6 Scraper panelė: UI įrašyti kredencialai (`settings` lentelė) TURI PIRMENYBĘ prieš
+    /// `.env` (žr. `load` doc).
+    #[test]
+    fn load_prefers_settings_table_over_env() {
+        let _guard = lock_env();
+        std::env::set_var("SCREENSCRAPER_DEV_ID", "env-id");
+        std::env::set_var("SCREENSCRAPER_DEV_PASSWORD", "env-pass");
+
+        let conn = open_test_db();
+        crate::db::settings::set(&conn, ScreenScraperCredentials::KEY_DEV_ID, "db-id").unwrap();
+        crate::db::settings::set(&conn, ScreenScraperCredentials::KEY_DEV_PASSWORD, "db-pass")
+            .unwrap();
+
+        let creds = ScreenScraperCredentials::load(&conn).unwrap();
+        assert_eq!(creds.devid, "db-id");
+        assert_eq!(creds.devpassword, "db-pass");
+
+        std::env::remove_var("SCREENSCRAPER_DEV_ID");
+        std::env::remove_var("SCREENSCRAPER_DEV_PASSWORD");
+    }
+
+    /// Kai `settings` lentelėje nieko nėra — `load` krenta atgal į `.env`, elgiasi kaip
+    /// `from_env`.
+    #[test]
+    fn load_falls_back_to_env_when_settings_table_empty() {
+        let _guard = lock_env();
+        std::env::set_var("SCREENSCRAPER_DEV_ID", "env-only-id");
+        std::env::set_var("SCREENSCRAPER_DEV_PASSWORD", "env-only-pass");
+
+        let conn = open_test_db();
+
+        let creds = ScreenScraperCredentials::load(&conn).unwrap();
+        assert_eq!(creds.devid, "env-only-id");
+        assert_eq!(creds.devpassword, "env-only-pass");
+
+        std::env::remove_var("SCREENSCRAPER_DEV_ID");
+        std::env::remove_var("SCREENSCRAPER_DEV_PASSWORD");
     }
 
     /// P6.1 acceptance: „Žinomas SNES ROM'as randa teisingus metaduomenis" — REALUS tinklo

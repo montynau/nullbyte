@@ -140,3 +140,21 @@ export interface ScanSummary {
   removed: number;
   skippedUnknownExtension: number;
 }
+
+/** Atitinka `ScraperCredentialStatus` (crates/nullbyte-app/src/commands/scraper.rs, P7.6) —
+ * TIK konfigūracijos būvis, niekada tikri kredencialai (žr. Rust pusės doc). */
+export interface ScraperCredentialStatus {
+  devCredentialsConfigured: boolean;
+  /** Pvz. `"ab••••"`, arba `null`, jei `devCredentialsConfigured` yra `false`. */
+  devIdMasked: string | null;
+  userLoginConfigured: boolean;
+  /** `true`, jei kredencialai įrašyti per Settings UI (turi pirmenybę prieš `.env`). */
+  overridden: boolean;
+}
+
+/** Atitinka `QuotaSnapshot` (crates/nullbyte-app/src/commands/scraper.rs, P7.6). */
+export interface QuotaSnapshot {
+  quotaLeft: number;
+  /** Unix sekundės. */
+  checkedAt: number;
+}

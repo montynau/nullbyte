@@ -6,3 +6,4 @@ pub mod games;
 pub mod migrations;
 pub mod models;
 pub mod rom_directories;
+pub mod settings;

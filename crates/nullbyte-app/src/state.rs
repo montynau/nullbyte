@@ -37,6 +37,12 @@ pub struct AppState {
     /// nevyksta. `commands::scraper::cancel_scrape` jį randa čia (P6.4 acceptance:
     /// „Atšaukimas veikia iškart").
     pub scrape_cancellation: Mutex<Option<tokio_util::sync::CancellationToken>>,
+    /// Paskutinė ŽINOMA (iš gyvo, ne cache'uoto, atsakymo) likusi dienos kvota — `None`, kol
+    /// šią sesiją dar niekas nescrape'inta. Sąmoningai NĖRA gaunama specialiu „patikrink
+    /// kvotą" API kvietimu (CLAUDE.md §9.3 „niekada neskenuok/nešvaistyk kvotos be reikalo") —
+    /// atnaujinama TIK kaip `scrape_game`/`scrape_library` šalutinis produktas
+    /// (`commands::scraper`). P7.6 Settings ekranas ją rodo pasyviai.
+    pub last_quota: Mutex<Option<crate::commands::scraper::QuotaSnapshot>>,
 }
 
 impl AppState {
@@ -56,6 +62,7 @@ impl AppState {
             scraper_client: reqwest::Client::new(),
             rate_limiter: crate::scraper::rate_limit::RateLimiter::new(),
             scrape_cancellation: Mutex::new(None),
+            last_quota: Mutex::new(None),
         })
     }
 }

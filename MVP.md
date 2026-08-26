@@ -2209,10 +2209,22 @@ teisingai — 30 SNES + 35 Genesis + 20 GBA + 3 Sony PlayStation (ne Sega CD).
 - **Įvestis:** valdiklių sąrašas, mygtukų perrišimas (spaudi mygtuką → priskiria)
 - **Scraper:** ScreenScraper login, regionų prioritetas, media tipai, kvotos likutis
 
+**Progresas (2026-08-26):** ekranas dabar tabuotas (`Tabs.Root`, 6 kortelės: Paths/Cores/
+Video/Audio/Input/Scraper). **Paths** — jau anksčiau P7.5 metu pilnai veikiantis (perpanaudotas
+`PathsPanel.svelte`). **Scraper** — dabar pilnai įgyvendintas (žr. ADR-022): credentials
+redaguojami UI (`settings` DB lentelė turi pirmenybę prieš `.env`), rodomas maskuotas `devid`,
+paskutinė žinoma kvota (`AppState.last_quota`, atnaujinama scrape'o metu — sąmoningai NE gyvu
+API kvietimu vien atidarius ekraną), regionų prioritetas/media tipai READ-ONLY info. **Cores/
+Video/Audio/Input** — vis dar „coming soon" stub'ai, neįgyvendinta.
+
 **Acceptance:**
-- [ ] Visi nustatymai išsaugomi DB ir taikomi
-- [ ] Mygtukų perrišimas veikia
-- [ ] Neteisingi ScreenScraper credentials duoda aiškią klaidą
+- [ ] Visi nustatymai išsaugomi DB ir taikomi — DALINIAI: scraper credentials TAIP (žr.
+      ADR-022); core/video/audio/input nustatymai dar neturi jokio backend'o
+- [ ] Mygtukų perrišimas veikia — neįgyvendinta (Input panelis dar stub'as)
+- [x] Neteisingi ScreenScraper credentials duoda aiškią klaidą — `ScreenScraperCredentials::load`
+      grąžina `AppError::Other` su aiškiu tekstu, kai nei DB, nei `.env` neturi `devid`/
+      `devpassword`; `set_scraper_credentials` atmeta tuščius privalomus laukus prieš įrašymą.
+      UI (`ScraperPanel.svelte`) rodo klaidos tekstą tiesiai formoje.
 
 ---
 
@@ -3019,6 +3031,52 @@ viršelį į JAV „Final Fantasy II" atitikmenį (rasta per papildomą `romnom`
 PAČIAI ScreenScraper API'jai, ne kodo pakeitimas), tada nusprendė žaidimą visai pašalinti iš
 bibliotekos testavimo metu — abu veiksmai atlikti tiesiogiai per DB/failų sistemą vartotojo
 prašymu, NE per app'o UI (nėra `delete_game` komandos — post-MVP, jei prireiks).
+
+---
+
+### ADR-022 — ScreenScraper kredencialai redaguojami UI, `settings` lentelė TURI PIRMENYBĘ prieš `.env` (P7.6 Scraper panelė)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** P7.6 Scraper panelės pirma versija rodė kredencialų būvį TIK skaitymui
+(`.env`), nes CLAUDE.md §9.3 anksčiau leido abu variantus („Dev credentials — iš `.env`/
+nustatymų"), bet UI redagavimas dar nebuvo įgyvendintas. Vartotojas paprašė padaryti
+kredencialus redaguojamus per UI.
+
+**Sprendimas:**
+- Naujas `db/settings.rs` — plika `String -> String` KV sąsaja (`get`/`set`/`delete`) virš JAU
+  egzistuojančios `settings` lentelės (P5.1 schema, iki šiol nenaudota). SĄMONINGAI be
+  tipizuoto `Settings` struct'o — būsimi domenai (core/video/audio nustatymai) turės visiškai
+  skirtingus raktus, bendras struct'as tik pridėtų netiesioginumo.
+- `ScreenScraperCredentials::load(conn)` (nauja, greta senos `from_env()`, kuri LIEKA
+  nepakitusi žemesniam sluoksniui) — `settings` lentelės reikšmės (raktai
+  `scraper.dev_id`/`dev_password`/`ssid`/`sspassword`, konstantos viešos kaip
+  `ScreenScraperCredentials::KEY_*`) TURI PIRMENYBĘ prieš `.env`, nes vartotojo paskutinis
+  veiksmas per Settings ekraną turi laimėti prieš statinį failą. Tuščia arba nesanti DB
+  reikšmė krenta atgal į `.env` PER LAUKĄ (ne viskas-arba-nieko) — pvz. galima turėti `devid`/
+  `devpassword` iš `.env`, bet `ssid` override'intą tik UI.
+- `commands::scraper::{scrape_game, scrape_library, get_scraper_status}` perjungti nuo
+  `from_env()` į `load(&conn)`. Naujos komandos `set_scraper_credentials`/
+  `clear_scraper_credentials` — validuoja, kad `devId`/`devPassword` neturi būti tušti, tuščią
+  `ssid`/`sspassword` traktuoja kaip „ištrink override'ą", ne kaip tuščios eilutės įrašymą.
+  `ScraperCredentialStatus` gavo `overridden: bool` lauką — UI juo sprendžia, ar rodyti „Clear
+  override" mygtuką.
+- **Niekada** negrąžinami tikri slaptažodžiai atgal į UI (net redaguojant) — forma visada
+  prasideda TUŠČIA, vartotojas įveda pilnas naujas reikšmes; rodomas tik maskuotas `devid`
+  prefix'as (`"ab••••"`) esamai konfigūracijai atpažinti.
+
+**Testavimas:** `db/settings.rs` — CRUD unit testai (in-memory DB). `screenscraper.rs` —
+du nauji testai (`load_prefers_settings_table_over_env`,
+`load_falls_back_to_env_when_settings_table_empty`) PAGAVO realų lygiagretumo bug'ą: trys
+testai šiame faile mutuoja tuos pačius PROCESO GLOBALIUS `SCREENSCRAPER_*` env kintamuosius,
+o Rust testai viename binare paleidžiami LYGIAGREČIAI — be sinchronizacijos jie realiai
+lenktyniaudavo (pastebėta CI-tipo bandymu `cargo test`, ne teoriškai). Ištaisyta modulio lygio
+`static ENV_LOCK: Mutex<()>` + `lock_env()` helper'iu, kurį visi trys testai kviečia prieš
+mutuodami env — dabar deterministiškai praeina pakartotinai (patikrinta 3× iš eilės).
+
+**Dar NEĮGYVENDINTA šioje sesijoje:** regionų prioritetas ir media tipai Scraper panelėje
+lieka READ-ONLY (hardkodintos Rust konstantos) — jų padarymas redaguojamu būtų atskiras,
+platesnis žingsnis (naujos `settings` raktai + `screenscraper.rs`/`media.rs` skaitymas iš DB
+vietoj konstantų), vartotojo sąmoningai atidėtas šiam kartui.
 
 ---
 
