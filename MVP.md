@@ -2062,10 +2062,11 @@ realių (ar bent testinių) žaidimų su viršeliais — natūraliai atsiras kar
 
 ---
 
-### P7.3 — Video preview 🟡 `[ ]`
+### P7.3 — Video preview 🟡 `[x]` (kodas baigtas, ⚠️ dar nepatikrinta su realiu video)
 
 **Priklausomybės:** P7.2, P6.3
-**Failai:** `src/lib/components/library/VideoPreview.svelte`
+**Failai:** `src/lib/components/library/VideoPreview.svelte`,
+`src/lib/stores/videoPreview.svelte.ts` (naujas)
 
 **Ką daryti:**
 - Hover 300 ms → prasideda video (`muted`, `loop`, `playsinline`, `preload="none"`)
@@ -2074,10 +2075,25 @@ realių (ar bent testinių) žaidimų su viršeliais — natūraliai atsiras kar
 - **Vienu metu groja tik VIENAS video** — globalus „aktyvus preview" būvis
 - `$effect` cleanup privalomas (kitaip liks groti fone)
 
+**Įgyvendinta:** `videoPreview.svelte.ts` — vienintelis `activeGameId` laukas (singleton) visai
+bibliotekai; `VideoPreview.svelte` pati valdo hover debounce (`setTimeout` 300 ms, `clearTimeout`
+paleidimas iš karto pele išėjus — greitas slinkimas niekada nepasiekia 300 ms), `<video>`
+elementas egzistuoja TIK kol `active` (Svelte `{#if}`) — kadangi `activeGameId` yra vienas
+globalus laukas, naujos kortelės aktyvavimas automatiškai išjungia seną (jos `{#if}` tampa
+`false`, elementas sunaikinamas). `$effect` grąžina cleanup funkciją, kuri `pause()` +
+`currentTime = 0` + `removeAttribute("src")` + `load()` — tikrai atlaisvina dekoderį, ne tik
+sustabdo. Integruota į `GameCard.svelte` kaip absoliučiai pozicionuotas hover-catcher sluoksnis
+tarp viršelio ir apatinio gradiento.
+
+**⚠️ Patikrinimo apribojimas:** biblioteka realiai dar tuščia (joks ROM katalogas
+nenuskenuotas, joks scraping'as nepaleistas) — kodas kompiliuojasi, `pnpm check`/`lint`/`build`
+švarūs, bet debounce/single-video/atminties acceptance punktų su REALIU video failu dar
+niekas nepatikrino. Tas pats apribojimas kaip P7.2 viršeliams — natūraliai patikrinama kartu.
+
 **Acceptance:**
-- [ ] Greitai slenkant pele video nepradeda groti (debounce veikia)
-- [ ] Niekada negroja 2 video vienu metu
-- [ ] Atminties naudojimas nekyla slenkant per 100 kortelių
+- [ ] Greitai slenkant pele video nepradeda groti (debounce veikia) — reikia realių duomenų
+- [ ] Niekada negroja 2 video vienu metu — reikia realių duomenų
+- [ ] Atminties naudojimas nekyla slenkant per 100 kortelių — reikia realių duomenų
 
 ---
 
@@ -2335,10 +2351,10 @@ realių (ar bent testinių) žaidimų su viršeliais — natūraliai atsiras kar
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
-| 7 — UI | 6 | 2 | 33 % |
+| 7 — UI | 6 | 3 | 50 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **36** | **69 %** |
+| **Viso** | **52** | **37** | **71 %** |
 
 ---
 

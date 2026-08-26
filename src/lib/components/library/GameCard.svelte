@@ -3,6 +3,7 @@
   import { app } from "$lib/stores/app.svelte";
   import { platformAccentClass } from "$lib/utils/platforms";
   import Gamepad2Icon from "@lucide/svelte/icons/gamepad-2";
+  import VideoPreview from "./VideoPreview.svelte";
   import type { Game } from "$lib/types";
 
   let { game }: { game: Game } = $props();
@@ -38,6 +39,8 @@
       onerror={() => (imgFailed = true)}
     />
   {/if}
+
+  <VideoPreview {game} mediaDir={app.info?.mediaDir ?? null} />
 
   <div
     class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2 pt-6 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
