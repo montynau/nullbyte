@@ -9,6 +9,7 @@ pub mod ffi;
 pub mod info;
 pub mod loader;
 pub mod runner;
+pub mod savestate;
 
 // Testų-tik pagalbinė medžiaga bendra `core::*` moduliams.
 #[cfg(test)]

@@ -2357,10 +2357,12 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 **Tikslas:** progresas neprapuola.
 **Rizika:** 🟡 vidutinė. **Įvertis:** 1–2 dienos.
 
-### P8.1 — Save states `[ ]`
+### P8.1 — Save states `[!]`
 
 **Priklausomybės:** P1.7, P5.1
-**Failai:** `crates/nullbyte-core/src/core/savestate.rs`
+**Failai:** `crates/nullbyte-core/src/core/savestate.rs`, `crates/nullbyte-core/src/video/png_encoder.rs`,
+`crates/nullbyte-core/src/core/loader.rs`, `crates/nullbyte-core/src/core/runner.rs`,
+`crates/nullbyte-core/src/ipc.rs`, `crates/nullbyte-app/src/db/save_states.rs`
 
 **Ką daryti:**
 - `retro_serialize_size()` **prieš kiekvieną** išsaugojimą
@@ -2378,11 +2380,25 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 > NE žalius kadro baitus. Tėvas tik įrašo tą kelią į DB. Tai atitinka §10 „IPC riba turi
 > likti PLONA" taisyklę.
 
+> **Pastaba (ADR-028, 2026-08-26):** core mechanizmas (serializacija, atominis įrašymas,
+> PNG preview, IPC laidas, DB CRUD) pilnai įgyvendintas ir testuotas — žr. ADR-028. TRŪKSTA:
+> `commands::` Tauri sluoksnio (nėra kviečiančiojo — laukia P9.1 paleidimo pipeline'o, ta pati
+> situacija kaip `db/rom_directories.rs` prieš P7.5), realaus end-to-end hotkey testo per
+> gyvą procesą, core-mismatch įspėjimo logikos (reikalauja `commands::` palyginti
+> `save_states.core_name`/`core_version` prieš `LoadState`).
+
 **Acceptance:**
-- [ ] Save → uždaryti → paleisti → load → tas pats taškas
-- [ ] 4 slot'ai + quick save nepersidengia
-- [ ] Preview paveiksliukas teisingas
-- [ ] Kito core state → įspėjimas, ne crash
+- [x] Save → uždaryti → paleisti → load → tas pats taškas — patikrinta VIENETO teste
+      (`core::savestate::tests::save_then_load_on_a_fresh_core_restores_identical_state`) su
+      REALIU snes9x core'u + realiu SNES ROM'u, sukuriant NAUJĄ `CoreHandle` (simuliuoja
+      procesą iš naujo) ir lyginant `serialize()` išvestį baitas-į-baitą. **NEpatikrinta**
+      per pilną gyvą procesą/hotkey (žr. ADR-028 pastabą aukščiau).
+- [ ] 4 slot'ai + quick save nepersidengia — DB pusė (`UNIQUE(game_id, slot)`, `upsert`)
+      testuota, bet BE `commands::` sluoksnio realaus hotkey→DB kelio nėra
+- [x] Preview paveiksliukas teisingas — hand-rolled PNG encoder'is, roundtrip'as per REALŲ
+      `png` crate decoder'į (dev-dependency) patvirtina baitas-į-baitą tapatų RGBA turinį,
+      įskaitant multi-block DEFLATE kelią (>65535 baitų)
+- [ ] Kito core state → įspėjimas, ne crash — logika dar neparašyta (žr. ADR-028 pastabą)
 
 ---
 
@@ -2549,7 +2565,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
-| 8 — Išsaugojimai | 2 | 0 | 0 % |
+| 8 — Išsaugojimai (P8.1 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
 | **Viso** | **52** | **41** | **79 %** |
 
@@ -3516,6 +3532,42 @@ atkuriamą, pataisytą pavyzdį.
 testuota), realus gamepad Linux'e (jokio valdiklio neturėta ant omarchy), Tauri app'o pati
 UI/native dialog'ai Linux'e (testuota TIK `nullbyte-emu` tiesiogiai, ne `pnpm tauri dev`),
 fullscreen toggle Linux'e.
+
+### ADR-028 — Save state'ų `states_dir` architektūra + ranka rašytas PNG encoder'is (P8.1)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** P8.1 reikalauja, kad `nullbyte-emu` (vaikas, DB-oblivious pagal ADR-016) sugebėtų
+išsaugoti/įkelti save state'us TAM TIKRAM žaidimui, VEIKDAMAS TIK per hotkey (F5-F8/Shift+F5-F8,
+MVP.md P4.4) — jokio Tauri IPC round-trip'o hotkey paspaudimo metu nėra ir neplanuojama.
+
+**Sprendimas #1 (`EmuCommand::Load.states_dir`):** pirminis bandymas buvo padaryti
+`SaveState`/`LoadState` struct-like variantais su pilnu `path`/`thumb_path` iš tėvo KIEKVIENAM
+hotkey paspaudimui — atmesta, nes realus kviečiantysis (`nullbyte-emu` hotkey handleris) NETURI
+tėvo po ranka tuo metu. Vietoj to `EmuCommand::Load` gavo naują PRIVALOMĄ `states_dir: PathBuf`
+lauką — tėvas išsprendžia žaidimo katalogą VIENĄ kartą, `Load` metu; vaikas tada patį `{slot}.state`/
+`.png` kelią sudaro LOKALIAI (`states_dir.join(...)`), be jokio IPC papildomai. `SaveState(u8)`/
+`LoadState(u8)` liko PAPRASTI `(slot)` tuple variantai — nulinis laido pokytis jiems patiems.
+Kadangi `Load` gavo naują PRIVALOMĄ lauką, `IPC_PROTOCOL_VERSION` pakelta į `2` (žr. `ipc.rs` doc).
+
+**Sprendimas #2 (ranka rašytas PNG encoder'is vietoj `png` crate priklausomybės):** vartotojui
+pasiūlyta rinktis tarp `png` crate (pilnai funkcionalus, bet nauja produkcinė priklausomybė) ir
+minimalaus ranka rašyto encoder'io (PNG signatūra + IHDR/IDAT/IEND, `crc32fast` — JAU esama
+priklausomybė — per chunk'ą, zlib apvalkalas su DEFLATE „stored" (nekompresuotais) blokais, ranka
+rašytas Adler-32). Vartotojas pasirinko ranka rašytą variantą (žr. ADR-021 precedentą — panašus
+sprendimas anksčiau). `png` crate PRIDĖTAS TIK kaip **dev-dependency** — vienintelis naudojimas
+testuose, roundtrip'inant encoder'io išvestį per REALŲ, patikimą decoder'į (ta pati kategorija
+kaip `zip` dev-dependency `nullbyte-app` teste fixture'ams kurti). Produkciniame binare `png`
+crate NIEKADA nekompiliuojamas.
+
+**Patikrinta:** `cargo test --workspace` — 88 nullbyte-core testai (0 failed), įskaitant
+`png_encoder::tests::roundtrips_through_a_real_png_decoder` (17×13 šachmatų lentelė) ir
+`roundtrips_a_frame_larger_than_one_stored_block` (300×300, priverčia multi-block DEFLATE kelią),
+bei `savestate::tests::save_then_load_on_a_fresh_core_restores_identical_state` (realus snes9x
+core + realus SNES ROM, NAUJAS `CoreHandle` simuliuoja procesą iš naujo, `serialize()` išvestis
+identiška baitas-į-baitą). `cargo clippy --workspace --all-targets -D warnings` švarus.
+`crates/nullbyte-app/src/db/save_states.rs` (CRUD, `UNIQUE(game_id, slot)` upsert) — 5 testai,
+visi praeina, bet modulis kol kas be kviečiančiojo (`#![allow(dead_code)]`, žr. P8.1 pastabą) —
+laukia P9.1 paleidimo pipeline'o, kad būtų iš ko realiai kviesti.
 
 ---
 

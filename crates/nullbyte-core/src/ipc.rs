@@ -67,7 +67,11 @@ use crate::error::CoreError;
 /// Didinamas KIEKVIENĄ kartą, kai keičiasi `EmuCommand`/`EmuStatus`/`IpcHello` laido formatas
 /// (nauja privaloma reikšmė, pašalintas variantas, pervardytas laukas) — ne kiekvieną kartą,
 /// kai pridedamas naujas OPCIONALUS/atgal-suderinamas variantas.
-pub const IPC_PROTOCOL_VERSION: u32 = 1;
+///
+/// `2` (P8.1, 2026-08-26): `EmuCommand::Load` gavo naują PRIVALOMĄ `states_dir: PathBuf`
+/// lauką (žr. `EmuCommand::Load` doc) — tai TIKSLIAI atvejis, kurį ši versija turi pagauti
+/// (senas sidecar'as, gavęs naują lauką kaip trūkstamą, nesuprastų žinutės formato).
+pub const IPC_PROTOCOL_VERSION: u32 = 2;
 
 /// Protokolo versijos handshake — pirma žinutė, kurią kiekviena pusė siunčia SAVO, ir pirma
 /// žinutė, kurią kiekviena pusė TIKISI gauti iš kitos. Abi pusės naudoja TĄ PATĮ tipą (žr.
@@ -121,6 +125,12 @@ pub enum EmuStatus {
     /// `EmuCommand::Stop` užbaigtas švariai — core'as atlaisvintas (`unload_game` →
     /// `deinit` → `drop(Library)`, žr. CLAUDE.md §8.2 žingsnis 14).
     Stopped,
+    /// `EmuCommand::SaveState` sėkmingai užbaigtas (P8.1). Kelio ATGAL siųsti NEREIKIA —
+    /// tėvas jį gali išvesti pats iš `states_dir` (siųsto per `EmuCommand::Load`, žr. jo doc)
+    /// ir `slot` — tai tik patvirtinimas, kad operacija realiai pavyko.
+    StateSaved { slot: u8 },
+    /// `EmuCommand::LoadState` sėkmingai užbaigtas (P8.1).
+    StateLoaded { slot: u8 },
 }
 
 /// Kanalo talpa — kelios sekundės `Stats` žinučių esant throttle'ui + vietos retiems

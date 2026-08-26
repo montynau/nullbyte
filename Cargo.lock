@@ -3177,6 +3177,7 @@ dependencies = [
  "gilrs",
  "libloading 0.8.9",
  "md-5",
+ "png 0.18.1",
  "pollster",
  "raw-window-handle",
  "rtrb",

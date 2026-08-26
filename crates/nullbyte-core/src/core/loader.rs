@@ -336,6 +336,39 @@ impl CoreHandle {
     pub unsafe fn reset(&self) {
         unsafe { (self.symbols.retro_reset)() };
     }
+
+    /// `retro_serialize_size()` — DABARTINIS reikalingas buferio dydis. CLAUDE.md §8.7:
+    /// GALI skirtis tarp kvietimų (pvz. priklausomai nuo žaidimo būvio), tad PRIVALO būti
+    /// kviečiama iš naujo PRIEŠ KIEKVIENĄ išsaugojimą, niekada necache'uojama.
+    ///
+    /// # Safety
+    /// Turi būti kviečiama tik iš emuliavimo gijos, po sėkmingo `load_game()`.
+    pub unsafe fn serialize_size(&self) -> usize {
+        unsafe { (self.symbols.retro_serialize_size)() }
+    }
+
+    /// `retro_serialize()` — užpildo `buffer` dabartiniu žaidimo būviu. `buffer.len()` TURI
+    /// būti bent `serialize_size()` (skambink jį TIESIOG PRIEŠ šitą, žr. jo doc). Grąžina
+    /// `false`, jei core'as atsisakė serializuoti (NE panic'as — kviečiančioji pusė sprendžia,
+    /// ar tai klaida).
+    ///
+    /// # Safety
+    /// Turi būti kviečiama tik iš emuliavimo gijos, TARP `retro_run()` kvietimų (CLAUDE.md
+    /// §8.7), po sėkmingo `load_game()`.
+    pub unsafe fn serialize(&self, buffer: &mut [u8]) -> bool {
+        unsafe { (self.symbols.retro_serialize)(buffer.as_mut_ptr() as *mut c_void, buffer.len()) }
+    }
+
+    /// `retro_unserialize()` — atstato žaidimo būvį iš `buffer`. Grąžina `false`, jei
+    /// core'as atsisakė (pvz. nesutampantis formatas/versija — CLAUDE.md §8.7: save state'ai
+    /// NĖRA suderinami tarp core versijų, tad tai TIKĖTINA, ne netikėta klaida).
+    ///
+    /// # Safety
+    /// Turi būti kviečiama tik iš emuliavimo gijos, TARP `retro_run()` kvietimų, po sėkmingo
+    /// `load_game()`.
+    pub unsafe fn unserialize(&self, buffer: &[u8]) -> bool {
+        unsafe { (self.symbols.retro_unserialize)(buffer.as_ptr() as *const c_void, buffer.len()) }
+    }
 }
 
 pub(crate) fn path_to_cstring(path: &Path) -> Result<CString, CoreError> {

@@ -26,3 +26,7 @@ spin_sleep = "1.3"
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# P8.1: TIK testams, roundtrip patikrinti `video::png_encoder`'io (ranka rašyto, ADR-021
+# filosofija — jokios PNG/DEFLATE crate'o produkciniame kode) išvestį prieš tikrą PNG
+# dekoderį — niekada nepatenka į paleidžiamą binarą.
+png = "0.18"

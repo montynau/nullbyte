@@ -4,4 +4,5 @@
 
 pub mod frame_buffer;
 pub mod pixel_format;
+pub mod png_encoder;
 pub mod renderer;

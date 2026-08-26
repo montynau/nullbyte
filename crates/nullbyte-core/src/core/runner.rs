@@ -25,9 +25,10 @@ use crate::core::ffi::{
     RETRO_PIXEL_FORMAT_0RGB1555, RETRO_PIXEL_FORMAT_RGB565, RETRO_PIXEL_FORMAT_XRGB8888,
 };
 use crate::core::loader::{CoreHandle, LoadedGameInfo, RetroCallbacks};
+use crate::core::savestate;
 use crate::error::CoreError;
 use crate::ipc::{EmuStatus, StatusSender};
-use crate::video::frame_buffer::{self, FrameConsumer, FrameProducer};
+use crate::video::frame_buffer::{self, FrameConsumer, FrameProducer, VideoFrameData};
 use crate::video::pixel_format::{self, PixelFormat};
 
 /// Kai audio ring buferis pasiekia šią occupancy dalį — sustabdome kadrų generavimą ir
@@ -66,15 +67,21 @@ pub enum EmuCommand {
     Load {
         core: PathBuf,
         rom: PathBuf,
+        /// P8.1: TĖVO PUSĖ (`nullbyte-app`, žino `game_id`) parenka VIENĄ šiam žaidimui
+        /// skirtą katalogą PRIEŠ siųsdama `Load` — vaikas jo NEIŠGALVOJA (neturi `game_id`
+        /// sąvokos, žr. ADR-016 „DB-oblivious"), tik naudoja tiesiogiai. `SaveState`/
+        /// `LoadState` (žemiau, per hotkey — F5-F8/Shift+F5-F8, MVP.md P4.4) tada patys
+        /// sudaro `{states_dir}/{slot}.state`/`.png` — jokio round-trip į tėvą per KIEKVIENĄ
+        /// paspaudimą nereikia, kelias žinomas nuo `Load` momento.
+        states_dir: PathBuf,
     },
     Run,
     Pause,
     Resume,
     Reset,
     Stop,
-    /// Dar neimplementuota — P8.1. Kol kas logina ir ignoruoja.
+    /// P8.1 — žr. `Load.states_dir` doc dėl KODĖL čia tik `slot`, ne pilnas kelias.
     SaveState(u8),
-    /// Dar neimplementuota — P8.1. Kol kas logina ir ignoruoja.
     LoadState(u8),
     SetInput(InputState),
     /// Fast-forward (P3.4): `true` — bėga CPU pilnu greičiu, be audio-driven pacing'o, ir
@@ -185,6 +192,10 @@ impl Drop for EmuThread {
 struct RunnerState {
     core: Option<CoreHandle>,
     game_info: Option<LoadedGameInfo>,
+    /// P8.1: katalogas, į kurį šio žaidimo save state'ai rašomi/skaitomi — nustatomas
+    /// `handle_load` metu iš `EmuCommand::Load.states_dir` (žr. jo doc). `None`, kol niekas
+    /// dar neįkelta.
+    states_dir: Option<PathBuf>,
     running: bool,
     /// P3.4: `true` kai fast-forward įjungtas — jokio audio-driven throttle'o, audio
     /// sample'ai meta (nepublikuojami).
@@ -204,6 +215,7 @@ impl RunnerState {
         Self {
             core: None,
             game_info: None,
+            states_dir: None,
             running: false,
             fast_forward: false,
             resampler: None,
@@ -260,6 +272,7 @@ fn handle_load(
     state: &mut RunnerState,
     core_path: &std::path::Path,
     rom_path: &std::path::Path,
+    states_dir: &std::path::Path,
     status_sender: Option<&StatusSender>,
 ) {
     cleanup(state);
@@ -307,6 +320,7 @@ fn handle_load(
             }
             state.core = Some(core);
             state.game_info = Some(info);
+            state.states_dir = Some(states_dir.to_path_buf());
         }
         Err(error) => {
             tracing::error!(%error, core = %core_path.display(), rom = %rom_path.display(), "nepavyko įkelti core'o/ROM'o");
@@ -328,6 +342,7 @@ fn cleanup(state: &mut RunnerState) {
         }
     }
     state.game_info = None;
+    state.states_dir = None;
     state.running = false;
     state.resampler = None;
 }
@@ -364,6 +379,38 @@ fn publish_video_frame(producer: &mut FrameProducer, aspect_ratio: f32) {
             pixel_format::convert_to_rgba8_into(src, format, width, height, pitch, dst);
         });
     });
+}
+
+/// P8.1: konvertuoja DABARTINĮ `EmuContext.video_frame` (žalia core formatu) į RGBA8
+/// `VideoFrameData`, skirtą save state preview paveiksliukui — TA PATI konversijos logika
+/// kaip `publish_video_frame`, bet grąžina savarankišką (owned) kopiją vietoj rašymo į
+/// triple buferį (preview'ui NEREIKIA sinchronizuotis su render gija — vienkartinis
+/// pareikalavimas, ne kas-kadrą srautas). `None`, jei dar nėra jokio kadro arba pixel
+/// format nepalaikomas — kviečiančioji pusė (P8.1 `SaveState` handling) tada tiesiog
+/// išsaugo be preview'o.
+fn capture_preview_frame(aspect_ratio: f32) -> Option<VideoFrameData> {
+    callbacks::with_context(|ctx| {
+        let frame = &ctx.video_frame;
+        if frame.width == 0 || frame.height == 0 || frame.data.is_empty() {
+            return None;
+        }
+        let format = map_pixel_format(ctx.pixel_format)?;
+
+        let (width, height, pitch) = (frame.width, frame.height, frame.pitch);
+        let mut data = vec![0u8; width as usize * height as usize * 4];
+        pixel_format::convert_to_rgba8_into(&frame.data, format, width, height, pitch, &mut data);
+
+        Some(VideoFrameData {
+            width,
+            height,
+            aspect_ratio,
+            generation: 0,
+            data,
+        })
+    })
+    // `with_context` grąžina `Option<Option<_>>` (išorinis — „ar context'as apskritai
+    // įdiegtas", vidinis — mūsų pačių „ar buvo tinkamas kadras") — suplokštinam į vieną.
+    .flatten()
 }
 
 /// Ištraukia šio kadro žalius (core sample rate'u) audio sample'us iš `EmuContext`,
@@ -439,8 +486,12 @@ fn run_loop(
         };
 
         match receiver.recv_timeout(timeout) {
-            Ok(EmuCommand::Load { core, rom }) => {
-                handle_load(&mut state, &core, &rom, status_sender.as_ref());
+            Ok(EmuCommand::Load {
+                core,
+                rom,
+                states_dir,
+            }) => {
+                handle_load(&mut state, &core, &rom, &states_dir, status_sender.as_ref());
                 frame_count = 0;
                 next_frame_deadline = Instant::now();
             }
@@ -470,10 +521,60 @@ fn run_loop(
                 break 'outer;
             }
             Ok(EmuCommand::SaveState(slot)) => {
-                tracing::debug!(slot, "SaveState dar neimplementuota (P8.1) — ignoruojama");
+                let (Some(core), Some(states_dir)) = (&state.core, &state.states_dir) else {
+                    tracing::warn!(slot, "SaveState gauta, bet nėra įkelto core'o");
+                    continue;
+                };
+                let path = states_dir.join(format!("{slot}.state"));
+                let thumb_path = states_dir.join(format!("{slot}.png"));
+                let aspect_ratio = state
+                    .game_info
+                    .as_ref()
+                    .map(|info| info.aspect_ratio)
+                    .unwrap_or(0.0);
+                let frame = capture_preview_frame(aspect_ratio);
+                // SAFETY: emuliavimo gija, core jau įkeltas (load_game sėkmingas), kviečiama
+                // TARP retro_run() (žr. `savestate::save_state` doc).
+                let result = unsafe {
+                    savestate::save_state(core, frame.as_ref(), &path, Some(&thumb_path))
+                };
+                match result {
+                    Ok(()) => {
+                        tracing::info!(slot, path = %path.display(), "save state įrašytas");
+                        if let Some(sender) = status_sender.as_ref() {
+                            sender.send_important(EmuStatus::StateSaved { slot });
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, slot, "SaveState nepavyko");
+                        if let Some(sender) = status_sender.as_ref() {
+                            sender.send_important(EmuStatus::Error(error));
+                        }
+                    }
+                }
             }
             Ok(EmuCommand::LoadState(slot)) => {
-                tracing::debug!(slot, "LoadState dar neimplementuota (P8.1) — ignoruojama");
+                let (Some(core), Some(states_dir)) = (&state.core, &state.states_dir) else {
+                    tracing::warn!(slot, "LoadState gauta, bet nėra įkelto core'o");
+                    continue;
+                };
+                let path = states_dir.join(format!("{slot}.state"));
+                // SAFETY: emuliavimo gija, core jau įkeltas, kviečiama TARP retro_run().
+                let result = unsafe { savestate::load_state(core, &path) };
+                match result {
+                    Ok(()) => {
+                        tracing::info!(slot, path = %path.display(), "save state atstatytas");
+                        if let Some(sender) = status_sender.as_ref() {
+                            sender.send_important(EmuStatus::StateLoaded { slot });
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, slot, "LoadState nepavyko");
+                        if let Some(sender) = status_sender.as_ref() {
+                            sender.send_important(EmuStatus::Error(error));
+                        }
+                    }
+                }
             }
             Ok(EmuCommand::SetInput(input)) => {
                 callbacks::with_context(|ctx| {
@@ -599,6 +700,10 @@ mod tests {
         (dir.join("system"), dir.join("saves"))
     }
 
+    fn test_states_dir() -> PathBuf {
+        std::env::temp_dir().join("nullbyte_runner_test/states")
+    }
+
     fn snes9x_path() -> Option<PathBuf> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("cores/snes9x_libretro.dylib");
         path.exists().then_some(path)
@@ -632,7 +737,12 @@ mod tests {
         let _core_lock = crate::core::test_support::lock_core_load();
         let (system_dir, save_dir) = test_dirs();
         let (emu, _video, _audio) = EmuThread::spawn(48000, 2, system_dir, save_dir, None);
-        emu.send(EmuCommand::Load { core, rom }).unwrap();
+        emu.send(EmuCommand::Load {
+            core,
+            rom,
+            states_dir: test_states_dir(),
+        })
+        .unwrap();
         emu.send(EmuCommand::Run).unwrap();
 
         std::thread::sleep(Duration::from_millis(500));
@@ -675,7 +785,12 @@ mod tests {
         let _core_lock = crate::core::test_support::lock_core_load();
         let (system_dir, save_dir) = test_dirs();
         let (emu, _video, _audio) = EmuThread::spawn(48000, 2, system_dir, save_dir, None);
-        emu.send(EmuCommand::Load { core, rom }).unwrap();
+        emu.send(EmuCommand::Load {
+            core,
+            rom,
+            states_dir: test_states_dir(),
+        })
+        .unwrap();
         emu.send(EmuCommand::Run).unwrap();
 
         std::thread::sleep(Duration::from_secs(60));
@@ -700,6 +815,7 @@ mod tests {
         emu.send(EmuCommand::Load {
             core: bad_core.to_path_buf(),
             rom: PathBuf::from("/nonexistent.sfc"),
+            states_dir: test_states_dir(),
         })
         .unwrap();
         // Klaida turėtų būti logginama (žr. handle_load), gija turėtų likti gyva ir
