@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getInputMapping, resetInputMapping, setInputMapping } from "$lib/api";
+  import { showErrorToast } from "$lib/utils/errors";
   import { Button } from "$lib/components/ui/button";
   import type { InputBinding } from "$lib/types";
 
@@ -31,8 +32,13 @@
 
   async function load() {
     loading = true;
-    bindings = await getInputMapping();
-    loading = false;
+    try {
+      bindings = await getInputMapping();
+    } catch (error) {
+      showErrorToast(error);
+    } finally {
+      loading = false;
+    }
   }
 
   $effect(() => {
@@ -51,7 +57,11 @@
   }
 
   async function save() {
-    await setInputMapping(bindings);
+    try {
+      await setInputMapping(bindings);
+    } catch (error) {
+      showErrorToast(error);
+    }
   }
 
   // Vienas keydown klausytojas veikia PER ABU listening tipus — klaviatūros listening'ui jis
@@ -152,8 +162,12 @@
 
   async function resetAll() {
     cancelListening();
-    await resetInputMapping();
-    await load();
+    try {
+      await resetInputMapping();
+      await load();
+    } catch (error) {
+      showErrorToast(error);
+    }
   }
 </script>
 

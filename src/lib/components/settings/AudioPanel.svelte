@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getAudioSettings, listAudioDevices, setAudioSettings } from "$lib/api";
+  import { showErrorToast } from "$lib/utils/errors";
   import * as Select from "$lib/components/ui/select/index.js";
   import { Slider } from "$lib/components/ui/slider";
   import type { AudioSettings } from "$lib/types";
@@ -12,13 +13,18 @@
 
   async function load() {
     loading = true;
-    const [settingsResult, devicesResult] = await Promise.all([
-      getAudioSettings(),
-      listAudioDevices(),
-    ]);
-    settings = settingsResult;
-    devices = devicesResult;
-    loading = false;
+    try {
+      const [settingsResult, devicesResult] = await Promise.all([
+        getAudioSettings(),
+        listAudioDevices(),
+      ]);
+      settings = settingsResult;
+      devices = devicesResult;
+    } catch (error) {
+      showErrorToast(error);
+    } finally {
+      loading = false;
+    }
   }
 
   $effect(() => {
@@ -28,7 +34,11 @@
   async function update(partial: Partial<AudioSettings>) {
     if (!settings) return;
     settings = { ...settings, ...partial };
-    await setAudioSettings(settings);
+    try {
+      await setAudioSettings(settings);
+    } catch (error) {
+      showErrorToast(error);
+    }
   }
 </script>
 

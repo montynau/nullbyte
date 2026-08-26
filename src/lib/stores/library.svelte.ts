@@ -2,6 +2,7 @@
 // CommandPalette ir bibliotekos grid'o (P7.2).
 
 import { listGames, listPlatforms } from "$lib/api";
+import { describeError } from "$lib/utils/errors";
 import type { Game, GameFilter, PlatformSummary, SortDirection, SortField } from "$lib/types";
 
 const DEFAULT_FILTER: GameFilter = {
@@ -29,7 +30,7 @@ class LibraryStore {
       this.platforms = await listPlatforms();
       this.platformsError = null;
     } catch (e) {
-      this.platformsError = e instanceof Error ? e.message : String(e);
+      this.platformsError = describeError(e);
     }
   }
 
@@ -39,7 +40,7 @@ class LibraryStore {
     try {
       this.games = await listGames(this.filter);
     } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = describeError(e);
     } finally {
       this.loading = false;
     }

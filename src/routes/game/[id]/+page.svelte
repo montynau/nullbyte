@@ -6,7 +6,8 @@
   import { getGame, isGameRunning, scrapeGame, setFavorite, startGame } from "$lib/api";
   import { app } from "$lib/stores/app.svelte";
   import { platformAccentClass } from "$lib/utils/platforms";
-  import { errorMessage, formatDate, formatFileSize, formatPlayTime } from "$lib/utils/format";
+  import { formatDate, formatFileSize, formatPlayTime } from "$lib/utils/format";
+  import { describeError, showErrorToast } from "$lib/utils/errors";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
   import PlayIcon from "@lucide/svelte/icons/play";
@@ -71,7 +72,7 @@
       await startGame(game.id);
       running = true;
     } catch (error) {
-      launchError = errorMessage(error);
+      launchError = describeError(error);
     } finally {
       launching = false;
     }
@@ -80,8 +81,12 @@
   async function toggleFavorite() {
     if (!game) return;
     const next = !game.favorite;
-    await setFavorite(game.id, next);
-    game = { ...game, favorite: next };
+    try {
+      await setFavorite(game.id, next);
+      game = { ...game, favorite: next };
+    } catch (error) {
+      showErrorToast(error);
+    }
   }
 
   async function rescrape() {
@@ -93,6 +98,8 @@
         scrapeStatusText = progress.status;
       });
       await load(game.id);
+    } catch (error) {
+      showErrorToast(error);
     } finally {
       scraping = false;
       scrapeStatusText = null;

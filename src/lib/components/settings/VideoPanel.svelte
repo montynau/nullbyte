@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getVideoSettings, setVideoSettings } from "$lib/api";
+  import { showErrorToast } from "$lib/utils/errors";
   import * as Select from "$lib/components/ui/select/index.js";
   import { Switch } from "$lib/components/ui/switch";
   import type { VideoSettings } from "$lib/types";
@@ -9,8 +10,13 @@
 
   async function load() {
     loading = true;
-    settings = await getVideoSettings();
-    loading = false;
+    try {
+      settings = await getVideoSettings();
+    } catch (error) {
+      showErrorToast(error);
+    } finally {
+      loading = false;
+    }
   }
 
   $effect(() => {
@@ -20,15 +26,19 @@
   async function update(partial: Partial<VideoSettings>) {
     if (!settings) return;
     settings = { ...settings, ...partial };
-    await setVideoSettings(settings);
+    try {
+      await setVideoSettings(settings);
+    } catch (error) {
+      showErrorToast(error);
+    }
   }
 </script>
 
 <div class="flex flex-col gap-6">
   <div class="border-border bg-muted/30 rounded-md border px-3 py-2 text-xs">
     <strong>Not applied to gameplay yet.</strong> Filter and scaling are saved and the renderer already
-    supports both internally — they just have no launch pipeline (P9.1) to reach it through yet. Vsync
-    and start-fullscreen have no engine hook at all today, saved for later regardless.
+    supports both internally, but there's no way to send this choice to a running game yet. Vsync and
+    start-fullscreen have no engine hook at all today, saved for later regardless.
   </div>
 
   {#if loading || !settings}

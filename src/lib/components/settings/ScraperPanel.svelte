@@ -7,7 +7,7 @@
   } from "$lib/api";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
-  import { errorMessage } from "$lib/utils/format";
+  import { describeError } from "$lib/utils/errors";
   import type { QuotaSnapshot, ScraperCredentialStatus } from "$lib/types";
 
   // Atitinka `REGION_PRIORITY`/media tipų lentelę CLAUDE.md §9.2 ir
@@ -73,7 +73,7 @@
       editing = false;
       await loadStatus();
     } catch (error) {
-      saveError = errorMessage(error);
+      saveError = describeError(error);
     } finally {
       saving = false;
     }
@@ -86,7 +86,7 @@
       await clearScraperCredentials();
       await loadStatus();
     } catch (error) {
-      saveError = errorMessage(error);
+      saveError = describeError(error);
     } finally {
       saving = false;
     }

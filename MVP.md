@@ -2544,9 +2544,12 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 
 ---
 
-### P9.3 — Klaidų apdorojimas ir tuščios būsenos `[ ]`
+### P9.3 — Klaidų apdorojimas ir tuščios būsenos `[x]`
 
 **Priklausomybės:** visos ankstesnės
+**Failai:** `src/lib/utils/errors.ts` (naujas), `src/routes/+layout.svelte`, `src/routes/+page.svelte`,
+`src/lib/stores/library.svelte.ts`, `src/lib/stores/app.svelte.ts`, `src/routes/game/[id]/+page.svelte`,
+`src/lib/components/settings/{PathsPanel,CoresPanel,AudioPanel,VideoPanel,InputPanel}.svelte`
 
 **Ką daryti:**
 - Kiekviena `AppError` variacija turi žmogui suprantamą tekstą UI
@@ -2554,9 +2557,47 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 - Tuščios būsenos: nėra ROM katalogų, nėra core'ų, tuščia paieška — su veiksmo pasiūlymu
 - Pirmo paleidimo srautas (onboarding): pridėk core'us → pridėk ROM'us → skenuok
 
+> **Pastaba (ADR-032, 2026-08-26):** `src/lib/utils/errors.ts` — VIENA vieta, kuruojanti
+> `AppError.kind()`/`CoreError.kind()` → ANGLIŠKĄ tekstą (CLAUDE.md §7.5). Rust pusės
+> `message` laukas yra VIDINIS, LIETUVIŠKAS (kodo kalbos konvencija) — NIEKADA nerodomas
+> tiesiogiai vartotojui, tik loginamas konsolėn. Pakeliui rastas IR ištaisytas REALUS bug'as:
+> `library.svelte.ts` naudojo `e instanceof Error ? e.message : String(e)`, bet Tauri
+> `invoke()` reject'ina PAPRASTU `{kind, message}` OBJEKTU, ne `Error` instancija — tas
+> patikrinimas VISADA buvo `false`, tad vartotojas matydavo tiesiog `"[object Object]"`
+> (BLOGIAU nei Rust panic tekstas). Sweep'as pereina VISUS frontend'o failus, kviečiančius
+> `$lib/api` (9 failai) — kiekvienas rizikingas `await` dabar `try`/`catch` + arba
+> `showErrorToast` (operacijos be dedikuotos vietos UI), arba `describeError` (formos
+> validacijos stiliaus inline tekstas, kaip ScraperPanel/žaidimo paleidimo klaida). `<Toaster
+> theme="dark" />` primontuota šakniniame layout'e — priverstas dark theme, nes aplikacija
+> apskritai neturi šviesios temos perjungimo (CLAUDE.md §7.5). Root layout papildomai
+> klausosi `"game-error"` Tauri event'o (P9.1, `crate::ipc` modulio doc #2) IR rodo toast'ą —
+> anksčiau šis event'as buvo siunčiamas, bet niekas jo nesiklausė.
+>
+> Tuščios būsenos: pagrindinis bibliotekos puslapis dabar SKIRIA „siauras filtras" (mygtukas
+> „Clear filter") nuo „apskritai tuščia biblioteka" (mygtukas „Go to Settings" → nusileidžia
+> ant Paths tab'o, `activeTab` numatytoji reikšmė). `CoresPanel`'io „No cores found" jau
+> buvo (P7.6). „Onboarding" SĄMONINGAI NEĮGYVENDINTAS kaip atskiras vedlys/wizard'as — MVP.md
+> tekstas prašo „aiškaus kelio ką daryti", ne būtinai žingsnis-po-žingsnio srauto; tuščios
+> būsenos (biblioteka → Settings) + `start_game`'o aiškus „nėra core'o šiai platformai —
+> nueikite į Nustatymus" klaidos pranešimas (P9.1) KARTU jau sudaro tą kelią organiškai,
+> vartotojui atradus poreikį natūraliai (paspaudus Play be core'o), ne priverstinai per
+> atskirą pirmo paleidimo ekraną — CLAUDE.md „nekurk pusiau baigtų implementacijų"/
+> spekuliatyvių abstrakcijų dvasia.
+>
+> **Sąmoningai NEPALIESTA:** `AudioPanel`/`VideoPanel` „not applied to gameplay yet" baneriai
+> (teisingi po P9.1 — trūksta NAUJŲ `EmuCommand` variantų, ne paties paleidimo srauto,
+> žr. jų pačių doc pataisas P9.1 metu) — banerio TEKSTAS pataisytas ten, kur buvo pasenęs
+> (`CoresPanel`, `VideoPanel`), bet PATI funkcija (video/audio nustatymų pritaikymas) lieka
+> atskiras, neįtrauktas darbas.
+
 **Acceptance:**
-- [ ] Nė vienas klaidos kelias nerodo Rust panic teksto vartotojui
-- [ ] Švari instaliacija → aiškus kelias ką daryti
+- [x] Nė vienas klaidos kelias nerodo Rust panic teksto vartotojui — visi 9 frontend'o
+      failai, kviečiantys `$lib/api`, dabar turi `try`/`catch` su kuruotu anglišku tekstu
+      (žr. ADR-032); `pnpm check`/`lint`/`build` švarūs
+- [x] Švari instaliacija → aiškus kelias ką daryti — tuščia biblioteka rodo „Go to Settings"
+      veiksmo mygtuką, `CoresPanel` rodo aiškų „No cores found" su keliu, `start_game`
+      grąžina aiškų „nėra core'o šiai platformai" pranešimą (žr. ADR-032 pastabą dėl
+      onboarding sprendimo)
 
 ---
 
@@ -2641,8 +2682,8 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai (P8.1/P8.2 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
-| 9 — Polish (P9.1 patvirtinta REALIU vartotojo paleidimu, P9.2 automatiniu testu) | 6 | 2 | 33 % |
-| **Viso** | **52** | **43** | **83 %** |
+| 9 — Polish (P9.1 patvirtinta REALIU vartotojo paleidimu, P9.2 automatiniu testu) | 6 | 3 | 50 % |
+| **Viso** | **52** | **44** | **85 %** |
 
 ---
 

@@ -9,6 +9,7 @@
     scrapeLibrary,
   } from "$lib/api";
   import { library } from "$lib/stores/library.svelte";
+  import { showErrorToast } from "$lib/utils/errors";
   import { Button } from "$lib/components/ui/button";
   import { Progress } from "$lib/components/ui/progress";
   import * as Select from "$lib/components/ui/select/index.js";
@@ -42,6 +43,8 @@
     loadingDirs = true;
     try {
       directories = await listRomDirectories();
+    } catch (error) {
+      showErrorToast(error);
     } finally {
       loadingDirs = false;
     }
@@ -52,16 +55,24 @@
   });
 
   async function pickDirectory() {
-    const selected = await open({ directory: true, multiple: false });
-    if (!selected || Array.isArray(selected)) return;
-    const platformId = pendingPlatformId === AUTO_DETECT ? null : Number(pendingPlatformId);
-    await addRomDirectory(selected, true, platformId);
-    await loadDirectories();
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (!selected || Array.isArray(selected)) return;
+      const platformId = pendingPlatformId === AUTO_DETECT ? null : Number(pendingPlatformId);
+      await addRomDirectory(selected, true, platformId);
+      await loadDirectories();
+    } catch (error) {
+      showErrorToast(error);
+    }
   }
 
   async function removeDirectory(id: number) {
-    await removeRomDirectory(id);
-    await loadDirectories();
+    try {
+      await removeRomDirectory(id);
+      await loadDirectories();
+    } catch (error) {
+      showErrorToast(error);
+    }
   }
 
   function platformName(platformId: number | null): string {
@@ -80,6 +91,8 @@
       });
       await library.loadGames();
       await library.loadPlatforms();
+    } catch (error) {
+      showErrorToast(error);
     } finally {
       scanning = false;
       scanProgress = null;
@@ -96,9 +109,19 @@
         scrapeProgress = progress;
       });
       await library.loadGames();
+    } catch (error) {
+      showErrorToast(error);
     } finally {
       scraping = false;
       scrapeProgress = null;
+    }
+  }
+
+  async function handleCancelScrape() {
+    try {
+      await cancelScrape();
+    } catch (error) {
+      showErrorToast(error);
     }
   }
 
@@ -202,7 +225,7 @@
         {scraping ? "Scraping..." : "Scrape library metadata"}
       </Button>
       {#if scraping}
-        <Button variant="ghost" size="sm" onclick={cancelScrape}>Cancel</Button>
+        <Button variant="ghost" size="sm" onclick={handleCancelScrape}>Cancel</Button>
       {/if}
     </div>
     {#if scraping}

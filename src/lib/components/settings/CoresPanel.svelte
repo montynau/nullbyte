@@ -7,6 +7,7 @@
     setPreferredCores,
   } from "$lib/api";
   import { library } from "$lib/stores/library.svelte";
+  import { showErrorToast } from "$lib/utils/errors";
   import * as Select from "$lib/components/ui/select/index.js";
   import type { CoreInfo, PlatformCorePreference } from "$lib/types";
 
@@ -20,17 +21,22 @@
 
   async function load() {
     loading = true;
-    const [coresResult, preferencesResult, priorityResult, appInfo] = await Promise.all([
-      listCores(),
-      getPreferredCores(),
-      getCorePriority(),
-      getAppInfo(),
-    ]);
-    cores = coresResult;
-    preferences = preferencesResult;
-    corePriority = priorityResult;
-    coresDir = appInfo.coresDir;
-    loading = false;
+    try {
+      const [coresResult, preferencesResult, priorityResult, appInfo] = await Promise.all([
+        listCores(),
+        getPreferredCores(),
+        getCorePriority(),
+        getAppInfo(),
+      ]);
+      cores = coresResult;
+      preferences = preferencesResult;
+      corePriority = priorityResult;
+      coresDir = appInfo.coresDir;
+    } catch (error) {
+      showErrorToast(error);
+    } finally {
+      loading = false;
+    }
   }
 
   $effect(() => {
@@ -107,7 +113,7 @@
     }
     if (changed) {
       preferences = next;
-      setPreferredCores(preferences);
+      setPreferredCores(preferences).catch(showErrorToast);
     }
   });
 
@@ -119,16 +125,18 @@
             ...preferences.filter((p) => p.platformSlug !== platformSlug),
             { platformSlug, corePath },
           ];
-    await setPreferredCores(preferences);
+    try {
+      await setPreferredCores(preferences);
+    } catch (error) {
+      showErrorToast(error);
+    }
   }
 </script>
 
 <div class="flex flex-col gap-6">
   <div class="border-border bg-muted/30 rounded-md border px-3 py-2 text-xs">
-    <strong>Per-platform core selection is not applied to gameplay yet.</strong> It's saved for later
-    — the emulator launch pipeline that would actually use it isn't built yet. The detected cores list
-    below is accurate and live. A recommended core is picked automatically for each platform that has
-    one — change it any time.
+    The core you pick here is what launches when you press Play. A recommended core is picked
+    automatically for each platform that has one — change it any time.
   </div>
 
   {#if loading}

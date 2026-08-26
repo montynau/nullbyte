@@ -2,13 +2,18 @@
 // `mediaDir` reikalingas GameCard'ui sudaryti absoliutų viršelio kelią `convertFileSrc()`.
 
 import { getAppInfo } from "$lib/api";
+import { showErrorToast } from "$lib/utils/errors";
 import type { AppInfo } from "$lib/types";
 
 class AppStore {
   info = $state<AppInfo | null>(null);
 
   async load() {
-    this.info = await getAppInfo();
+    try {
+      this.info = await getAppInfo();
+    } catch (error) {
+      showErrorToast(error);
+    }
   }
 }
 
