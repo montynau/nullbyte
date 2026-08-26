@@ -2182,6 +2182,13 @@ vidinius plėtinius). Sprendimas — naujas `rom_directories.platform_id` hint'a
 vartotojui eksplicitiškai nurodyti katalogo platformą. Galutinis REALUS rezultatas: 88 žaidimai
 teisingai — 30 SNES + 35 Genesis + 20 GBA + 3 Sony PlayStation (ne Sega CD).
 
+**P7.6 Paths panelės dokumentavimo metu (2026-08-26) rastas IR IŠTAISYTAS dar vienas tos
+pačios klasės latentinis bug'as** — žr. ADR-023: Neo Geo neteko `zip`/`7z` iš plėtinių sąrašo
+002 migracijoje, tad suarchyvuoti Neo Geo ROM'ai (dažniausias platinimo formatas) VISAI
+neatpažįstami. Pataisyta migracija 007. Arcade turi TĄ PATĮ simptomą (0 rezultatų), bet KITĄ
+priežastį (MAME romsetai neturi vieno atpažįstamo failo archyve) — SĄMONINGAI NEpataisyta,
+reikalauja naujos `extract_first_match` logikos, žymima kaip žinomas apribojimas.
+
 **Acceptance:**
 - [x] Katalogo pridėjimas veikia — patvirtinta vartotojo 2026-08-26 penkiais skirtingais
       katalogais (macOS; Linux dar netestuota nė vienoje sesijoje, žr. §11.5 apribojimą)
@@ -3112,12 +3119,79 @@ vietoj konstantų), vartotojo sąmoningai atidėtas šiam kartui.
 
 ---
 
+### ADR-023 — Paths panelės „kurioms platformoms reikia hint'o" pastaba + Neo Geo archyvo plėtinio fix'as
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** vartotojas paprašė P7.6 Paths skiltyje aiškios pastabos, kurioms platformoms
+saugu palikti „Auto-detect", o kurioms reikia eksplicitiškai nurodyti `platform_id` hint'ą
+(ADR-020 mechanizmas). Prieš rašant pastabą, PERSKAIČIAVAU visą `platforms.extensions`
+lentelę (visas migracijas, ne tik prisiminimą) — ir radau DAUGIAU nei vien ADR-020 jau
+žinomą PSX/Saturn/SegaCD atvejį.
+
+**Realios dviprasmybės (patikrinta, ne spėta), reikalaujančios hint'o:**
+1. **Sony PlayStation / Sega Saturn / Sega CD** — dalinasi `.cue`/`.iso`/`.chd` (jau ADR-020).
+2. **NAUJAI RASTA: laisvi (nearchyvuoti) `.bin` failai** — dalinasi PENKIOS platformos:
+   Genesis/Mega Drive, Sony PlayStation, Atari 2600, Intellivision, Magnavox Odyssey². Skirtingai
+   nuo `.zip`/`.7z` atvejo (kur `resolve_platform_and_hashes` tikrina TIKRĄ archyvo TOC turinį
+   prieš pasirinkdama kandidatą), laisvam failui NĖRA jokio turinio patikrinimo — laimi PIRMA
+   `platforms` lentelės eilutė, kurios `extensions` sąraše yra `bin` (šiuo metu tai Genesis,
+   nes SQLite grąžina eilutes INSERT tvarka, be `ORDER BY`). T.y. laisvas Atari 2600/
+   Intellivision/Odyssey²/nearchyvuotas PSX `.bin` failas BE hint'o klaidingai atsidurs po
+   Genesis.
+
+**Tos pačios klasės latentinis bug'as, rastas TIRIANT (ne ieškotas specialiai):** 002 migracija
+(`002_fix_archive_extensions.sql`) pašalino `zip`/`7z` iš Neo Geo IR ištuštino Arcade plėtinių
+sąrašą — abi platformos šiuo metu VISIŠKAI neatpažįsta jokio suarchyvuoto ROM'o, NET su
+`platform_id` hint'u (nes hint tik susiaurina KANDIDATŲ sąrašą iki vienos platformos, bet ta
+platforma VIS TIEK turi turėti atitinkamą plėtinį savo `extensions` sąraše — tuščias/be zip
+sąrašas reiškia joks failas niekada neatitiks, nepriklausomai nuo hint'o).
+
+**Kodėl Neo Geo IR Arcade GAVO SKIRTINGĄ sprendimą (aptarta su vartotoju):**
+- **Neo Geo** — `.neo` yra VIENO FAILO formatas (kaip GBA `.gba`, žr. ADR-020/migraciją 004).
+  `archive::extract_first_match` (nullbyte-core) ieško VIENO archyvo viduje esančio failo pagal
+  plėtinį — šis modelis Neo Geo tinka TIKSLIAI. Migracija 007:
+  `extensions = 'neo,zip,7z'` — vienos eilutės fix'as, identiškas GBA precedentui.
+- **Arcade** — MAME-tipo ROM setai yra KELIŲ žalio chip dump'o failų rinkinys BE bendro,
+  atpažįstamo plėtinio (skirtingai nuo Neo Geo `.neo` vieno failo modelio) — `zip`/`7z`
+  grąžinimas VIENAS PATS NEPADĖTŲ, nes `extract_first_match`/`has_valid_extension`
+  (`nullbyte-core/src/archive.rs`) reikalauja NORS VIENO plėtinio sąraše, o po `zip`/`7z`
+  pašalinimo iš `inner_extensions` (žr. `scanner.rs` `resolve_platform_and_hashes` — jis pats
+  filtruoja `zip`/`7z` iš vidinio plėtinio kandidatų) Arcade liktų su TUŠČIU vidinių plėtinių
+  sąrašu → `has_valid_extension` visada `false` → JOKS failas archyve niekada nesutaptų.
+  Tikras sprendimas reikalautų NAUJOS logikos (visą `.zip` traktuoti kaip ROM tapatybę pagal
+  PATĮ ARCHYVO vardą, ne ieškoti vidinio failo pagal plėtinį) — SĄMONINGAI NEDARYTA šioje
+  sesijoje (vartotojo pasirinkimas: „Neo Geo pataisyti dabar, Arcade palikti kaip žinomą
+  apribojimą"), pažymėta kaip atskiras post-MVP/vėlesnės fazės darbas.
+
+**Įgyvendinta:**
+- Migracija 007 (`007_fix_neogeo_archive_extension.sql`) — grąžina `zip`/`7z` Neo Geo.
+- Naujas testas `neogeo_extensions_include_archive_formats_after_migration_007`
+  (`db/migrations.rs`).
+- `PathsPanel.svelte` gavo informacinį banner'į (tas pats vizualinis stilius kaip Input
+  panelės „not applied to gameplay yet" banner'is) — trys sakiniai: kurioms platformoms
+  REIKIA hint'o (su konkrečiu plėtinio persidengimo paaiškinimu), kuri platforma VISIŠKAI
+  nepalaikoma (Arcade), ir kad visos kitos saugu palikti Auto-detect.
+
+**REALIAI patikrinta:** `cargo test --workspace` (77 testai `nullbyte-app`, įsk. naują),
+`cargo clippy --workspace -D warnings`, `pnpm check/lint/build` — visi švarūs.
+
+---
+
 ## 15. Po MVP — idėjų sąrašas
 
 > **Nedaryk nieko iš šio sąrašo, kol MVP nebaigtas.**
 > Naujos idėjos rašomos čia, ne į fazių planą.
 
 **v0.2 — Gilesnis emuliavimas**
+- **Arcade (MAME-tipo) ROM setų palaikymas** (žr. ADR-023, 2026-08-26). Dabar Arcade
+  platforma turi TUŠČIĄ `extensions` sąrašą — VISIŠKAI neatpažįsta jokio ROM'o, nes MAME
+  romsetai yra kelių žalio chip dump'o failų rinkinys `.zip` viduje, be bendro atpažįstamo
+  plėtinio, o `nullbyte-core/src/archive.rs::extract_first_match` dabar veikia TIK „rask VIENĄ
+  failą archyve pagal plėtinį" modeliu (tinka GBA/Neo Geo vieno-failo formatams, netinka
+  MAME). Reikėtų naujos logikos: arba (a) visą `.zip` traktuoti kaip ROM tapatybę pagal PATĮ
+  archyvo vardą/hash'ą, netraukiant nė vieno vidinio failo, arba (b) MAME-specifinio ROM
+  identifikavimo (DAT failai/CRC pagal chip'ą) — abu žymiai sudėtingesni nei esamas paprastas
+  modelis.
 - **Hardware-rendered core'ų palaikymas** (`RETRO_ENVIRONMENT_SET_HW_RENDER`, ID=14 —
   patikrinta prieš tikrą `libretro.h`, 2026-08-20). Frontend'as turi suteikti GL/Vulkan
   kontekstą + framebuffer'į core'ui — dabar `environment.rs` grąžina `false` (nežinoma

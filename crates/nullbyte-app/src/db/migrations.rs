@@ -29,6 +29,10 @@ pub(crate) const MIGRATIONS: &[(u32, &str)] = &[
         6,
         include_str!("../../migrations/006_game_cover_dimensions.sql"),
     ),
+    (
+        7,
+        include_str!("../../migrations/007_fix_neogeo_archive_extension.sql"),
+    ),
 ];
 
 /// Atveria (arba sukuria, jei neegzistuoja — kartu su tėviniais katalogais) SQLite DB
@@ -99,6 +103,24 @@ mod tests {
             )
             .unwrap();
         assert_eq!(snes_id, 4);
+    }
+
+    /// P7.6 (Paths panelės dokumentavimo metu aptiktas latentinis bug'as, žr. migraciją 007):
+    /// Neo Geo turi atgauti `zip`/`7z` — be jų suarchyvuoti Neo Geo ROM'ai (dažniausias
+    /// platinimo formatas) visai neatpažįstami.
+    #[test]
+    fn neogeo_extensions_include_archive_formats_after_migration_007() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let extensions: String = conn
+            .query_row(
+                "SELECT extensions FROM platforms WHERE slug = 'neogeo'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(extensions, "neo,zip,7z");
     }
 
     /// P5.1 acceptance: „Migracijos idempotentiškos (paleisk 3 kartus)".

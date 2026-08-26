@@ -113,6 +113,21 @@
 </script>
 
 <div class="flex flex-col gap-6">
+  <div class="border-border bg-muted/30 rounded-md border px-3 py-2 text-xs">
+    <p>
+      <strong>Needs an explicit platform</strong> (extensions overlap, auto-detect will guess
+      wrong): Sony PlayStation, Sega Saturn, Sega CD (share <code>.cue</code>/<code>.iso</code
+      >/<code>.chd</code>), and Genesis/Mega Drive, Atari 2600, Intellivision, Magnavox Odyssey²
+      (share loose
+      <code>.bin</code> files).
+    </p>
+    <p class="mt-1">
+      <strong>Not supported yet:</strong> Arcade (MAME-style ROM sets aren't recognized regardless of
+      platform selection).
+    </p>
+    <p class="text-muted-foreground mt-1">Everything else is safe to leave on Auto-detect.</p>
+  </div>
+
   <section class="flex flex-col gap-3">
     <div class="flex items-center justify-between gap-2">
       <h2 class="text-sm font-medium">ROM directories</h2>
