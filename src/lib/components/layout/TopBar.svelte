@@ -1,9 +1,9 @@
 <script lang="ts">
+  import { resolve } from "$app/paths";
   import { library } from "$lib/stores/library.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import * as Select from "$lib/components/ui/select/index.js";
-  import * as Tooltip from "$lib/components/ui/tooltip/index.js";
   import SearchIcon from "@lucide/svelte/icons/search";
   import SettingsIcon from "@lucide/svelte/icons/settings";
 
@@ -54,14 +54,7 @@
 
   <div class="flex-1"></div>
 
-  <Tooltip.Provider>
-    <Tooltip.Root>
-      <Tooltip.Trigger>
-        <Button variant="ghost" size="icon" disabled aria-label="Settings">
-          <SettingsIcon class="size-4" />
-        </Button>
-      </Tooltip.Trigger>
-      <Tooltip.Content>Settings — coming soon (P7.6)</Tooltip.Content>
-    </Tooltip.Root>
-  </Tooltip.Provider>
+  <Button href={resolve("/settings")} variant="ghost" size="icon" aria-label="Settings">
+    <SettingsIcon class="size-4" />
+  </Button>
 </header>

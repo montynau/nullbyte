@@ -11,8 +11,6 @@
 //! `{app_data}/media/` viduje, ROM katalogai gali būti BET KUR diske, ir jų gali būti keli,
 //! tad „santykinis nuo ko" būtų dviprasmiškas be papildomo JOIN'o į `rom_directories`.
 
-#![allow(dead_code)] // pilnai išnaudos P5.4/P7 (Tauri komandų sluoksnis)
-
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -23,15 +21,19 @@ use crate::db::models::{Platform, RomDirectory};
 use crate::error::AppError;
 use crate::library::hasher;
 
-/// Vieno apdoroto failo progreso pranešimas — žr. modulio doc dėl KODĖL ne `tauri::ipc::Channel`.
-#[derive(Debug, Clone)]
+/// Vieno apdoroto failo progreso pranešimas — žr. modulio doc dėl KODĖL `scan()` pati
+/// nepriklauso nuo `tauri::ipc::Channel`. `Serialize` + camelCase (CLAUDE.md §7.3) — P7.5
+/// komandų sluoksnis šitą persiunčia per `Channel<ScanProgress>` nepakeistą.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanProgress {
     pub current: usize,
     pub total: usize,
     pub current_file: String,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanSummary {
     pub added: usize,
     pub updated: usize,

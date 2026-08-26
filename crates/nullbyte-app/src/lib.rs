@@ -89,6 +89,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -98,6 +99,10 @@ pub fn run() {
             commands::library::set_favorite,
             commands::library::record_play,
             commands::library::list_platforms,
+            commands::library::list_rom_directories,
+            commands::library::add_rom_directory,
+            commands::library::remove_rom_directory,
+            commands::library::scan_library,
             commands::scraper::scrape_game,
             commands::scraper::scrape_library,
             commands::scraper::cancel_scrape,

@@ -105,3 +105,29 @@ export interface ScrapeSummary {
   errored: number;
   cancelled: boolean;
 }
+
+/** Atitinka `RomDirectory` (crates/nullbyte-app/src/db/models.rs, MVP.md P7.5). */
+export interface RomDirectory {
+  id: number;
+  path: string;
+  recursive: boolean;
+  enabled: boolean;
+}
+
+/** Atitinka `ScanProgress` (crates/nullbyte-app/src/library/scanner.rs) — siunčiamas per
+ * `Channel<ScanProgress>` komandoje `scan_library` (MVP.md P7.5). */
+export interface ScanProgress {
+  current: number;
+  total: number;
+  currentFile: string;
+}
+
+/** Atitinka `ScanSummary` (crates/nullbyte-app/src/library/scanner.rs) — `scan_library`
+ * grąžinama reikšmė. */
+export interface ScanSummary {
+  added: number;
+  updated: number;
+  unchanged: number;
+  removed: number;
+  skippedUnknownExtension: number;
+}

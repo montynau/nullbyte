@@ -2134,10 +2134,12 @@ apribojimas kaip P7.2/P7.3, natūraliai išsispręs kartu su P7.5 (skenavimo UI)
 
 ---
 
-### P7.5 — Skenavimo ir scraping'o UI `[ ]`
+### P7.5 — Skenavimo ir scraping'o UI `[x]` (kodas baigtas, ⚠️ reikia vartotojo rankinio patvirtinimo)
 
 **Priklausomybės:** P5.3, P6.4, P7.1
-**Failai:** `src/lib/components/settings/PathsPanel.svelte`, progreso komponentai
+**Failai:** `src/lib/components/settings/PathsPanel.svelte`, `src/routes/settings/+page.svelte`
+(naujas, minimalus — pilnas ekranas P7.6), `src/lib/components/ui/progress/*` (shadcn),
+Rust: `db/rom_directories.rs` (naujas), 4 naujos komandos `commands/library.rs`
 
 **Ką daryti:**
 - ROM katalogų pridėjimas per Tauri dialog plugin
@@ -2146,10 +2148,27 @@ apribojimas kaip P7.2/P7.3, natūraliai išsispręs kartu su P7.5 (skenavimo UI)
 - Atšaukimo mygtukas
 - Rezultatų santrauka (rasta / nerasta / klaidos)
 
+**Įgyvendinta:** žr. ADR-018 pilnam sprendimų sąrašui (nauja `tauri-plugin-dialog`
+priklausomybė, nauja `db/rom_directories.rs` CRUD, `scan_library` komanda apvyniojanti jau
+parašytą P5.3 `scanner::scan()` į `Channel<ScanProgress>`, minimalus `/settings` maršrutas kad
+panelė būtų pasiekiama). Rezultatų santrauka rodoma po skenavimo/scraping'o (added/updated/
+removed/unchanged; found/notFound/errored). Atšaukimas — perpanaudoja P6.4 `cancel_scrape`.
+
+**⚠️ Patikrinimo apribojimas:** `cargo fmt`/`clippy -D warnings`/`test --workspace` (62 testai,
++3 nauji `rom_directories` testai) IR `pnpm check`/`lint`/`build` švarūs. `pnpm tauri dev`
+paleista realiai, biblioteka rodo be regresijos. BET pačios funkcijos (katalogo pasirinkimo
+dialogas, „Skenuoti"/„Scrape library" mygtukai) NEPATIKRINTOS interaktyviai — agento sesijoje
+paspaudimai native lange nepasiekia webview'o (žr. ADR-017). Repo jau turi realių test ROM'ų
+(`crates/nullbyte-core/roms/{snes,megadrive,gba,psx}`) — **paprašyk vartotojo**: atidaryti
+Nustatymus, pridėti vieną iš tų katalogų, paspausti „Scan library", patikrinti ar žaidimai
+atsiranda bibliotekoje su teisingais pavadinimais/platforma.
+
 **Acceptance:**
-- [ ] Katalogo pridėjimas veikia abiejose platformose
-- [ ] Progresas sklandus, be UI užšalimo
-- [ ] Atšaukimas veikia
+- [ ] Katalogo pridėjimas veikia abiejose platformose — reikia vartotojo patvirtinimo (macOS
+      dabar; Linux dar netestuota nė vienoje sesijoje, žr. §11.5 apribojimą)
+- [ ] Progresas sklandus, be UI užšalimo — reikia vartotojo patvirtinimo
+- [ ] Atšaukimas veikia — reikia vartotojo patvirtinimo (perpanaudoja jau patikrintą P6.4
+      `cancel_scrape`, tad rizika maža)
 
 ---
 
@@ -2369,10 +2388,10 @@ apribojimas kaip P7.2/P7.3, natūraliai išsispręs kartu su P7.5 (skenavimo UI)
 | 4 — Įvestis (+P4.0.x migracija) | 9 | 5 | 56 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
-| 7 — UI | 6 | 4 | 67 % |
+| 7 — UI | 6 | 5 | 83 % |
 | 8 — Išsaugojimai | 2 | 0 | 0 % |
 | 9 — Polish | 6 | 0 | 0 % |
-| **Viso** | **52** | **38** | **73 %** |
+| **Viso** | **52** | **39** | **75 %** |
 
 ---
 
@@ -2748,6 +2767,44 @@ sąrašas), nors Rust pusė grąžino teisingus duomenis.
 — Sidebar platformų sąrašas rodomas teisingai, paieška/`Cmd+K`/paspaudimai veikia normaliai.
 Diagnozė (agento aplinkos apribojimas, ne kodo klaida) PASITVIRTINO. Žr. pokalbio istoriją dėl
 pilnos diagnostikos sekos.
+
+---
+
+### ADR-018 — `tauri-plugin-dialog` katalogo pasirinkimui + shadcn `progress` komponentas (P7.5)
+**Data:** 2026-08-26 · **Statusas:** priimta
+**Sprendimas:** `tauri-plugin-dialog` (Rust) + `@tauri-apps/plugin-dialog` (JS) — jau numatyta
+MVP.md P7.5 spec'e („ROM katalogų pridėjimas per Tauri dialog plugin"). `open({ directory: true,
+multiple: false })` grąžina pasirinktą kelią, kurį frontend'as siunčia į naują
+`add_rom_directory` komandą (ne dialog plugin pats rašo į DB — jis TIK parenka kelią).
+Capability leidimas `"dialog:default"` pridėtas `capabilities/default.json`.
+
+`progress` shadcn-svelte komponentas pridėtas per CLI (`pnpm dlx shadcn-svelte@latest add
+progress`) skenavimo/scraping'o juostoms — jokios naujos npm priklausomybės nepridėjo (naudoja
+jau esantį `bits-ui`).
+
+**Papildomas backend darbas (nebuvo P5.3/P6.4 apimtyje, bet reikalingas P7.5 UI funkcionalumui):**
+- Naujas `db/rom_directories.rs` — CRUD (`list_rom_directories`, `add_rom_directory`
+  idempotentiškas per `ON CONFLICT(path) DO UPDATE`, `remove_rom_directory`). Anksčiau
+  egzistavo TIK privatus skaitymo helperis `scanner::load_enabled_directories`, naudojamas
+  vidujai `scan()` — jokio CRUD sluoksnio UI valdymui nebuvo.
+- 4 naujos Tauri komandos `commands/library.rs`: aukščiau minėtos trys + `scan_library`
+  (apvynioja `library::scanner::scan()` į `Channel<ScanProgress>`, tas pats modelis kaip
+  `scrape_game`/P6.4).
+- `scanner::ScanProgress`/`ScanSummary` gavo `serde::Serialize` + `rename_all = "camelCase"`
+  (anksčiau neturėjo — modulio doc sąmoningai vengė TAURI tipų, bet `serde` derive nėra Tauri
+  sąvoka, tas pats sprendimas kaip `scraper::ScrapeProgress`). `#![allow(dead_code)]` pašalintas
+  iš `scanner.rs` — `scan()` dabar realiai naudojama.
+- „Atšaukimo mygtukas" (P7.5 acceptance) — perpanaudoja jau esantį `cancel_scrape` (P6.4), NE
+  naujas skenavimo atšaukimas: `scan()` pati (failų vaikščiojimas + hash'avimas) neturi
+  `CancellationToken` — greita lokali operacija, ne tinklo, tad P5.3 spec jos ir nereikalavo.
+  Sąmoningas apribojimas, ne praleista klaida.
+
+**Papildomas frontend darbas:** minimalus `/settings` maršrutas (tik `PathsPanel`), kad P7.5
+komponentas apskritai būtų pasiekiamas — pilnas nustatymų ekranas su tabs (Cores/Input/Scraper)
+lieka P7.6. `TopBar` nustatymų mygtukas atrištas nuo „coming soon" stub'o (P7.1) į realią
+nuorodą. `Button` komponentas turi `href` prop'ą (render'ina `<a>` vietoj `<button>`) — naudota
+vietoj įprasto `<a><Button /></a>` apvyniojimo, kad neatsirastų invalid HTML (button nested
+inside anchor).
 
 ---
 
