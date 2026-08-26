@@ -2612,10 +2612,6 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 - Atminties naudojimas idle < 200 MB
 - Pašalink `--release` build'e visus `debug!` iš karštų kelių
 
-> **Pastaba (ADR-033, 2026-08-26):** keturi punktai patikrinti SKIRTINGAIS būdais —
-> pirmi trys automatiškai (agento sesija), du paskutiniai laukia vartotojo (reikia realaus
-> garso srauto, kurio agento fono paleidimai negauna, žr. [[feedback_background_launched_emu_no_audio]]).
->
 > **Metodologijos pastaba:** #1-#3 patikrinti automatiškai šios sesijos metu; #4 (CPU%,
 > 30 min be nutekėjimo) reikalauja realaus garso srauto — nustatyta anksčiau šioje sesijoje
 > (Xbox/Linux hardware testai), kad agento fono paleidimai `nullbyte-emu` negauna veikiančio
@@ -2648,16 +2644,35 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 >    ribą — ~2/3 (196MB iš 296MB net release režime) yra WKWebView variklio bazinė kaina
 >    (`WebContent`/`Networking`/`GPU` XPC procesai), nepriklausanti nuo mūsų Svelte kodo
 >    dydžio; likę ~106MB yra mūsų `nullbyte-app` procesas (SQLite, DB ryšys, Rust būvis).
-> 4. **SNES CPU% ir 30 min be nutekėjimo — LAUKIA vartotojo.** Paruoštas stebėjimo
->    skriptas (`ps -o %cpu,rss` kas 30s per 30 min, `~/Desktop/nullbyte_perf_log.txt`) —
->    vartotojas paleido realiu žaidimu, bet rezultatas dar negautas šios sesijos pabaigoje.
+> 4. **SNES CPU% — REALUS BUG'AS RASTAS IR IŠTAISYTAS, tikslas VIS TIEK nepasiektas.**
+>    Vartotojas paleido `ps -o %cpu,rss` stebėjimą kas 30s per 30 min TIKRO SNES žaidimo
+>    (agento fono paleidimai negauna veikiančio garso, tad šio matavimo negalėjau daryti
+>    pats). PIRMAS bandymas: CPU **150-200%** (1,5-2 pilnus branduolius!) — 10-13× virš
+>    15% tikslo, pastoviai per visą 30 min, korespondavo su vartotojo pastebėtu garso
+>    stringėjimu. Priežastis (žr. ADR-034): `nullbyte-emu/src/main.rs` naudojo winit
+>    `ControlFlow::Poll` — event loop'as suktis BE JOKIO apribojimo, `about_to_wait()`
+>    (taigi ir gamepad tikrinimas) kviečiama milijonus kartų/sek net kai nėra ką daryti.
+>    Pataisyta į `ControlFlow::WaitUntil` (~16ms periodinis pabudimas, natūralūs OS
+>    įvykiai VIS TIEK pažadina iškart). ANTRAS bandymas (kitas 30 min ciklas, TAS PATS
+>    metodas): **~58-60%** — 2,5-3× sumažėjimas, stabilu visą laiką. **VIS TIEK ~4× virš
+>    15% tikslo** — likusi dalis tikėtina emuliavimo gijoje (audio resampling, `core.run()`)
+>    arba per-kadrą render darbe, reikalautų tikro profiliuotojo (Instruments/perf), kurio
+>    agentas neturi. Vartotojo sprendimas: užfiksuoti šį PATVIRTINTĄ pagerėjimą, likusį
+>    atotrūkį palikti atviru ateičiai, negilinti be profiliuotojo šiandien.
+> 5. **30 min be atminties nutekėjimo — PRAĖJO, patvirtinta DU KARTUS.** RSS liko
+>    stabilus abiejuose 30 min cikluose (prieš fix'ą: ~118-121MB pirmus 12 min, tada
+>    nukrito ir stabilizavosi ~88-93MB — NIEKADA nekilo; po fix'o: pastoviai ~120-122MB
+>    per visas 30 min, minimalūs svyravimai). Jokio augimo trendo nė viename cikle.
 
 **Acceptance:**
 - [x] Bibliotekos užkrovimas < 500 ms — **0.99ms**, žr. ADR-033 #1
-- [ ] SNES CPU < 15% — laukia vartotojo (žr. ADR-033 #4)
+- [ ] SNES CPU < 15% — **NEPASIEKTA, bet REALIAI pagerinta**: 150-200% → ~58-60% (žr.
+      ADR-034) po `ControlFlow::Poll` → `WaitUntil` fix'o; likęs atotrūkis paliktas ateičiai
+      vartotojo sprendimu (reikia profiliuotojo, kurio agentas neturi)
 - [ ] Idle atmintis < 200 MB — **NEPASIEKTA** (~296MB release, ~384MB debug — žr. ADR-033 #3,
       vartotojo sprendimu paliekama kaip žinomas, dokumentuotas apribojimas)
-- [ ] Nėra atminties nutekėjimo po 30 min žaidimo — laukia vartotojo (žr. ADR-033 #4)
+- [x] Nėra atminties nutekėjimo po 30 min žaidimo — **PRAĖJO, patvirtinta DU KARTUS**
+      (žr. ADR-033 #5, ir prieš, ir po CPU fix'o RSS liko stabilus visą 30 min)
 
 ---
 
@@ -2726,7 +2741,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai (P8.1/P8.2 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
-| 9 — Polish (P9.1/P9.2/P9.3 baigti; P9.4 `[!]` — dalinai, idle atmintis nepasiekta) | 6 | 3 | 50 % |
+| 9 — Polish (P9.1/P9.2/P9.3 baigti; P9.4 `[!]` — CPU 150%→60% pagerinta, bet ne <15%, idle atmintis ~296MB) | 6 | 3 | 50 % |
 | **Viso** | **52** | **44** | **85 %** |
 
 ---
@@ -3948,6 +3963,47 @@ keisti MVP.md ribą" ir „palikti kaip nepasiektą tikslą". Vartotojas pasirin
 nepasiektą — P9.4 acceptance sąraše šis punktas lieka `[ ]` su realiais skaičiais, MVP.md
 200MB riba NEKEISTA. Galimi ateities sprendimai (NEDARYTA šią sesiją): WebKit cache/GPU
 proceso apribojimų tyrimas, nors tikėtina ribotas poveikis fiksuotai bazinei kainai.
+
+---
+
+### ADR-034 — `ControlFlow::Poll` → `WaitUntil`: 150-200% CPU sumažinta iki ~58-60% (P9.4)
+**Data:** 2026-08-26 · **Statusas:** priimta
+
+**Kontekstas:** P9.4 SNES CPU testui vartotojas paleido realų žaidimą ir 30 min stebėjimo
+skriptą (`ps -o %cpu,rss` kas 30s) — vienintelis galimas būdas, nes agento fono paleidimai
+`nullbyte-emu` negauna veikiančio garso (žr. P9.4 metodologijos pastabą). Pirmas rezultatas:
+**150-200% CPU** (1,5-2 pilnus branduolius) pastoviai per visas 30 minučių — 10-13× virš
+15% tikslo. Vartotojas tuo pačiu metu pastebėjo girdimą garso stringėjimą, kas sutapo su
+aukštu CPU — abu simptomai turėjo TĄ PAČIĄ priežastį.
+
+**Diagnozė:** `crates/nullbyte-emu/src/main.rs` `resumed()` metu nustatė
+`event_loop.set_control_flow(ControlFlow::Poll)`. Winit `Poll` režimas VISIŠKAI NELAUKIA
+tarp event loop'o iteracijų — `about_to_wait()` (kuris kviečia `drain_gamepad_events()` IR
+tikrina, ar yra naujas video kadras) buvo kviečiamas taip greitai, kaip CPU fiziškai spėjo,
+t.y. potencialiai milijonus kartų per sekundę, NET KAI nėra jokio naujo darbo. Tai klasikinis,
+gerai žinomas winit spąstas (CPU „busy-spin", ne rendering'o savaime problema — `PresentMode::
+AutoVsync` renderer'yje jau buvo teisingas, tai NEBUVO vsync problema).
+
+**Sprendimas:** `ControlFlow::WaitUntil(Instant::now() + IDLE_POLL_INTERVAL)`
+(`IDLE_POLL_INTERVAL = 16ms`, ~60Hz), persistatomas KIEKVIENĄ `about_to_wait()` kvietimą
+PRIEŠ bet kokį ankstyvą `return` (kitaip senas, praeity likęs `WaitUntil` momentas grąžintų
+winit'ą prie efektyvaus `Poll` elgesio). Natūralūs OS įvykiai (klaviatūra, lango uždarymas)
+IR `EventLoopProxy::send_event` (`StdinClosed`) VISADA pažadina event loop'ą nepriklausomai
+nuo šio intervalo (winit garantija) — jokio reagavimo laiko praradimo.
+
+**Rezultatas (PATVIRTINTA vartotojo, ANTRAS 30 min ciklas, TAS PATS metodas):** ~58-60% CPU,
+stabilu visą laiką — **2,5-3× sumažėjimas**. VIS TIEK ~4× virš 15% tikslo — likusi dalis
+tikėtina emuliavimo gijoje (audio resampling, `core.run()` per se) arba per-kadrą render
+darbe (frame clone + upload + present, ~60×/sek), kuriai reikėtų TIKRO profiliuotojo
+(Instruments/perf), kurio agentas neturi. RSS abiejuose 30 min cikluose (prieš IR po
+fix'o) liko stabilus be jokio augimo trendo — 30 min be nutekėjimo acceptance PRAĖJO
+NEPRIKLAUSOMAI nuo šio CPU radinio.
+
+**Sprendimas dėl likusio atotrūkio:** vartotojas pasirinko užfiksuoti šį PATVIRTINTĄ
+pagerėjimą (commit'as `a1a94fe`) ir palikti likusį ~45 procentinių punktų atotrūkį iki 15%
+tikslo ATVIRĄ ateičiai, NE spėlioti toliau be tikro profiliuotojo — ta pati filosofija kaip
+ADR-033 idle atminties sprendimas (dokumentuoti realų, patikrintą radinį, nesmulkinti be
+tinkamo įrankio).
 
 ---
 
