@@ -2967,7 +2967,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai (P8.1 `[x]` baigtas ADR-036, real e2e; P8.2 `[!]` — žr. jo pastabą) | 2 | 1 | 50 % |
-| 9 — Polish (P9.1/P9.2/P9.3 baigti; P9.4/P9.5 `[!]` — žr. jų pastabas) | 6 | 3 | 50 % |
+| 9 — Polish (P9.1/P9.2/P9.3 baigti; P9.4/P9.5/P9.6 `[!]` — žr. jų pastabas) | 6 | 3 | 50 % |
 | **Viso** | **52** | **47** | **90 %** |
 
 ---
