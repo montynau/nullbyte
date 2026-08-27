@@ -2741,10 +2741,46 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 - Sukurk `LICENSE` (MIT)
 - Tag `v0.1.0`
 
+> **Pastaba (2026-08-27):** README screenshot'ai (realūs, iš veikiančios app'os su 87 realiais
+> žaidimais), `LICENSE` (MIT, jau egzistavo) ir `v0.1.0` tag'as (pastumtas P9.5 metu,
+> `.dmg`/`.deb`/`.AppImage` realiai patikrinti CI) — PADARYTA. Pakeliui rastas ir ištaisytas
+> realus bug'as: ScreenScraper aprašymai UI rodė neišvyniotus HTML entity'us (pvz. `&quot;`
+> vietoj `"`) — žr. `screenscraper.rs::unescape_html_entities`.
+>
+> **§1.4 septynių kriterijų statusas** (kiekvienas — „veikia be crash'ų" scenarijus abiejose
+> platformose):
+> 1. Švari instaliacija → 100+ ROM'ų skenavimas < 60s → teisingos platformos — NEpatikrinta
+>    ŠVARIU pavidalu (esama vietinė DB turi 87 realiai suskenuotų/scrape'intų žaidimų —
+>    IŠTRYNIMAS testui sunaikintų šiuos duomenis; vartotojo nurodymas: PIRMA padaryti
+>    atsarginę `nullbyte.db`/`media/` kopiją, TADA trinti ir testuoti, kai grįšim prie šito)
+> 2. Scrape → viršeliai/video atsisiunčia → hover groja gameplay video — kodas parašytas
+>    (P6.4 realiai scrape'ino 30-90 žaidimų viršelius), bet HOVER VIDEO PREVIEW savaime
+>    (P7.3) niekada nepatikrinta su realiu video failu, tik su placeholder duomenimis
+> 3. SNES: vaizdas be iškraipymų, garsas be traškesių 10+ min, gamepad be delsos —
+>    **DAUGIAUSIA JAU PADENGTA**: P9.4 30 min realaus žaidimo testas (su TIKRAI veikiančiu
+>    garsu, po `ControlFlow` fix'o) šį kriterijų iš esmės patvirtino macOS; gamepad delsa
+>    atskirai NEpakartota ŠIOS sesijos P9.x darbų metu (paskutinį kartą tikrinta P4.1/P4.2)
+> 4. Save state slot 1 → uždaryk → paleisk → load → tęsk iš to paties taško — TIK vienetų
+>    testas (sintetinis `CoreHandle` „naujas procesas"), NIEKADA nepatikrinta per REALŲ
+>    F5/F8 hotkey paspaudimą gyvame žaidime
+> 5. RPG SRAM: žaisk 5 min → uždaryk → paleisk → in-game save veikia — TAS PATS apribojimas
+>    kaip #4, tik vienetų testas
+> 6. 4 skirtingų platformų žaidimai iš eilės per REALŲ UI (Play → uždaryk → Play kitą) —
+>    NEpatikrinta; P9.2 automatinis testas cikliojo 5 core'us, bet SINTETIŠKAI, vienoje
+>    gijoje, ne per tikrą `start_game`/UI srautą
+> 7. Tas pats macOS IR Linux — macOS PLAČIAI patvirtinta visą šią sesiją; Linux TIK IŠ
+>    DALIES (omarchy: video/audio/klaviatūra per `nullbyte-emu` TIESIOGIAI patvirtinta
+>    P4.1/P4.2 metu, bet NIEKADA per PILNĄ `nullbyte-app` UI srautą — `pnpm tauri dev`
+>    Linux'e apskritai nepaleista šioje sesijoje)
+>
+> **Vartotojo sprendimas (2026-08-27):** likusių 5 punktų (2, 3-gamepad dalis, 4, 5, 6) IR
+> Linux #7 dalies realus patikrinimas ATIDĖTAS kitai sesijai — reikalauja realaus,
+> ilgo, žingsnis-po-žingsnio žaidimo vartotojo rankomis abiejose platformose.
+
 **Acceptance:**
 - [ ] Visi 7 kriterijai ✅ macOS
 - [ ] Visi 7 kriterijai ✅ Linux
-- [ ] Release build'ai veikia
+- [x] Release build'ai veikia — patvirtinta P9.5 metu (realus CI, abu darbai sėkmingi)
 
 > **Milestone M5: MVP baigtas.**
 
