@@ -59,12 +59,14 @@ pub fn scan(
         if !dir.recursive {
             walker = walker.max_depth(1);
         }
-        let files: Vec<PathBuf> = walker
+        let mut files: Vec<PathBuf> = walker
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
             .map(|e| e.path().to_path_buf())
             .collect();
+        let sidecars = find_sidecar_files(&files);
+        files.retain(|f| !sidecars.contains(f));
         files_by_directory.push((dir, files));
     }
 
@@ -162,6 +164,84 @@ pub fn scan(
     tx.commit()?;
 
     Ok(summary)
+}
+
+/// Laisvai (NE archyve) gulintys `.cue`/`.m3u` failai nurodo šalia esančius `.bin`/`.cue`
+/// failus (CD takelius/diskus) — be šio filtro kiekvienas toks nurodytas failas taptų SAVO
+/// ATSKIRU žaidimu greta `.cue`/`.m3u`, kuris jį jau reprezentuoja (realus radinys,
+/// 2026-08-27: 7 PSX žaidimai su laisvais `.cue`+`.bin` failais sudubliavo į 14 bibliotekos
+/// įrašų vietoj 7). Grąžina PILNUS kelius (tokius, kokie yra `files` sąraše), kuriuos reikia
+/// pašalinti PRIEŠ juos apdorojant — ne po, kad jie NIEKADA nepatektų nei į progreso
+/// skaičiavimą, nei į `games` lentelę.
+///
+/// Archyvams (`.zip`/`.7z`) šis filtras NEREIKALINGAS — [`resolve_platform_and_hashes`]
+/// archyvo viduje iš karto ištraukia TIK VIENĄ atitinkantį failą (žr. jo doc), tad
+/// sidecar'ų problema fiziškai negali atsirasti.
+fn find_sidecar_files(files: &[PathBuf]) -> HashSet<PathBuf> {
+    let mut sidecars = HashSet::new();
+
+    for path in files {
+        let Some(ext) = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase)
+        else {
+            continue;
+        };
+        if ext != "cue" && ext != "m3u" {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let Some(dir) = path.parent() else {
+            continue;
+        };
+
+        let referenced = if ext == "cue" {
+            parse_cue_file_references(&content)
+        } else {
+            parse_m3u_references(&content)
+        };
+
+        for name in referenced {
+            let candidate = dir.join(&name);
+            if let Some(matched) = files.iter().find(|f| **f == candidate) {
+                sidecars.insert(matched.clone());
+            }
+        }
+    }
+
+    sidecars
+}
+
+/// Ištraukia `FILE "vardas" BINARY/WAVE/...` eilučių viduje esančius failų vardus iš CUE
+/// sheet turinio (standartinis formatas — žr. https://www.gnu.org/software/ccd2cue/manual/html_node/CUE-sheet-format.html).
+fn parse_cue_file_references(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if !trimmed.get(..4)?.eq_ignore_ascii_case("FILE") {
+                return None;
+            }
+            let start = trimmed.find('"')?;
+            let rest = &trimmed[start + 1..];
+            let end = rest.find('"')?;
+            Some(rest[..end].to_string())
+        })
+        .collect()
+}
+
+/// M3U — paprastas tekstas, po vieną santykinį kelią eilutėje; `#` pradedamos eilutės ir
+/// tuščios eilutės praleidžiamos (ta pati konvencija kaip RetroArch/libretro playlist'ai).
+fn parse_m3u_references(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect()
 }
 
 fn load_enabled_directories(conn: &Connection) -> Result<Vec<RomDirectory>, AppError> {
@@ -843,5 +923,93 @@ mod tests {
         assert_eq!(resolved2, psx_id, "po hint'o turėtų būti PSX");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_cue_file_references_extracts_quoted_filename() {
+        let cue = "FILE \"Tekken 3 (Track 1).bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\nFILE \"Tekken 3 (Track 2).bin\" BINARY\n  TRACK 02 AUDIO\n    INDEX 00 00:02:00\n";
+        let refs = parse_cue_file_references(cue);
+        assert_eq!(
+            refs,
+            vec![
+                "Tekken 3 (Track 1).bin".to_string(),
+                "Tekken 3 (Track 2).bin".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_m3u_references_skips_blank_and_comment_lines() {
+        let m3u = "Game/Game (Disc 1).cue\n\n# a comment\nGame/Game (Disc 2).cue\n";
+        let refs = parse_m3u_references(m3u);
+        assert_eq!(
+            refs,
+            vec![
+                "Game/Game (Disc 1).cue".to_string(),
+                "Game/Game (Disc 2).cue".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn find_sidecar_files_leaves_unreferenced_bin_alone() {
+        let dir = std::env::temp_dir().join(format!(
+            "nullbyte_sidecar_unref_test_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let orphan_bin = make_test_rom(&dir, "Orphan.bin", b"no cue references this");
+
+        let sidecars = find_sidecar_files(&[orphan_bin]);
+
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(
+            sidecars.is_empty(),
+            "niekieno nenurodytas .bin neturėtų būti laikomas sidecar'u"
+        );
+    }
+
+    /// Realus radinys (2026-08-27): vartotojas turėjo 7 PSX žaidimus kaip laisvus `.cue`+
+    /// `.bin` failus (be archyvo) — kiekvienas sudubliavo į 2 bibliotekos įrašus (14 vietoj
+    /// 7), nes skeneris netikrino, ar `.bin` jau nurodytas šalia esančio `.cue`.
+    #[test]
+    fn scan_registers_loose_cue_bin_pair_as_a_single_game_not_two() {
+        let mut conn = open_test_db();
+        let dir =
+            std::env::temp_dir().join(format!("nullbyte_scan_cuebin_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        make_test_rom(&dir, "Tekken 3 (Europe).bin", b"fake disc data");
+        make_test_rom(
+            &dir,
+            "Tekken 3 (Europe).cue",
+            b"FILE \"Tekken 3 (Europe).bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+        );
+
+        let psx_id = platform_id_by_slug(&conn, "psx");
+        conn.execute(
+            "INSERT INTO rom_directories (path, recursive, enabled, platform_id) VALUES (?1, 0, 1, ?2)",
+            params![dir.to_string_lossy(), psx_id],
+        )
+        .unwrap();
+
+        let summary = scan(&mut conn, |_| {}).unwrap();
+
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(
+            summary.added, 1,
+            ".cue + .bin pora turėjo registruotis kaip VIENAS žaidimas, ne du"
+        );
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM games", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        let rom_path: String = conn
+            .query_row("SELECT rom_path FROM games", [], |r| r.get(0))
+            .unwrap();
+        assert!(
+            rom_path.ends_with(".cue"),
+            "registruotas failas turėjo būti .cue, gauta {rom_path}"
+        );
     }
 }
