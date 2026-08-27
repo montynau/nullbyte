@@ -298,22 +298,73 @@ fn extract_quota(body: &JeuInfosBody) -> Option<QuotaInfo> {
     })
 }
 
+/// ScreenScraper API grąžina laisvo teksto laukus (aprašymus, žanrus, kūrėją/leidėją) JAU
+/// HTML-escape'intus (pvz. `&quot;The Master&quot;` vietoj `"The Master"`) — REALIAI
+/// pastebėta P9.6 galutinio patikrinimo metu (ActRaiser aprašymas rodė `&quot;` tiesiogiai
+/// UI, ne kabutės ženklą). Svelte `{expr}` teisingai apsaugo NUO XSS, bet NEIŠVYNIOJA jau
+/// esamų entity'ų atgal — tad tai turi būti padaryta ČIA, gaunant duomenis, ne UI pusėje.
+/// Apima standartinius pavadintus entity'us IR skaitmeninius (`&#39;`/`&#x27;`), nes abu
+/// realiai pasitaiko API atsakymuose.
+fn unescape_html_entities(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(amp_pos) = rest.find('&') {
+        result.push_str(&rest[..amp_pos]);
+        let after_amp = &rest[amp_pos + 1..];
+        let Some(semi_pos) = after_amp.find(';').filter(|&p| p <= 10) else {
+            result.push('&');
+            rest = after_amp;
+            continue;
+        };
+        let entity = &after_amp[..semi_pos];
+        let decoded = match entity {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" | "#39" | "#x27" | "#X27" => Some('\''),
+            _ if entity.starts_with('#') => entity[1..]
+                .strip_prefix(['x', 'X'])
+                .map_or_else(
+                    || entity[1..].parse::<u32>().ok(),
+                    |hex| u32::from_str_radix(hex, 16).ok(),
+                )
+                .and_then(char::from_u32),
+            _ => None,
+        };
+        match decoded {
+            Some(c) => {
+                result.push(c);
+                rest = &after_amp[semi_pos + 1..];
+            }
+            None => {
+                // Nepavyko atpažinti kaip entity'o — palik '&' kaip yra, tęsk NUO jo, kad
+                // netyčia nepraleistum kito, teisingo entity'o iškart po jo.
+                result.push('&');
+                rest = after_amp;
+            }
+        }
+    }
+    result.push_str(rest);
+    result
+}
+
 fn pick_region_text(items: &[RegionText]) -> Option<String> {
     for region in REGION_PRIORITY {
         if let Some(item) = items.iter().find(|i| i.region == *region) {
-            return Some(item.text.clone());
+            return Some(unescape_html_entities(&item.text));
         }
     }
-    items.first().map(|i| i.text.clone())
+    items.first().map(|i| unescape_html_entities(&i.text))
 }
 
 fn pick_lang_text(items: &[LangText]) -> Option<String> {
     for lang in LANG_PRIORITY {
         if let Some(item) = items.iter().find(|i| i.langue == *lang) {
-            return Some(item.text.clone());
+            return Some(unescape_html_entities(&item.text));
         }
     }
-    items.first().map(|i| i.text.clone())
+    items.first().map(|i| unescape_html_entities(&i.text))
 }
 
 fn pick_genre(genres: &[Genre]) -> Option<String> {
@@ -330,8 +381,14 @@ fn extract_metadata(jeu: &Jeu) -> GameMetadata {
     GameMetadata {
         title: pick_region_text(&noms).unwrap_or_default(),
         description: pick_lang_text(&synopsis),
-        developer: jeu.developpeur.as_ref().map(|d| d.text.clone()),
-        publisher: jeu.editeur.as_ref().map(|e| e.text.clone()),
+        developer: jeu
+            .developpeur
+            .as_ref()
+            .map(|d| unescape_html_entities(&d.text)),
+        publisher: jeu
+            .editeur
+            .as_ref()
+            .map(|e| unescape_html_entities(&e.text)),
         genre: pick_genre(&genres),
         players: jeu.joueurs.as_ref().and_then(|j| j.text.parse().ok()),
         release_date: pick_region_text(&dates),
@@ -371,6 +428,42 @@ mod tests {
         ENV_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// P9.6 galutinio patikrinimo metu pastebėtas REALUS bug'as: ActRaiser aprašymas
+    /// (tikras ScreenScraper atsakymas) turėjo `&quot;The Master&quot;`, kurį UI rodė
+    /// TIESIOGINIU tekstu, ne kabučių ženklu.
+    #[test]
+    fn unescape_html_entities_decodes_real_actraiser_case() {
+        let input = r#"You play &quot;The Master&quot;, and must save the world."#;
+        let expected = r#"You play "The Master", and must save the world."#;
+        assert_eq!(unescape_html_entities(input), expected);
+    }
+
+    #[test]
+    fn unescape_html_entities_handles_all_standard_named_entities() {
+        assert_eq!(unescape_html_entities("Q&amp;A"), "Q&A");
+        assert_eq!(unescape_html_entities("a &lt; b &gt; c"), "a < b > c");
+        assert_eq!(unescape_html_entities("it&apos;s"), "it's");
+        assert_eq!(unescape_html_entities("it&#39;s"), "it's");
+        assert_eq!(unescape_html_entities("it&#x27;s"), "it's");
+    }
+
+    #[test]
+    fn unescape_html_entities_leaves_bare_ampersand_untouched() {
+        // "R&D" — jokio ';' po '&' pakankamai arti, kad tai būtų entity — turi likti kaip yra.
+        assert_eq!(unescape_html_entities("R&D Games"), "R&D Games");
+    }
+
+    #[test]
+    fn unescape_html_entities_leaves_unknown_entity_untouched() {
+        assert_eq!(unescape_html_entities("&unknown;"), "&unknown;");
+    }
+
+    #[test]
+    fn unescape_html_entities_handles_empty_and_no_entities() {
+        assert_eq!(unescape_html_entities(""), "");
+        assert_eq!(unescape_html_entities("plain text"), "plain text");
     }
 
     /// Sutrumpinta, kredencialų NETURINTI versija REALAUS ScreenScraper `jeuInfos.php`
