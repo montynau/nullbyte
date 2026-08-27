@@ -2908,10 +2908,32 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 > **Vartotojo sprendimas (2026-08-27):** likusių 5 punktų (2, 3-gamepad dalis, 4, 5, 6) IR
 > Linux #7 dalies realus patikrinimas ATIDĖTAS kitai sesijai — reikalauja realaus,
 > ilgo, žingsnis-po-žingsnio žaidimo vartotojo rankomis abiejose platformose.
+>
+> **Papildomai patikrinta REALIAI 2026-08-27** (omarchy, PILNAS `nullbyte-app` UI srautas,
+> ne vien `nullbyte-emu` tiesiogiai — 75 realūs žaidimai, 8 platformos: SNES/PSX/Genesis/
+> NES/GBC/GBA/GB/NDS):
+> - **#2 (scrape → viršeliai/video → hover groja)** — DABAR PATVIRTINTA: video preview bug'as
+>   (ADR-041) rastas IR ištaisytas TIK PO TO, kai vartotojas realiai hoverino ant Armored Core
+>   ir gavo crash'ą — po fix'o hover REALIAI groja video be problemų.
+> - **#3 (SNES vaizdas/garsas/gamepad 10+ min)** — vartotojas patvirtino: bent vienas žaidimas
+>   žaistas 10+ min be trūkčiojimų/problemų, DABAR IR Linux'e (anksčiau tik macOS P9.4).
+> - **#6 (4 skirtingų platformų žaidimai iš eilės per REALŲ UI)** — vartotojas patvirtino:
+>   paleido/uždarė kelis žaidimus iš eilės (Play → uždaryk → Play kitą) be problemų, per
+>   PILNĄ UI srautą (ne P9.2 sintetinį testą).
+> - **#7 (tas pats macOS IR Linux)** — Linux dalis DABAR ŽYMIAI stipriau patvirtinta: pilnas
+>   `nullbyte-app` UI (ne vien `nullbyte-emu`), 8 platformos, realus daugiaplatforminis
+>   naudojimas.
+> - **Vis dar NEpatikrinta Linux'e specifiškai:** #4 save state F5/F8 hotkey (vartotojas
+>   patvirtino, kad TO konkrečiai netikrino šios sesijos metu), #5 RPG SRAM per TIKRĄ in-game
+>   save meniu (ne vien uždarymo-metu flush'as, kuris jau patvirtintas macOS), #1 švari
+>   instaliacija (vis dar reikia atsarginės kopijos PRIEŠ trinant).
 
 **Acceptance:**
-- [ ] Visi 7 kriterijai ✅ macOS
-- [ ] Visi 7 kriterijai ✅ Linux
+- [!] Visi 7 kriterijai ✅ macOS — 4/7 tvirtai patvirtinti (2 video, 3 SNES, 6 kelių
+      platformų UI srautas, 7 iš dalies); #1 švari instaliacija, #4/#5 specifiškai Linux'e
+      lieka atviri
+- [!] Visi 7 kriterijai ✅ Linux — DABAR ŽYMIAI arčiau (žr. pastabą aukščiau: #2/#3/#6/#7
+      realiai patvirtinti pilnu UI srautu, 8 platformos, 75 žaidimai); #1/#4/#5 lieka atviri
 - [x] Release build'ai veikia — patvirtinta P9.5 metu (realus CI, abu darbai sėkmingi)
 
 > **Milestone M5: MVP baigtas.**
