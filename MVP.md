@@ -1216,7 +1216,7 @@ triple'ais, žr. pastabą aukščiau)
 
 ---
 
-### P4.1 — Gamepad aptikimas `[!]` (DualShock 4 + Xbox + hot-plug patikrinti realiai; realaus valdiklio testas Linux'e — ne)
+### P4.1 — Gamepad aptikimas `[x]` (DualShock 4 + Xbox + hot-plug + Linux — visi patikrinti REALIAI)
 
 **Priklausomybės:** P0.3 (originaliai), P4.0.1 (kodo perkėlimui į naują crate — žr. pastabą aukščiau)
 **Failai:** `crates/nullbyte-core/src/input/gamepad.rs`
@@ -1270,10 +1270,14 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
       ir švariai baigia darbą net be jokio prijungto valdiklio (`cargo test`,
       `spawn_does_not_panic_without_any_gamepad`; taip pat realiai paleidus `nullbyte-emu`
       P4.0.2 metu — jokio crash'o be prijungto valdiklio, ir su realiu DualShock 4).
-      **Veikia Linux — DALINIAI PATIKRINTA 2026-08-26** (Arch, ADR-027): visas
-      `cargo test --workspace` (84+80+4 testai, įsk. `spawn_does_not_panic_without_any_gamepad`)
-      praėjo švariai realioje Linux mašinoje. Realaus fizinio valdiklio prijungimo Linux'e
-      NEPATIKRINTA (tuo metu prieinamoje mašinoje jokio gamepad'o nebuvo — žr. atmintį).
+      **Veikia Linux — PILNAI PATIKRINTA 2026-08-27** (omarchy, Arch): vartotojas prijungė
+      DU realius valdiklius (Xbox Wireless Controller + PS4 Controller) vienu metu, paleido
+      `nullbyte-emu` tiesiogiai (rankinis IPC handshake per stdin, be `nullbyte-app`/Tauri UI —
+      žr. `run-emu.sh` pagalbinį scenarijų), Mortal Kombat (Mega Drive, `genesis_plus_gx`
+      core'as). Abu valdikliai aptikti IŠKART (`gilrs prijungtas ... Xbox Wireless
+      Controller`/`... PS4 Controller`), kiekvienas valdo savo žaidėją nepriklausomai (žr. P4.3
+      pastabą) — REALIAI patvirtina IR gamepad aptikimą, IR port'ų priskyrimą Linux'e pirmą
+      kartą (anksčiau — tik `cargo test`, be jokio fizinio valdiklio).
 
 ---
 
@@ -1338,7 +1342,12 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 **Acceptance:**
 - [x] SNES žaidimas valdomas gamepad'u teisingai — REALIAI PATIKRINTA Xbox valdikliu
       2026-08-26 (žr. pastabą aukščiau): visi mygtukai + D-pad (po fix'o) veikia teisingai
-      realiame žaidime
+      realiame žaidime. **Papildomai patikrinta Linux'e 2026-08-27** (omarchy, Xbox + PS4
+      valdikliai): vartotojas pastebėjo, kad Xbox fizinis `X` suveikia kaip SNES `Y` (DIAG
+      log'as patvirtino `button=West` paspaudus `X`) — patikrinta, kad tai TYČINIS, per abi
+      platformas NUOSEKLUS elgesys (žr. `mapping.rs` doc), ne Linux-specifinė klaida: mapinama
+      pagal FIZINĘ poziciją diamond'e (Xbox `X`/DS4 Kvadratas = West = kairė = SNES `Y`
+      pozicija), ne pagal etiketę. Ta pati logika galioja DS4 Trikampiui/Kvadratui.
 - [x] Klaviatūra veikia — patikrinta REALIAI (žr. pastabą aukščiau)
 - [ ] Mapping'as išlieka po perkrovimo — N/A kol P5.1 neegzistuoja (žr. ADR-016 pastabą);
       hardkodintas mapping'as savaime „išlieka", nes nėra ką prarasti perkrovus
@@ -2893,13 +2902,13 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
-| 4 — Įvestis (+P4.0.x migracija) | 9 | 7 | 78 % |
+| 4 — Įvestis (+P4.0.x migracija) | 9 | 8 | 89 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai (P8.1 `[x]` baigtas ADR-036, real e2e; P8.2 `[!]` — žr. jo pastabą) | 2 | 1 | 50 % |
 | 9 — Polish (P9.1/P9.2/P9.3 baigti; P9.4/P9.5 `[!]` — žr. jų pastabas) | 6 | 3 | 50 % |
-| **Viso** | **52** | **46** | **88 %** |
+| **Viso** | **52** | **47** | **90 %** |
 
 ---
 
