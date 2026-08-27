@@ -505,7 +505,12 @@ Tik įrodymas, kad FFI veikia.
       (`screencapture`) parodė pilną, aiškų SNES titulinį ekraną
 - [x] Spalvos teisingos — nuotraukoje matomas teisingas SMW logotipas (raudona/geltona/žalia/
       mėlyna), dangaus/debesų gradientas, Mario+Yoshi sprite'ai teisingomis spalvomis, jokios
-      kanalų sumaišties (nėra BGR/RGB swizzle klaidos) ir jokios korupcijos/juodo ekrano
+      kanalų sumaišties (nėra BGR/RGB swizzle klaidos) ir jokios korupcijos/juodo ekrano.
+      **Papildomai pataisyta 2026-08-27 (ADR-038):** kanalai/spalvos BUVO teisingos (šis
+      patikrinimas galiojo), bet vaizdas realiai buvo pastebimai blankesnis/mažiau sodrus nei
+      RetroArch (vartotojas pastebėjo palyginęs abu langus greta) — atskira, subtilesnė sRGB
+      dvigubo gama kodavimo klaida (surface formatas rinkosi sRGB variantą, o mūsų `Rgba8Unorm`
+      tekstūra jau turi galutines spalvas), nesusijusi su kanalų tvarka. Ištaisyta.
 - [x] Nėra tearing'o — `PresentMode::AutoVsync` sukonfigūruotas `Renderer::new()` (žr.
       `video/renderer.rs`); vizualiai stabilus, be blyksėjimo vaizdas nuotraukoje ir ekrane
       stebint tiesiogiai
@@ -2499,9 +2504,17 @@ subagent'u prieš rašant kodą, 2026-08-26):**
       baitas-į-baitą. Nuo ADR-036 (2026-08-27): `commands::emulator::start_game` (P9.1, jau
       realus) siunčia `sram_path` KIEKVIENAM paleidimui `EmuCommand::Load` viduje — tas pats
       Load kelias, kurį realiai pravažiavo gyvas ActRaiser paleidimas be klaidų (žr. P8.1
-      ADR-036 pastabą). **Vis dar NEpatikrinta** su tikru in-game save meniu ilgesnės sesijos
-      metu (skirtingai nuo P8.1, SRAM neturi jokio UI/slot'ų — automatinis mechanizmas, tad
-      „UI sluoksnio" darbas jam nereikalingas, tik pati wiring'o grandinė, kuri dabar pilna).
+      ADR-036 pastabą). **Realiai patikrinta uždarymo-metu-rašymas (2026-08-27, ADR-039):**
+      langas paleistas, `.srm` failo `mtime` patvirtintas PRIEŠ/PO uždarant per lango raudoną
+      mygtuką (`WindowEvent::CloseRequested`) — REALIAI atsinaujina kaskart, log'e realus
+      `EmuStatus::Stopped`. **RASTAS REALUS apribojimas: `Cmd+Q` (macOS „Quit") APEINA šį kelią
+      visiškai** — nei `.srm` mtime pasikeičia, nei `Stopped` statusas atkeliauja, patvirtinta
+      PAKARTOTINAI (2 nepriklausomi bandymai, tas pats rezultatas). Tikėtina priežastis: macOS
+      numatytasis programos meniu „Quit" veiksmas (`NSApplication terminate:`) baigia procesą
+      TIESIOGIAI, aplenkdamas winit `WindowEvent::CloseRequested`/`EmuThread::Drop` kelią — žr.
+      ADR-039. Vartotojo sprendimu (2026-08-27) fiksuojama kaip žinomas apribojimas: **jei
+      vartotojas uždaro `nullbyte-emu` langą per `Cmd+Q`, o ne raudoną mygtuką, progresas nuo
+      paskutinio 30s automatinio išsaugojimo gali būti prarastas.**
 - [x] `.srm` failas nesugadinamas staigiai uždarius — atominis `.tmp` → `rename` (tas pats
       `savestate::write_atomic`, pakartotinai naudojamas iš `core::sram`), tad joks pusiau
       įrašytas failas niekada nepakeičia seno per `rename` (POSIX atomiškumo garantija)
@@ -2898,6 +2911,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | **R9** | Svelte 5 / shadcn-svelte breaking changes | Žema | 🟢 Mažas | Užfiksuoti versijas `package.json` be `^` kritinėms |
 | **R10** | Scope creep — norisi core options, shader'ių, netplay | Aukšta | 🟡 Vidutinis | §1.3 „NEĮEINA" sąrašas yra įstatymas. Idėjos → `IDEAS.md`, ne į MVP |
 | **R11** | macOS fullscreen neveikia su `ActivationPolicy::Accessory` (P4.4/ADR-037) | Patvirtinta (100%) | 🟢 Mažas | Fiksuota kaip žinomas apribojimas vartotojo sprendimu (2026-08-27) — MVP tęsiamas be fix'o. Post-MVP: arba laikina `Regular` politika fullscreen metu, arba tiesioginis `NSWindow` API |
+| **R12** | `Cmd+Q` apeina SRAM uždarymo-metu išsaugojimą macOS (P8.2/ADR-039) | Patvirtinta (100%) | 🟡 Vidutinis (galimas duomenų praradimas) | Fiksuota kaip žinomas apribojimas vartotojo sprendimu (2026-08-27) — periodinis 30s flush'as sumažina, bet neeliminuoja rizikos. Post-MVP: `NSApplicationDelegate` `applicationShouldTerminate:` perhook'inimas |
 
 ---
 
@@ -4315,6 +4329,81 @@ kodo wiring'as PALIEKAMAS repo (klavišo aptikimo logika teisinga ir bus reikali
 fullscreen bug'as bus išspręstas) — tik pats `window.set_fullscreen()` neveikia. Tikras
 fix'as reikalauja gilesnio winit/AppKit `ActivationPolicy::Accessory` + fullscreen sąveikos
 tyrimo — post-MVP darbas.
+
+---
+
+### ADR-038 — sRGB dvigubo gama kodavimo fix'as (P2.4, realus vartotojo palyginimas su RetroArch)
+
+**Data:** 2026-08-27 · **Statusas:** priimta
+
+**Kontekstas:** vartotojas paleido Nullbyte ir RetroArch GRETA (abu su tuo pačiu PSX Tekken 3
+ROM'u/core'u) ir vizualiai palygino — Nullbyte pusė atrodė AKIVAIZDŽIAI blankesnė/mažiau sodri
+(žr. pridėtą ekrano nuotrauką). P2.4 „Spalvos teisingos" acceptance (2026-08-20) TIKRAI
+patvirtino, kad kanalų tvarka teisinga (nėra BGR/RGB swizzle klaidos) — bet niekada nebuvo
+lyginta su referenciniu emuliatoriumi tiesiogiai greta, tad subtilesnė kontrasto/sodrumo
+problema liko nepastebėta 7 dienas (nuo P2.4 iki šios sesijos).
+
+**Root cause:** `video/renderer.rs::Renderer::new()` surface formato pasirinkimas SĄMONINGAI
+(bet KLAIDINGAI) ieškojo sRGB varianto pirmiausia (`.find(|f| f.is_srgb())`). `frame_texture`
+(kur `queue.write_texture()` įrašo konvertuotus pikselius iš `pixel_format::convert_to_
+rgba8_into`) yra `Rgba8Unorm` — NE sRGB — ir šie baitai JAU reprezentuoja galutines, rodomas
+spalvas (tiesiogiai konvertuotas iš konsolės RGB565/XRGB8888/0RGB1555, ne linijinės šviesos
+reikšmes). `blit.wgsl` `fs_main` juos grąžina TIESIOGIAI be jokios gama korekcijos
+(`textureSample(...)`, jokio papildomo apdorojimo). Kai surface formatas yra sRGB variantas
+(macOS/Metal numatytai grąžina `Bgra8UnormSrgb` kaip pirmą `get_capabilities()` rezultatą),
+GPU AUTOMATIŠKAI pritaiko linear→sRGB kodavimą KIEKVIENAM fragment shader'io rašymui į tą
+surface'ą — kadangi mūsų spalvos JAU yra sRGB-koduotos, šis automatinis žingsnis PRITAIKO GAMA
+KOREKCIJĄ ANTRĄ KARTĄ. Dvigubas sRGB kodavimas matematiškai stumia vidutines reikšmes link
+šviesesnės pusės ir mažina efektyvų kontrastą/sodrumą — TIKSLIAI atitinka pastebėtą simptomą
+(blankesnis, „išplautas" vaizdas, ne spalvų iškraipymas).
+
+**Fix'as:** pakeista viena eilutė — `.find(|f| f.is_srgb())` → `.find(|f| !f.is_srgb())`
+(pirmenybė NE-sRGB formatui, `unwrap_or(capabilities.formats[0])` fallback nepakito).
+
+**Patikrinta REALIAI:** paleista Castlevania: Symphony of the Night (PSX, ta pati core/
+pixel-format kelio šaka kaip Tekken 3) prieš ir po fix'o — po fix'o titulinis ekranas rodo
+sodrų, kontrastingą raudoną/violetinį/auksinį (žr. ekrano nuotrauką), atitinkantį RetroArch
+lygio sodrumą. Fix'as veikia VISIEMS core'ams/platformoms vienodai (renderer'io lygmens
+pakeitimas, ne core-specifinis), tad tikimasi, kad ir SNES/Genesis/GBA vaizdas dabar sodresnis
+— nepatikrinta atskirai kiekvienai platformai (nebūtina, tas pats bendras kodo kelias).
+
+**Patikrinta:** `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`
+(švaru), `cargo test --workspace` — 106+91+4 (0 failed, be pakitimų — šis fix'as neturi
+tiesioginio vienetų testo, nes reikalauja tikro GPU surface'o; patikrinimas TIK realus
+vizualus, žr. aukščiau).
+
+---
+
+### ADR-039 — `Cmd+Q` apeina SRAM uždarymo-metu išsaugojimą (P8.2)
+
+**Data:** 2026-08-27 · **Statusas:** priimta (žinomas apribojimas)
+
+**Kontekstas:** bandant realiai patikrinti P8.2 (SRAM), pastebėta: uždarant `nullbyte-emu`
+langą per RAUDONĄ MYGTUKĄ, `.srm` failo `mtime` REALIAI atsinaujina IR log'e atkeliauja tikras
+`EmuStatus::Stopped`. Uždarant TĄ PATĮ langą per `Cmd+Q` — NEI VIENAS iš šių dviejų požymių
+NEĮVYKSTA, patvirtinta pakartotinai (2 nepriklausomi, švarūs bandymai, identiškas rezultatas
+abu kartus).
+
+**Priežastis (tikėtina, netirta iki galo):** `Cmd+Q` macOS aplikacijose paprastai suveikia per
+numatytąjį programos meniu „Quit" veiksmą (`NSApplication terminate:`), kuris gali baigti
+procesą TIESIOGIAI, aplenkdamas winit `WindowEvent::CloseRequested` → `event_loop.exit()` →
+`App` numetimas → `EmuThread::Drop` (kuris siunčia `EmuCommand::Stop` ir laukia `join()`) kelią
+— tas pats kelias, kurį raudono mygtuko paspaudimas AIŠKIAI iškviečia teisingai. Kadangi
+`ActivationPolicy::Accessory` app'as vis tiek gauna numatytąjį paslėptą programos meniu su
+`Cmd+Q` susietu su „Quit", ši spraga paveikia BET KURĮ vartotoją, kuris uždaro žaidimą įprastu
+macOS refleksu, o ne raudonu mygtuku.
+
+**Poveikis:** periodinis 30s SRAM flush'as (CLAUDE.md §8.8) sumažina žalą, bet NEELIMINUOJA
+jos — jei vartotojas padaro in-game save'ą IR IŠKART po to paspaudžia `Cmd+Q` (per < 30s),
+tas save'as gali dingti.
+
+**Sprendimas (vartotojo, 2026-08-27):** fiksuoti kaip žinomą, NEIŠSPRĘSTĄ apribojimą (P8.2
+acceptance eilutė), tęsti likusius MVP darbus. Tikras fix'as reikalauja arba (a)
+`NSApplicationDelegate` `applicationShouldTerminate:` perhook'inimo per `objc`/Cocoa FFI, kad
+`Cmd+Q` būtų nukreiptas per tą patį švarų `WindowEvent::CloseRequested` kelią, arba (b)
+alternatyvaus žemesnio lygio gyvavimo ciklo signalo (pvz. `NSApplication` termination
+notification) — abu variantai reikalauja gilesnio AppKit tyrimo nei ADR-037 fullscreen
+problema. Post-MVP darbas.
 
 ---
 

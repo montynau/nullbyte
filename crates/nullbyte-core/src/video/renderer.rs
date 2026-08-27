@@ -117,12 +117,21 @@ impl Renderer {
         }))
         .map_err(|e| CoreError::Other(format!("nepavyko gauti wgpu Device: {e}")))?;
 
+        // TYČIA vengiama sRGB surface formato (patikrinta realiai — palyginus su RetroArch,
+        // Nullbyte vaizdas atrodė matomai blankesnis/mažiau sodrus, žr. ADR-038). `frame_
+        // texture` yra `Rgba8Unorm` (žaliavinai konvertuoti pikseliai iš core'o, jau GALUTINĖS
+        // rodomos spalvos, ne linijinės šviesos reikšmės), o `blit.wgsl` `fs_main` juos
+        // TIESIOGIAI grąžina be jokios gama korekcijos. Jei surface formatas yra sRGB variantas
+        // (pvz. macOS/Metal numatytai grąžina `Bgra8UnormSrgb` pirmą), GPU AUTOMATIŠKAI
+        // pritaiko linear→sRGB kodavimą rašydamas į tokį surface'ą — kadangi mūsų spalvos JAU
+        // yra sRGB-koduotos, tai DVIGUBAI koreguoja gama, nuplaudama kontrastą/sodrumą. Todėl
+        // PIRMENYBĖ ne-sRGB formatui (linijinis Unorm rašymas = pikseliai pereina NEPAKEISTI).
         let capabilities = surface.get_capabilities(&adapter);
         let format = capabilities
             .formats
             .iter()
             .copied()
-            .find(|f| f.is_srgb())
+            .find(|f| !f.is_srgb())
             .unwrap_or(capabilities.formats[0]);
 
         let config = wgpu::SurfaceConfiguration {
