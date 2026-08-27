@@ -1345,7 +1345,7 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 
 ---
 
-### P4.3 — Įvesties polling ir input bitmask `[ ]` (klaviatūros delsa patvirtinta REALIAI 2026-08-25; 2 gamepad'ai vienu metu — nepatikrinta, tik 1 valdiklio po ranka)
+### P4.3 — Įvesties polling ir input bitmask `[x]` (klaviatūros delsa + 2 gamepad'ai vienu metu — abu patvirtinti REALIAI)
 
 **Priklausomybės:** P4.2, P1.4
 **Failai:** `crates/nullbyte-core/src/input/mod.rs`, `crates/nullbyte-core/src/core/callbacks.rs`,
@@ -1382,6 +1382,11 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 > mechanizmą. 2 gamepad'ai vienu metu — VIS DAR NEPATIKRINTA (tik vienas Xbox valdiklis
 > buvo po ranka).
 
+> **Pagaliau patikrinta REALIAI 2026-08-27:** vartotojas prijungė DU valdiklius vienu metu,
+> paleido Mortal Kombat (Mega Drive/Genesis) — kiekvienas valdiklis valdė savo žaidėją
+> nepriklausomai, portai nesusimaišė. `gamepad_ports` priskyrimo mechanizmas dabar patvirtintas
+> realiu hardware'u, ne tik vieno valdiklio keliu.
+
 **Ką daryti:**
 - `retro_set_input_poll` → atnaujina `EmuContext.input_state`
 - `retro_set_input_state` → grąžina iš to būvio
@@ -1391,8 +1396,10 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 **Acceptance:**
 - [x] Įvesties delsa nejuntama (subjektyviai) — patikrinta REALIAI (žr. pastabą aukščiau);
       objektyvus matavimas (< 1 kadras) neatliktas, tik subjektyvus vartotojo patvirtinimas
-- [!] 2 gamepad'ai vienu metu veikia (testuok su 2-player žaidimu) — logika įgyvendinta ir
-      pagrįsta jau veikiančiu 1-gamepad keliu, bet NEPATIKRINTA su realiais 2 valdikliais
+- [x] 2 gamepad'ai vienu metu veikia — **REALIAI patikrinta vartotojo (2026-08-27)** su
+      Mortal Kombat (Mega Drive/Genesis), abu valdikliai prijungti vienu metu: kiekvienas
+      valdo savo žaidėją nepriklausomai, portai nesusimaišo — patvirtina `gamepad_ports`
+      priskyrimo logiką (žr. pastabą aukščiau) realiu hardware'u, ne tik teoriškai
 
 ---
 
@@ -2886,13 +2893,13 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 1 — libretro | 7 | 7 | 100 % |
 | 2 — Vaizdas | 5 | 5 | 100 % |
 | 3 — Garsas | 4 | 4 | 100 % |
-| 4 — Įvestis (+P4.0.x migracija) | 9 | 6 | 67 % |
+| 4 — Įvestis (+P4.0.x migracija) | 9 | 7 | 78 % |
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
 | 8 — Išsaugojimai (P8.1 `[x]` baigtas ADR-036, real e2e; P8.2 `[!]` — žr. jo pastabą) | 2 | 1 | 50 % |
 | 9 — Polish (P9.1/P9.2/P9.3 baigti; P9.4/P9.5 `[!]` — žr. jų pastabas) | 6 | 3 | 50 % |
-| **Viso** | **52** | **45** | **87 %** |
+| **Viso** | **52** | **46** | **88 %** |
 
 ---
 
