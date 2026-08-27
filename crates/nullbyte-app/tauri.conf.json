@@ -23,7 +23,9 @@
         "enable": true,
         "scope": [
           "$HOME/Library/Application Support/Nullbyte/media/**/*",
-          "$HOME/.local/share/nullbyte/media/**/*"
+          "$HOME/.local/share/nullbyte/media/**/*",
+          "$HOME/Library/Application Support/Nullbyte/states/**/*",
+          "$HOME/.local/share/nullbyte/states/**/*"
         ]
       }
     }

@@ -14,5 +14,6 @@
 pub mod emulator;
 pub mod input;
 pub mod library;
+pub mod savestate;
 pub mod scraper;
 pub mod settings;

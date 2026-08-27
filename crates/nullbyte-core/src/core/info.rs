@@ -73,7 +73,12 @@ fn is_core_file(path: &Path) -> bool {
     name.ends_with("_libretro.dylib") || name.ends_with("_libretro.so")
 }
 
-fn load_core_info(path: &Path) -> Result<CoreInfo, CoreError> {
+/// Vieno core'o metaduomenys BE viso katalogo skenavimo — `pub`, nes P8.1 UI sluoksnis
+/// (`nullbyte-app::commands::savestate`) turi žinoti TIK KO TIK PALEISTO core'o pavadinimą/
+/// versiją (save state metaduomenims), o pilnas `scan_cores_dir` skenuotų VISUS core'us
+/// vien dėl vieno jau žinomo kelio — nereikalingas darbas (kai kurie core'ai, pvz. MAME,
+/// ~400MB, brangu įkelti be reikalo).
+pub fn load_core_info(path: &Path) -> Result<CoreInfo, CoreError> {
     let handle = CoreHandle::load(path)?;
     let raw = handle.system_info();
 

@@ -14,6 +14,23 @@ use crate::db::migrations;
 use crate::error::AppError;
 use crate::paths;
 
+/// Veikiančios žaidimo sesijos rankena — `EmuClient` PLIUS `game_id`, kurio pačiam
+/// `EmuClient`/`crate::ipc` NIEKADA nereikia (ADR-016 „DB-oblivious" — vaikas jo nežino),
+/// bet kurio REIKIA čia, tėvo pusėje, kad `EmuStatus::StateSaved`/`StateLoaded` (P8.1 UI
+/// sluoksnis, `commands::emulator::start_game`'o `on_status`) žinotų, KURIAM žaidimui
+/// priklauso gautas `slot`, ir kad `commands::savestate` galėtų patikrinti, ar konkretus
+/// žaidimas ŠIUO METU veikia (pvz. ar leisti tiesiogiai siųsti `SaveState` be paleidimo).
+pub struct RunningSession {
+    pub client: crate::ipc::EmuClient,
+    pub game_id: i64,
+    /// Šiuo metu veikiančio core'o pavadinimas/versija — `commands::emulator::load_state_now`
+    /// naudoja lyginti su `save_states.core_name`/`core_version` (P8.1 core-mismatch
+    /// įspėjimas, ADR-028 pastaba), nes tas kelias (skirtingai nuo `start_game`) neturi
+    /// prieigos prie ką tik išspręsto `core_info` — sesija jau egzistuoja.
+    pub core_name: String,
+    pub core_version: String,
+}
+
 pub struct AppState {
     pub data_dir: PathBuf,
     pub cores_dir: PathBuf,
@@ -48,7 +65,7 @@ pub struct AppState {
     /// šioje aplikacijoje vienu metu gali veikti tik VIENAS žaidimas (žr.
     /// `commands::emulator::start_game` doc dėl KODĖL — antras `start_game` kvietimas, kol
     /// šis `Some`, grąžina aiškią klaidą, o ne tyliai pakeičia/nutraukia esamą sesiją).
-    pub emu_session: Mutex<Option<crate::ipc::EmuClient>>,
+    pub emu_session: Mutex<Option<RunningSession>>,
 }
 
 impl AppState {

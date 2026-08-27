@@ -3,7 +3,17 @@
   import { resolve } from "$app/paths";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { getGame, isGameRunning, scrapeGame, setFavorite, startGame } from "$lib/api";
+  import {
+    deleteSaveState,
+    getGame,
+    getRunningGameId,
+    listSaveStates,
+    loadStateNow,
+    scrapeGame,
+    setFavorite,
+    startGame,
+  } from "$lib/api";
+  import { toast } from "svelte-sonner";
   import { app } from "$lib/stores/app.svelte";
   import { platformAccentClass } from "$lib/utils/platforms";
   import { formatDate, formatFileSize, formatPlayTime } from "$lib/utils/format";
@@ -14,7 +24,8 @@
   import StarIcon from "@lucide/svelte/icons/star";
   import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
   import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
-  import type { Game } from "$lib/types";
+  import Trash2Icon from "@lucide/svelte/icons/trash-2";
+  import type { Game, SaveState } from "$lib/types";
 
   const gameId = $derived(Number(page.params.id));
 
@@ -23,8 +34,23 @@
   let scraping = $state(false);
   let scrapeStatusText = $state<string | null>(null);
   let launching = $state(false);
-  let running = $state(false);
   let launchError = $state<string | null>(null);
+  let saveStates = $state<SaveState[]>([]);
+  let loadingSlot = $state<number | null>(null);
+
+  // `null` = joks žaidimas nepaleistas. SVARBU: TIKRAS veikiančio žaidimo `id`, NE vien
+  // `boolean` — kitaip šis puslapis rodytų „Playing" net kai veikia VISAI KITAS žaidimas
+  // (vartotojas gali naršyti biblioteką, kol pirmasis žaidimas dar atidarytas kitame lange).
+  let runningGameId = $state<number | null>(null);
+  const running = $derived(game != null && runningGameId === game.id);
+
+  async function loadSaveStates(id: number) {
+    try {
+      saveStates = await listSaveStates(id);
+    } catch (error) {
+      showErrorToast(error);
+    }
+  }
 
   async function load(id: number) {
     game = null;
@@ -35,6 +61,7 @@
       return;
     }
     game = result;
+    await loadSaveStates(id);
   }
 
   $effect(() => {
@@ -49,7 +76,7 @@
   $effect(() => {
     const unlisten = listen<number>("game-closed", (event) => {
       if (event.payload === gameId) {
-        running = false;
+        runningGameId = null;
         load(gameId);
       }
     });
@@ -58,10 +85,43 @@
     };
   });
 
+  // P8.1 UI sluoksnis: kiekvienas F5-F8 hotkey'u (arba čia, UI, per `startGame(id, slot)`)
+  // padarytas save state'as atkeliauja ČIA asinchroniškai — backend'as (`commands::emulator`
+  // `on_status`) JAU įrašė jį į DB, šis event'as tik sako „pasikeitė, persikrauk sąrašą".
   $effect(() => {
-    isGameRunning().then((value) => {
-      running = value;
+    const unlisten = listen<number>("save-states-changed", (event) => {
+      if (event.payload === gameId) {
+        loadSaveStates(gameId);
+      }
     });
+    return () => {
+      unlisten.then((f) => f());
+    };
+  });
+
+  $effect(() => {
+    getRunningGameId().then((value) => {
+      runningGameId = value;
+    });
+  });
+
+  // P8.1 core-mismatch įspėjimas (CLAUDE.md §8.7, `commands::emulator::warn_on_core_mismatch`)
+  // — backend'as VIS TIEK siunčia `LoadState` (nesustabdo bandymo), šis event'as TIK
+  // informuoja vartotoją, kad rezultatas gali būti nenuspėjamas.
+  $effect(() => {
+    const unlisten = listen<{ gameId: number; slot: number; savedCoreVersion: string }>(
+      "save-state-core-mismatch",
+      (event) => {
+        if (event.payload.gameId === gameId) {
+          toast.warning(
+            `This save was made with a different core version (${event.payload.savedCoreVersion}) — loading may not work correctly.`,
+          );
+        }
+      },
+    );
+    return () => {
+      unlisten.then((f) => f());
+    };
   });
 
   async function play() {
@@ -70,12 +130,49 @@
     launchError = null;
     try {
       await startGame(game.id);
-      running = true;
+      runningGameId = game.id;
     } catch (error) {
       launchError = describeError(error);
     } finally {
       launching = false;
     }
+  }
+
+  // P8.1 UI sluoksnis: paspaudus „Load" ant save state'o — jei ŠIS žaidimas jau veikia,
+  // siunčiam `LoadState` TIESIAI į veikiančią sesiją (nereikia naujo paleidimo); kitaip
+  // paleidžiam žaidimą IR IŠKART kraunam tą slot'ą (`startGame(id, slot)`, žr. jo doc).
+  async function loadSaveState(slot: number) {
+    if (!game || loadingSlot != null) return;
+    loadingSlot = slot;
+    launchError = null;
+    try {
+      if (running) {
+        await loadStateNow(slot);
+      } else {
+        launching = true;
+        await startGame(game.id, slot);
+        runningGameId = game.id;
+      }
+    } catch (error) {
+      launchError = describeError(error);
+    } finally {
+      loadingSlot = null;
+      launching = false;
+    }
+  }
+
+  async function removeSaveState(slot: number) {
+    if (!game) return;
+    try {
+      await deleteSaveState(game.id, slot);
+      saveStates = saveStates.filter((s) => s.slot !== slot);
+    } catch (error) {
+      showErrorToast(error);
+    }
+  }
+
+  function slotLabel(slot: number): string {
+    return slot === 0 ? "Quick save" : `Slot ${slot}`;
   }
 
   async function toggleFavorite() {
@@ -226,7 +323,53 @@
 
       <div class="border-border border-t pt-6">
         <h2 class="mb-2 text-sm font-medium">Save states</h2>
-        <p class="text-muted-foreground text-sm">No save states yet — coming in P8.1.</p>
+        {#if saveStates.length === 0}
+          <p class="text-muted-foreground text-sm">
+            No save states yet. While playing, press F2 to quick save, or F5–F8 for numbered slots
+            (Shift+F5–F8 to load).
+          </p>
+        {:else}
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+            {#each saveStates as saveState (saveState.slot)}
+              <div class="border-border overflow-hidden rounded-md border">
+                <div class="bg-muted aspect-video w-full overflow-hidden">
+                  {#if saveState.thumbPath}
+                    <img
+                      src={convertFileSrc(saveState.thumbPath)}
+                      alt="{slotLabel(saveState.slot)} preview"
+                      class="h-full w-full object-cover"
+                    />
+                  {/if}
+                </div>
+                <div class="flex flex-col gap-1 p-2">
+                  <span class="text-sm font-medium">{slotLabel(saveState.slot)}</span>
+                  <span class="text-muted-foreground text-xs">
+                    {formatDate(saveState.createdAt)} · {saveState.coreName}
+                  </span>
+                  <div class="mt-1 flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      class="flex-1"
+                      disabled={loadingSlot != null || launching}
+                      onclick={() => loadSaveState(saveState.slot)}
+                    >
+                      {loadingSlot === saveState.slot ? "Loading..." : "Load"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label="Delete {slotLabel(saveState.slot)}"
+                      onclick={() => removeSaveState(saveState.slot)}
+                    >
+                      <Trash2Icon class="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
       </div>
     </div>
   {/if}

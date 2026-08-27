@@ -16,14 +16,17 @@
 //! `tauri::async_runtime::spawn`'inta foninę užduotį, kuri drenuoja `Receiver<CommandEvent>`
 //! VISADA, nepriklausomai nuo to, ar UI kada nors paprašys `EmuStatus`.
 //!
-//! Nuo P9.1: ši foninė užduotis daro TRIS dalykus (ne tik loginimą, kaip P4.0.3 metu):
+//! Nuo P9.1 (P8.1 UI sluoksnis papildė #2): ši foninė užduotis daro TRIS dalykus (ne tik
+//! loginimą, kaip P4.0.3 metu):
 //! 1. PIRMĄ gautą `EmuStatus::Loaded`/`Error` persiunčia per `oneshot` kanalą, kurį
 //!    `EmuClient::spawn` grąžina caller'iui (`commands::emulator::start_game` juo LAUKIA
 //!    realaus rezultato, ne tik to, kad `Load`/`Run` komandos nusiuntimas pavyko — žr. jo doc).
-//! 2. Bet kokį VĖLESNĮ `EmuStatus::Error` (po pirmojo Loaded/Error) persiunčia į frontend'ą
-//!    kaip Tauri event'ą `"game-error"`, TIESIOGIAI naudodama `AppError`'io JAU egzistuojantį
-//!    `{kind, message}` suplokštinimą (`AppError::from(core_error)` — žr. `crate::error` doc) —
-//!    ne naują tipą, ne naują suplokštinimo kodą.
+//! 2. Bet kokį VĖLESNĮ statusą (po pirmojo Loaded/Error) — `Error`, `StateSaved`,
+//!    `StateLoaded`, `Stats`, `Stopped` — perduoda `on_status` callback'ui, kurį
+//!    `EmuClient::spawn` gavo iš caller'io (`commands::emulator::start_game`). ŠIS modulis
+//!    SĄMONINGAI NEŽINO, ką su jais daryti — `on_status` turi kontekstą (`game_id`,
+//!    `states_dir`, core pavadinimą/versiją), kurio `crate::ipc` PATS neturi ir neturėtų
+//!    (žr. ADR-016 „DB-oblivious" filosofiją — ta pati riba čia, tik tėvo pusėje).
 //! 3. Kai `CommandEvent::Terminated` (ARBA kanalas užsidaro be jo — abu keliai vienodai) —
 //!    kviečia `on_terminated` callback'ą, kurį `EmuClient::spawn` gavo iš caller'io. Tai
 //!    VIENINTELIS PATIKIMAS „žaidimo sesija pasibaigė" signalas (CLAUDE.md §10: ne PID
@@ -31,7 +34,7 @@
 //!    laisvinimui kitam paleidimui (P9.1 acceptance).
 
 use tauri::async_runtime::Receiver;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -69,10 +72,16 @@ impl EmuClient {
     /// darbą (žr. modulio doc #3). Grąžintas `oneshot::Receiver` išsprendžiamas su PIRMU
     /// `EmuStatus::Loaded`/`Error`, kurį vaikas atsiunčia po `Load` komandos (žr. modulio doc
     /// #1) — caller'is (`commands::emulator::start_game`) juo laukia REALAUS rezultato.
+    ///
+    /// `on_status` — kviečiamas kiekvienam VĖLESNIAM (po pirmo Loaded/Error) `EmuStatus`
+    /// (žr. modulio doc #2) — `commands::emulator::start_game` juo įrašo `StateSaved`/
+    /// `StateLoaded` į DB (P8.1 UI sluoksnis) ir persiunčia `Error` kaip `"game-error"`
+    /// event'ą UI.
     pub async fn spawn<R: tauri::Runtime>(
         app: &AppHandle<R>,
         system_dir: &std::path::Path,
         save_dir: &std::path::Path,
+        on_status: impl Fn(EmuStatus) + Send + 'static,
         on_terminated: impl FnOnce() + Send + 'static,
     ) -> Result<(Self, tokio::sync::oneshot::Receiver<EmuStatus>), AppError> {
         let sidecar = app
@@ -114,8 +123,8 @@ impl EmuClient {
         // KRITIŠKAI SVARBU: paleidžiama ČIA, iškart po sėkmingo handshake'o — žr. modulio doc.
         tauri::async_runtime::spawn(Self::drain_loop(
             rx,
-            app.clone(),
             Some(load_tx),
+            on_status,
             on_terminated,
         ));
 
@@ -169,10 +178,10 @@ impl EmuClient {
     /// VISADA veikianti drenavimo užduotis — žr. modulio doc KODĖL ji negali laukti UI
     /// veiksmo. Nuo P9.1 (žr. modulio doc #1-#3): pirmas Loaded/Error → `load_result`
     /// oneshot; vėlesni Error'ai → `"game-error"` event'as; proceso pabaiga → `on_terminated`.
-    async fn drain_loop<R: tauri::Runtime>(
+    async fn drain_loop(
         mut rx: Receiver<CommandEvent>,
-        app: AppHandle<R>,
         mut load_result: Option<tokio::sync::oneshot::Sender<EmuStatus>>,
+        on_status: impl Fn(EmuStatus) + Send + 'static,
         on_terminated: impl FnOnce() + Send + 'static,
     ) {
         while let Some(event) = rx.recv().await {
@@ -193,24 +202,11 @@ impl EmuClient {
                                 ) => {
                                     let _ = tx.send(status);
                                 }
-                                // Bet koks kitas VĖLESNIS (load_result jau None) Error —
-                                // persiunčiam į UI kaip event'ą (žr. modulio doc #2).
-                                // `serde_json::Value` (ne pati `AppError`, kuri NĖRA `Clone` —
-                                // apgaubia `std::io::Error`/`rusqlite::Error` ir pan.) —
-                                // `Emitter::emit` reikalauja `Serialize + Clone`, o `Value`
-                                // TAI turi, IŠLAIKANT tą patį `{kind, message}` suplokštinimą
-                                // (`AppError`'io PATS Serialize impl'as, žr. `crate::error`).
-                                (None, EmuStatus::Error(error)) => {
-                                    let payload = serde_json::to_value(AppError::from(error)).ok();
-                                    if let Some(payload) = payload {
-                                        if let Err(error) = app.emit("game-error", payload) {
-                                            tracing::warn!(
-                                                %error,
-                                                "nepavyko išsiųsti game-error event'o"
-                                            );
-                                        }
-                                    }
-                                }
+                                // Bet koks kitas VĖLESNIS (load_result jau None) statusas —
+                                // caller'is (`commands::emulator::start_game`) pats sprendžia,
+                                // ką su juo daryti (žr. modulio doc #2, P8.1 UI sluoksnio
+                                // pastaba: `StateSaved`/`StateLoaded` čia įrašomi į DB).
+                                (None, status) => on_status(status),
                                 // Ne-Loaded/Error PRIEŠ pirmą atsakymą (teoriškai neįvyksta —
                                 // žr. core::runner::handle_load, Loaded siunčiamas PRIEŠ bet
                                 // kokį Run/Stats) — grąžinam load_result atgal, tęsiam.
@@ -330,6 +326,7 @@ mod tests {
                 &app.handle().clone(),
                 &test_dir.join("system"),
                 &test_dir.join("saves"),
+                |_status| {},
                 || {},
             )
             .await
@@ -376,6 +373,7 @@ mod tests {
                 &app.handle().clone(),
                 &test_dir.join("system"),
                 &test_dir.join("saves"),
+                |_status| {},
                 || {},
             )
             .await
@@ -427,6 +425,7 @@ mod tests {
                 &app.handle().clone(),
                 &test_dir.join("system"),
                 &test_dir.join("saves"),
+                |_status| {},
                 || {},
             )
             .await

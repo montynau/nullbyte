@@ -13,6 +13,7 @@ import type {
   PlatformSummary,
   QuotaSnapshot,
   RomDirectory,
+  SaveState,
   ScanProgress,
   ScanSummary,
   ScraperCredentialStatus,
@@ -161,10 +162,14 @@ export function listAudioDevices(): Promise<string[]> {
 
 /** Paleidžia žaidimą — LAUKIA, kol `nullbyte-emu` realiai patvirtina (arba atmeta) `Load`
  * (MVP.md P9.1), tad `await` trukmė apima ne tik proceso spawn'inimą, bet ir core/ROM
- * įkėlimą. Klaida (`AppError` `{kind, message}` forma) — nueik per `errorMessage()`
- * ($lib/utils/format) prieš rodant vartotojui. */
-export function startGame(id: number): Promise<void> {
-  return invoke("start_game", { id });
+ * įkėlimą. Klaida (`AppError` `{kind, message}` forma) — nueik per `describeError()`/
+ * `showErrorToast()` ($lib/utils/errors) prieš rodant vartotojui.
+ *
+ * `loadSlot` (P8.1 UI sluoksnis) — jei nurodytas, žaidimas IŠKART pasileidžia nuo TO save
+ * state'o (naudoja `paskutinis paspaudimas ant „Load" mygtuko`), ne nuo tuščio pradinio
+ * ekrano. */
+export function startGame(id: number, loadSlot?: number): Promise<void> {
+  return invoke("start_game", { id, loadSlot: loadSlot ?? null });
 }
 
 export function stopGame(): Promise<void> {
@@ -173,4 +178,26 @@ export function stopGame(): Promise<void> {
 
 export function isGameRunning(): Promise<boolean> {
   return invoke("is_game_running");
+}
+
+/** `null`, jei joks žaidimas šiuo metu nepaleistas — kitaip veikiančio žaidimo `id`. P8.1 UI
+ * sluoksnis naudoja atskirti „ŠIS žaidimas dabar veikia" (leisti „Load" siųsti tiesiai per
+ * `loadStateNow`) nuo „veikia kažkas kitas" (rodyti bendrą „jau paleista" būseną). */
+export function getRunningGameId(): Promise<number | null> {
+  return invoke("get_running_game_id");
+}
+
+/** Siunčia `LoadState` VEIKIANČIAI sesijai — naudok TIK kai `getRunningGameId()` jau
+ * patvirtino, kad veikia TAS PATS žaidimas, kurio save state'ą kroviesi (kitaip pirmiau
+ * kviesk `startGame(id, slot)`, kuris pats paleidžia IR iškart kraunasi). */
+export function loadStateNow(slot: number): Promise<void> {
+  return invoke("load_state_now", { slot });
+}
+
+export function listSaveStates(gameId: number): Promise<SaveState[]> {
+  return invoke("list_save_states", { gameId });
+}
+
+export function deleteSaveState(gameId: number, slot: number): Promise<void> {
+  return invoke("delete_save_state", { gameId, slot });
 }

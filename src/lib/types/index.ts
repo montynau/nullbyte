@@ -65,6 +65,19 @@ export interface Game {
   fileMtime: number;
 }
 
+/** Atitinka `SaveState` (crates/nullbyte-app/src/db/models.rs, P8.1 UI sluoksnis). */
+export interface SaveState {
+  id: number;
+  gameId: number;
+  /** `0` = quick save (F5/Shift+F5 hotkey konvencija), `1..=4` — numeruoti slot'ai. */
+  slot: number;
+  path: string;
+  thumbPath: string | null;
+  coreName: string;
+  coreVersion: string;
+  createdAt: number;
+}
+
 /** Atitinka `PlatformSummary` (crates/nullbyte-app/src/db/games.rs) — `#[serde(flatten)]`
  * sujungia `Platform` laukus su `gameCount` į vieną plokščią objektą. */
 export interface PlatformSummary extends Platform {

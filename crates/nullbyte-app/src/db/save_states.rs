@@ -3,12 +3,10 @@
 //! TIK saugo/skaito DB įrašus apie JAU egzistuojančius failus (kelias, preview, core
 //! pavadinimas/versija core-mismatch įspėjimui, laikas).
 //!
-//! Kviečiančiojo `commands::` sluoksnio dar nėra — kaip ir žaidimo paleidimo IPC (P9.1),
-//! DB įrašo sukūrimas realiai gali vykti tik TURINT gyvą `nullbyte-emu` vaiko procesą, kuris
-//! atsiųstų `EmuStatus::StateSaved`. Iki tada šis modulis pilnai testuotas ir paruoštas,
-//! tiesiog dar be UI trigger'io — ta pati situacija kaip anksčiau `db/rom_directories.rs`
-//! prieš P7.5.
-#![allow(dead_code)]
+//! `upsert_save_state` kviečiama iš `commands::emulator::start_game`'o `on_status`
+//! callback'o (P8.1 UI sluoksnis) kaskart, kai `nullbyte-emu` atsiunčia
+//! `EmuStatus::StateSaved`; `list_save_states`/`delete_save_state` — iš `commands::savestate`
+//! (žaidimo detalių puslapio „Save states" sekcija).
 
 use rusqlite::{params, Connection, OptionalExtension};
 

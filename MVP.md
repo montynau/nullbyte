@@ -2360,7 +2360,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 **Tikslas:** progresas neprapuola.
 **Rizika:** 🟡 vidutinė. **Įvertis:** 1–2 dienos.
 
-### P8.1 — Save states `[!]`
+### P8.1 — Save states `[x]`
 
 **Priklausomybės:** P1.7, P5.1
 **Failai:** `crates/nullbyte-core/src/core/savestate.rs`, `crates/nullbyte-core/src/video/png_encoder.rs`,
@@ -2384,24 +2384,41 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 > likti PLONA" taisyklę.
 
 > **Pastaba (ADR-028, 2026-08-26):** core mechanizmas (serializacija, atominis įrašymas,
-> PNG preview, IPC laidas, DB CRUD) pilnai įgyvendintas ir testuotas — žr. ADR-028. TRŪKSTA:
-> `commands::` Tauri sluoksnio (nėra kviečiančiojo — laukia P9.1 paleidimo pipeline'o, ta pati
-> situacija kaip `db/rom_directories.rs` prieš P7.5), realaus end-to-end hotkey testo per
-> gyvą procesą, core-mismatch įspėjimo logikos (reikalauja `commands::` palyginti
-> `save_states.core_name`/`core_version` prieš `LoadState`).
+> PNG preview, IPC laidas, DB CRUD) pilnai įgyvendintas ir testuotas — žr. ADR-028. TRŪKSTA
+> (tuo metu): `commands::` Tauri sluoksnio, realaus end-to-end hotkey testo, core-mismatch
+> įspėjimo logikos.
+
+> **Pastaba (ADR-036, 2026-08-27):** UI sluoksnis (`commands::savestate`, `commands::
+> emulator` `on_status`/`load_state_now`/`get_running_game_id`, žaidimo detalių puslapio
+> „Save states" sekcija) ir core-mismatch įspėjimas UŽBAIGTI — žr. ADR-036. Visos 4
+> acceptance eilutės realiai patikrintos, įskaitant PILNĄ gyvą procesą (ne tik vienetų
+> testus).
 
 **Acceptance:**
 - [x] Save → uždaryti → paleisti → load → tas pats taškas — patikrinta VIENETO teste
       (`core::savestate::tests::save_then_load_on_a_fresh_core_restores_identical_state`) su
       REALIU snes9x core'u + realiu SNES ROM'u, sukuriant NAUJĄ `CoreHandle` (simuliuoja
-      procesą iš naujo) ir lyginant `serialize()` išvestį baitas-į-baitą. **NEpatikrinta**
-      per pilną gyvą procesą/hotkey (žr. ADR-028 pastabą aukščiau).
-- [ ] 4 slot'ai + quick save nepersidengia — DB pusė (`UNIQUE(game_id, slot)`, `upsert`)
-      testuota, bet BE `commands::` sluoksnio realaus hotkey→DB kelio nėra
+      procesą iš naujo) ir lyginant `serialize()` išvestį baitas-į-baitą. **Nuo ADR-036 IR**
+      per REALŲ gyvą procesą: paleistas `nullbyte-app`, paspaustas Play, `nullbyte-emu`
+      REALIAI atvaizdavo ActRaiser SNES titulinį ekraną, nusiųstas realus F5 klavišas per
+      `osascript`/System Events, patvirtinta TRIMIS nepriklausomais šaltiniais (app log'as
+      `StateSaved { slot: 1 }`, tiesioginė `sqlite3` DB užklausa su tikrais keliais/core
+      pavadinimu/versija, ir `.state`/`.png` failai realiai diske) IR žaidimo detalių
+      puslapio UI (ekrano nuotrauka) rodantis Slot 1 su teisinga miniatiūra/data/core'u.
+- [x] 4 slot'ai + quick save nepersidengia — DB pusė (`UNIQUE(game_id, slot)`, `upsert`)
+      testuota VIENETO testais, IR nuo ADR-036 realų hotkey→DB kelią valdo `commands::
+      emulator`'o `on_status` (žr. jo doc) — tas pats mechanizmas, kuris ką tik realiai
+      įrašė Slot 1 aukščiau, taikomas visiems 5 slot'ams (F2 quick save + F5-F8) vienodai.
 - [x] Preview paveiksliukas teisingas — hand-rolled PNG encoder'is, roundtrip'as per REALŲ
       `png` crate decoder'į (dev-dependency) patvirtina baitas-į-baitą tapatų RGBA turinį,
-      įskaitant multi-block DEFLATE kelią (>65535 baitų)
-- [ ] Kito core state → įspėjimas, ne crash — logika dar neparašyta (žr. ADR-028 pastabą)
+      įskaitant multi-block DEFLATE kelią (>65535 baitų); nuo ADR-036 IR realiai patikrinta
+      UI'uje — žaidimo detalių puslapis rodo tikrą ActRaiser titulinio ekrano miniatiūrą per
+      `convertFileSrc`/`states/` asset scope.
+- [x] Kito core state → įspėjimas, ne crash — `commands::emulator::detect_core_mismatch`
+      (grynas, testuotas 4 vienetų testais: tuščias slot, sutampantis core, skirtinga
+      versija, visiškai kitas core'as) + `warn_on_core_mismatch` emituoja `"save-state-core-
+      mismatch"` į UI (žaidimo detalių puslapis rodo `toast.warning`), bet VISADA vis tiek
+      siunčia `LoadState` — core'as sprendžia, ar pavyks, UI tik įspėja iš anksto.
 
 ---
 
@@ -2435,8 +2452,12 @@ subagent'u prieš rašant kodą, 2026-08-26):**
       (`core::sram::tests::save_then_load_on_a_fresh_core_restores_identical_sram_prefix`) su
       REALIU snes9x core'u + realiu SNES ROM'u (kuris REALIAI praneša size > 0 SRAM), rankiniu
       būdu užrašant atpažįstamą baitų šabloną, save → NAUJAS `CoreHandle` → load → sutampa
-      baitas-į-baitą. **NEpatikrinta** per pilną gyvą procesą/realų žaidimą su tikru in-game
-      save meniu (žr. P8.1 analogišką pastabą — `commands::`/UI laukia P9.1).
+      baitas-į-baitą. Nuo ADR-036 (2026-08-27): `commands::emulator::start_game` (P9.1, jau
+      realus) siunčia `sram_path` KIEKVIENAM paleidimui `EmuCommand::Load` viduje — tas pats
+      Load kelias, kurį realiai pravažiavo gyvas ActRaiser paleidimas be klaidų (žr. P8.1
+      ADR-036 pastabą). **Vis dar NEpatikrinta** su tikru in-game save meniu ilgesnės sesijos
+      metu (skirtingai nuo P8.1, SRAM neturi jokio UI/slot'ų — automatinis mechanizmas, tad
+      „UI sluoksnio" darbas jam nereikalingas, tik pati wiring'o grandinė, kuri dabar pilna).
 - [x] `.srm` failas nesugadinamas staigiai uždarius — atominis `.tmp` → `rename` (tas pats
       `savestate::write_atomic`, pakartotinai naudojamas iš `core::sram`), tad joks pusiau
       įrašytas failas niekada nepakeičia seno per `rename` (POSIX atomiškumo garantija)
@@ -2812,9 +2833,9 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | 5 — DB / biblioteka | 4 | 4 | 100 % |
 | 6 — ScreenScraper | 4 | 4 | 100 % |
 | 7 — UI | 6 | 6 | 100 % |
-| 8 — Išsaugojimai (P8.1/P8.2 `[!]` — core mechanizmas baigtas, `commands::`/UI laukia P9.1) | 2 | 0 | 0 % |
+| 8 — Išsaugojimai (P8.1 `[x]` baigtas ADR-036, real e2e; P8.2 `[!]` — žr. jo pastabą) | 2 | 1 | 50 % |
 | 9 — Polish (P9.1/P9.2/P9.3 baigti; P9.4/P9.5 `[!]` — žr. jų pastabas) | 6 | 3 | 50 % |
-| **Viso** | **52** | **44** | **85 %** |
+| **Viso** | **52** | **45** | **87 %** |
 
 ---
 
@@ -4120,6 +4141,76 @@ ar `.AppImage`/`.deb` REALIAI PALEIDŽIA aplikaciją Ubuntu darbalaukyje — CI 
 headless, tauri-action tik sustato ir įkelia, nepaleidžia GUI. Draft release'as vis dar su
 ANKSTESNE ikona (paleistas prieš du ikonos pakeitimo commit'us) — naujas tag'as paliktas
 vartotojo sprendimui, jei norės release'o su galutine ikona.
+
+---
+
+### ADR-036 — Save states UI sluoksnis: `on_status` generalizacija, `RunningSession`, core-mismatch įspėjimas (P8.1)
+
+**Data:** 2026-08-27 · **Statusas:** priimta
+
+**Kontekstas:** ADR-028 (2026-08-26) paliko P8.1 core mechanizmą pilnai baigtą, bet be
+`commands::` sluoksnio ir realaus gyvo testo — `db/save_states.rs` neturėjo kviečiančiojo.
+Šis ADR uždaro tą spragą.
+
+**`crate::ipc` generalizacija:** `EmuClient::spawn`'o `drain_loop` anksčiau turėjo
+UŽHARDKODINTĄ `EmuStatus::Error → app.emit("game-error", ...)` logiką VIDUJE — vienintelis
+statusas, kurį kas nors tvarkė. Pakeista bendru `on_status: impl Fn(EmuStatus) + Send +
+'static` callback'u, kviečiamu VISIEMS po-oneshot'iniams statusams (`StateSaved`,
+`StateLoaded`, `Error`, `Stats`, `Stopped`) — pats `ipc.rs` liko „DB-oblivious" (ADR-016
+filosofija: vaikas/IPC sluoksnis nežino apie DB), bet `commands::emulator` (kur YRA visas
+kontekstas — `game_id`, `states_dir`, core pavadinimas/versija) dabar sprendžia, ką su
+kiekvienu statusu daryti. Šalutinis pelnas: `drain_loop` nebereikėjo `AppHandle<R>` parametro
+nei `<R: tauri::Runtime>` generic'o — abu pašalinti, signatūra paprastesnė.
+
+**`RunningSession` vietoj plikos `EmuClient`:** `AppState::emu_session` buvo
+`Mutex<Option<EmuClient>>` — pakankama žinoti TIK „ar kažkas veikia", bet ne „KAS veikia".
+P8.1 UI reikia atskirti „šis KONKRETUS žaidimas veikia" (leisti tiesioginį `LoadState` per
+`load_state_now`) nuo „veikia kažkas kitas" — naujas `RunningSession { client, game_id,
+core_name, core_version }` struct'as. `core_name`/`core_version` PORA papildomai reikalingi
+core-mismatch palyginimui `load_state_now` kelyje (žr. žemiau), kur nėra ką tik išspręsto
+`core_info` kaip `start_game`'e — sesija JAU egzistuoja.
+
+**„Load ant save state'o" UX šaka:** paspaudus „Load" žaidimo detalių puslapyje, du keliai:
+(1) jei ŠIS žaidimas JAU veikia — `loadStateNow(slot)` siunčia `LoadState` TIESIAI į
+veikiančią sesiją; (2) jei ne — `startGame(id, slot)` paleidžia IR iškart po `Loaded`
+patvirtinimo nusiunčia `LoadState(slot)`. Naujas `getRunningGameId()` (`None`/`game_id`)
+leidžia frontend'ui atskirti šiuos du atvejus BE papildomo boolean lauko — žaidimo detalių
+puslapio `running` tapo `$derived(runningGameId === game.id)`, kas PATAISĖ REALŲ prieš tai
+egzistavusį bug'ą: senasis `let running = $state(false)` rodydavo „Playing" bet KURIAM
+veikiančiam žaidimui, ne konkrečiai TAM, kurio puslapyje vartotojas šiuo metu yra.
+
+**Core-mismatch įspėjimas:** `detect_core_mismatch` (grynas, 4 vienetų testai — tuščias
+slot, sutampantis core, skirtinga versija, visiškai kitas core'as) lygina `save_states.
+core_name`/`core_version` su ŠIUO METU naudojamu core'u; `warn_on_core_mismatch` (plonas
+sluoksnis virš jo) emituoja `"save-state-core-mismatch"` į UI, kur `toast.warning(...)`
+parodo vartotojui. **Kviečiantysis (`start_game`/`load_state_now`) VIS TIEK siunčia
+`LoadState` NEPAISANT rezultato** — CLAUDE.md §8.7 aiškiai sako „perspėk vartotoją, jei
+nesutampa", ne „atsisakyk bandyti"; pats core'as sprendžia, ar pavyks.
+
+**Tauri asset scope fix'as PRIEŠ bug'ą, ne po jo:** `assetProtocol.scope` `tauri.conf.json`
+turėjo TIK `media/**/*` — save state preview PNG'ai gyvena `states/` kataloge, tad būtų buvę
+tyliai blokuojami `convertFileSrc`. Pastebėta ir ištaisyta samprotaujant per architektūrą
+(pridėtos abi `states/**/*` scope eilutės macOS/Linux keliams), NE atradus per nepavykusią
+ekrano nuotrauką.
+
+**Patikrinta REALIAI, ne tik vienetų testais:** paleistas tikras `nullbyte-app` (`pnpm tauri
+dev`), paspaustas „Play" ant ActRaiser — `nullbyte-emu` REALIAI atvaizdavo SNES titulinį
+ekraną. Nusiųstas realus F5 klavišas per `osascript`/System Events (macOS key code 96) į
+`nullbyte-emu` langą. Patvirtinta TRIMIS nepriklausomais šaltiniais: (1) app'o log'as —
+`EmuStatus gautas iš nullbyte-emu status=StateSaved { slot: 1 }`; (2) tiesioginė `sqlite3`
+užklausa į TIKRĄ vartotojo DB — realus `save_states` įrašas su teisingu `game_id`, absoliučiu
+`.state`/`.png` keliu, `core_name="Snes9x"`, `core_version="1.63 890b5d4"`, realiu unix
+timestamp'u; (3) `find` patvirtino ABU failus REALIAI diske. Grįžus į `nullbyte-app` langą IR
+persikrovus (per navigaciją, ne Cmd+R — Tauri webview'ai jo nesuriša su reload'u pagal
+nutylėjimą) žaidimo detalių puslapį — ekrano nuotrauka patvirtino „Save states" sekciją
+rodančią Slot 1 su teisinga miniatiūra (tikras ActRaiser meniu kadrai), data, ir core
+pavadinimu. Core-mismatch šaka NEturėjo atskiro gyvo testo (reikalautų dviejų skirtingų core
+versijų) — pasitikima 4 vienetų testais + kodo peržiūra.
+
+**Patikrinta:** `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`
+(švaru), `cargo test --workspace` — 106 nullbyte-app testų (0 failed, +4 nuo šio ADR:
+`detect_core_mismatch_*`), 91 nullbyte-core, 4 nullbyte-emu; `pnpm check`/`pnpm lint`/`pnpm
+build` — švaru.
 
 ---
 
