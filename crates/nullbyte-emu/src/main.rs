@@ -193,6 +193,25 @@ impl App {
             return;
         }
 
+        // ADR-037: `Cmd+Ctrl+F` — macOS natūrali fullscreen konvencija, PATIKIMA alternatyva
+        // `F11`-ui (macOS numatytoji „Show Desktop" sisteminė priskirtis perima `F11` prieš jam
+        // pasiekiant šį langą, žr. `toggle_fullscreen` doc). Specialus atvejis PRIEŠ
+        // `resolve_hotkey`, tas pats modelis kaip `Space` aukščiau — dviejų vienalaikių
+        // modifikatorių chord'as netelpa į `resolve_hotkey`'o `shift`/`primary_modifier`
+        // dviejų parametrų abstrakciją, ir tai YRA macOS-specifinė konvencija (Linux `Ctrl`
+        // jau yra `primary_modifier`, tad „Ctrl+Ctrl+F" būtų prasme tuščias/susikirstų su
+        // „Find" chord'ais) — NEVERTA to sudėtinti į platformai neutralų `nullbyte-core`.
+        if cfg!(target_os = "macos")
+            && event.state == ElementState::Pressed
+            && !event.repeat
+            && matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyF))
+            && self.modifiers.super_key()
+            && self.modifiers.control_key()
+        {
+            self.toggle_fullscreen();
+            return;
+        }
+
         if event.state == ElementState::Pressed && !event.repeat {
             if let Some(hotkey) = physical_key_to_hotkey(event.physical_key) {
                 let primary_modifier = if cfg!(target_os = "macos") {
@@ -410,15 +429,20 @@ impl App {
         }
     }
 
+    /// Kviečiama IR `F11` (per [`resolve_hotkey`]), IR `Cmd+Ctrl+F` (žr. `handle_keyboard`
+    /// specialų atvejį PRIEŠ `resolve_hotkey` — ADR-037: macOS numatytoji sisteminė `F11`
+    /// „Show Desktop" priskirtis (Mission Control) perima klavišą PRIEŠ jam pasiekiant šį
+    /// langą, tad `Cmd+Ctrl+F` — macOS natūrali fullscreen konvencija (Safari, Chrome, ir kt.)
+    /// — veikia kaip PATIKIMA alternatyva be jokio konflikto).
     fn toggle_fullscreen(&self) {
         let Some(window) = &self.window else {
             return;
         };
         if window.fullscreen().is_some() {
-            tracing::info!("hotkey: F11 — išeinama iš fullscreen");
+            tracing::info!("hotkey: išeinama iš fullscreen");
             window.set_fullscreen(None);
         } else {
-            tracing::info!("hotkey: F11 — įjungiamas fullscreen");
+            tracing::info!("hotkey: įjungiamas fullscreen");
             window.set_fullscreen(Some(Fullscreen::Borderless(None)));
         }
     }

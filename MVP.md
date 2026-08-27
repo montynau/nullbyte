@@ -1391,7 +1391,7 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 
 ---
 
-### P4.4 — Hotkey'ai `[!]` (F1/F2/F5/Cmd+R/Shift+F5/Space patikrinti REALIAI; F11 — realus konfliktas su macOS; Esc — nepatikrinta)
+### P4.4 — Hotkey'ai `[!]` (F1/F2/F5/Cmd+R/Shift+F5/Space patikrinti REALIAI; fullscreen — žinomas neišspręstas macOS apribojimas, žr. ADR-037; Esc — nepatikrinta)
 
 **Priklausomybės:** P4.3
 **Failai:** `crates/nullbyte-core/src/input/hotkeys.rs` (naujas), `crates/nullbyte-core/src/input/mod.rs`,
@@ -1434,23 +1434,26 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 >   scratch.is_empty() { return; }` — fast-forward metu jokie audio sample'ai NEPUSHINAMI į
 >   ring bufferį, o cpal consumer'is jį toliau tuština normaliu greičiu → occupancy būtinai
 >   krenta į 0). Realus, paaiškinamas, ne atsitiktinis rezultatas.
-> - **`F11`** (fullscreen) — RASTAS REALUS KONFLIKTAS: macOS numatytoji sisteminė `F11`
->   priskirtis yra „Show Desktop" (Mission Control) IR ji perima klavišą PRIEŠ jam pasiekiant
->   `nullbyte-emu` langą. Patvirtinta DVIGUBAI: (1) ekrano nuotrauka po `F11` parodė TIKRĄ
->   macOS darbalaukį (visi langai paslėpti), (2) `AXFullScreen` atributas `nullbyte-emu` lange
->   per `System Events` liko `false` IR PRIEŠ, IR PO `F11` paspaudimo — pats app'as niekada
->   negavo klavišo. **Tai NĖRA nullbyte kodo klaida** — tai numatytosios macOS konfigūracijos
->   konfliktas, kurį patiria BET KURI app'o su `F11` fullscreen hotkey'u, kol vartotojas
->   sistemos Nustatymuose neišjungia/nepersirenka Mission Control „Show Desktop" priskirties.
->   Sprendimas dar NEPRIIMTAS — žr. IDEAS.md/vartotojo diskusiją.
-> - **`Esc`** — paspausta NE fullscreen būsenoje (nes `F11` REALIAI negalėjo įjungti
->   fullscreen'o dėl aukščiau aprašyto konflikto) — patvirtinta, kad tai NĖRA no-op klaidingai
->   (procesas necrash'ino, jokio netikėto elgesio), kas atitinka specifikaciją („Esc TIK
->   išeina iš fullscreen" — ne fullscreen'e turi būti no-op). PATI „išeina iš fullscreen"
->   elgsena LIEKA nepatikrinta gyvai, nes į fullscreen realiai patekti nepavyko (F11 konfliktas
->   aukščiau) — tiesiogiai priklauso nuo F11 sprendimo.
+> - **`F11`/fullscreen** — RASTOS DVI ATSKIROS REALIOS PROBLEMOS (žr. ADR-037 pilnai
+>   technikai): (1) macOS numatytoji sisteminė `F11` priskirtis „Show Desktop" (Mission
+>   Control) perima klavišą PRIEŠ jam pasiekiant `nullbyte-emu` langą; (2) GILESNĖ, nuo klavišo
+>   NEPRIKLAUSANTI problema — net kai hotkey TIKRAI pasiekia app'ą (patvirtinta su nauju
+>   `Cmd+Ctrl+F` alternatyviu klavišu), `window.set_fullscreen(Some(Fullscreen::Borderless
+>   (None)))` VIDUJE „pavyksta" (`window.fullscreen()` grąžina `Some(...)` iškart po
+>   kvietimo), bet VIZUALIAI langas NIEKADA nepersijungia į fullscreen (dydis/pozicija lieka
+>   nepakitę net po kelių sekundžių). Labiausiai tikėtina priežastis — `ActivationPolicy::
+>   Accessory` (naudojamas paslėpti Dock ikonai, žr. §10 „macOS Dock" pastabą) trukdo natyviai
+>   macOS fullscreen/Space perėjimui, kurią `winit`/AppKit tikisi „Regular" politikos app'ų.
+>   **Sprendimas: fiksuoti kaip žinomą, dar neišspręstą apribojimą, tęsti kitus MVP darbus**
+>   (vartotojo sprendimas 2026-08-27) — reikalauja gilesnio winit/AppKit tyrimo, ne vien
+>   klavišo pakeitimo, tad post-MVP.
+> - **`Esc`** — paspausta NE fullscreen būsenoje (nes fullscreen apskritai neveikia vizualiai,
+>   žr. aukščiau) — patvirtinta, kad tai NĖRA no-op klaidingai (procesas necrash'ino, jokio
+>   netikėto elgesio), kas atitinka specifikaciją („Esc TIK išeina iš fullscreen" — ne
+>   fullscreen'e turi būti no-op). PATI „išeina iš fullscreen" elgsena LIEKA nepatikrinta
+>   gyvai — tiesiogiai priklauso nuo fullscreen bug'o sprendimo aukščiau.
 >
-> Visi keturi (Shift+F5, F11, Esc, Space) padengti unit testais
+> Visi keturi (Shift+F5, F11/Cmd+Ctrl+F, Esc, Space) padengti unit testais
 > (`f5_through_f8_save_without_shift_load_with_shift` patikrina TIKSLIAI Shift+F5 atvejį) IR
 > naudoja LYGIAI TĄ PAČIĄ `resolve_hotkey`/`handle_hotkey_action` kodo šaką kaip pirmieji
 > keturi — bet dabar TRYS iš keturių papildomai patvirtinti REALIU gyvu procesu, ne vien
@@ -1465,7 +1468,7 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 | `F4` | Quick load |
 | `F5`–`F8` | Save state slot 1–4 |
 | `Shift+F5`–`F8` | Load state slot 1–4 |
-| `F11` | Fullscreen |
+| `F11` / `Cmd+Ctrl+F` | Fullscreen (žr. pastabą — vizualiai kol kas NEVEIKIA macOS, žr. ADR-037) |
 | `Space` (laikant) | Fast-forward |
 | `Esc` | Išeiti iš fullscreen / grįžti į biblioteką |
 | `Cmd/Ctrl+R` | Reset |
@@ -1474,12 +1477,14 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 - [!] Visi hotkey'ai veikia — `F1`/`F2`/`F5`/`Shift+F5`/`Space`/`Cmd+R` REALIAI patikrinti
       (žr. pastabą aukščiau); `F4`/`F6`-`F8`/`Shift+F6`-`F8` naudoja LYGIAI TĄ PAČIĄ
       `resolve_hotkey`/`handle_hotkey_action` kodo šaką kaip patikrintieji `F2`/`F5`/`Shift+F5`
-      (tik skiriasi slot'o numeris) — nelaikoma atskira rizika. **`F11` RASTAS REALUS
-      konfliktas su macOS sistemos „Show Desktop" priskirtimi** (žr. pastabą aukščiau) —
-      sprendimas dar nepriimtas. **`Esc`** (išėjimas iš fullscreen) blokuojamas TO PATIES F11
-      konflikto — negalima realiai patekti į fullscreen, kad patikrintum išėjimą iš jo.
-      `SaveState`/`LoadState` patys funkcionalumas — P8.1, nuo ADR-036 REALIAI patikrintas
-      (žr. P8.1).
+      (tik skiriasi slot'o numeris) — nelaikoma atskira rizika. **Fullscreen (`F11`/`Cmd+Ctrl+
+      F`) — RASTAS REALUS, NEIŠSPRĘSTAS macOS apribojimas** (klavišo wiring teisingas, bet
+      `window.set_fullscreen()` vizualiai neveikia po `ActivationPolicy::Accessory`, žr.
+      pastabą aukščiau ir ADR-037) — vartotojo sprendimu (2026-08-27) fiksuojama kaip žinomas
+      apribojimas, sprendimas atidėtas post-MVP. **`Esc`** (išėjimas iš fullscreen) blokuojamas
+      TO PATIES fullscreen bug'o — negalima realiai patekti į fullscreen, kad patikrintum
+      išėjimą iš jo. `SaveState`/`LoadState` patys funkcionalumas — P8.1, nuo ADR-036 REALIAI
+      patikrintas (žr. P8.1).
 - [x] Nekonfliktuoja su žaidimo įvestimi — hotkey klavišai (`F1`-`F11`, `Esc`, `Cmd/Ctrl+R`)
       ir žaidimo klavišai (strėlės, `Z`/`X`/`A`/`S`, `Enter`/`Shift`) visiškai nesikerta pagal
       konstrukciją (`handle_keyboard` patikrina hotkey PIRMIAU, `return` neleidžia patekti į
@@ -2892,6 +2897,7 @@ subagent'u prieš rašant kodą, 2026-08-26):**
 | **R8** | Video preview atminties nutekėjimas | Vidutinė | 🟢 Mažas | Griežtas `$effect` cleanup, vienas aktyvus video, testuoti su 100 kortelių |
 | **R9** | Svelte 5 / shadcn-svelte breaking changes | Žema | 🟢 Mažas | Užfiksuoti versijas `package.json` be `^` kritinėms |
 | **R10** | Scope creep — norisi core options, shader'ių, netplay | Aukšta | 🟡 Vidutinis | §1.3 „NEĮEINA" sąrašas yra įstatymas. Idėjos → `IDEAS.md`, ne į MVP |
+| **R11** | macOS fullscreen neveikia su `ActivationPolicy::Accessory` (P4.4/ADR-037) | Patvirtinta (100%) | 🟢 Mažas | Fiksuota kaip žinomas apribojimas vartotojo sprendimu (2026-08-27) — MVP tęsiamas be fix'o. Post-MVP: arba laikina `Regular` politika fullscreen metu, arba tiesioginis `NSWindow` API |
 
 ---
 
@@ -4253,7 +4259,7 @@ build` — švaru.
 
 ---
 
-### ADR-037 — 8BitDo išimtas iš MVP apimties; realus hotkey testas atskleidė macOS F11 konfliktą (P4.1/P4.4)
+### ADR-037 — 8BitDo išimtas iš MVP apimties; realus hotkey testas atskleidė DVI macOS fullscreen problemas (P4.1/P4.4)
 
 **Data:** 2026-08-27 · **Statusas:** priimta
 
@@ -4274,17 +4280,41 @@ patikrinti tris papildomus hotkey'us:
   down`/`key up` su 2s pauze parodė `audio_buffer_occupancy` REALIAI nukritus į `0.0` per
   TIKSLIAI tą patį 2s langą (paaiškinama `core::runner::process_audio_frame`'o kodu — fast-
   forward metu jokie sample'ai nepushinami, o consumer'is toliau tuština bufferį).
-- `F11` (fullscreen) — REALUS, PRODUKTINIS radinys: macOS numatytoji sisteminė „Show Desktop"
-  (Mission Control) priskirtis PERIMA `F11` PRIEŠ jam pasiekiant app'o langą. Patvirtinta
-  DVIGUBAI: ekrano nuotrauka po paspaudimo parodė TIKRĄ darbalaukį (visi langai paslėpti), IR
-  `AXFullScreen` atributas per `System Events` liko `false` IR PRIEŠ, IR PO paspaudimo. Tai
-  paveiks BET KURĮ vartotoją su numatytąja macOS konfigūracija, ne tik testavimo aplinką.
-  **Sprendimas NEPRIIMTAS šioje sesijoje** — galimos kryptys: (a) palikti `F11`, README
-  paminėti konfliktą ir kaip jį išjungti Sistemos nustatymuose, (b) pridėti alternatyvų
-  klavišą (pvz. macOS natūrali konvencija `Cmd+Ctrl+F`) šalia `F11`, (c) pakeisti numatytąjį
-  vien į `Cmd+Ctrl+F`. Reikalauja vartotojo sprendimo, ne vien kodo pakeitimo.
-- `Esc` (išėjimas iš fullscreen) — LIEKA nepatikrintas, TIESIOGIAI priklauso nuo `F11`
-  sprendimo (negalima patekti į fullscreen, kad patikrintum išėjimą iš jo).
+- `F11` (fullscreen) — REALUS, PRODUKTINIS radinys #1: macOS numatytoji sisteminė „Show
+  Desktop" (Mission Control) priskirtis PERIMA `F11` PRIEŠ jam pasiekiant app'o langą.
+  Patvirtinta DVIGUBAI: ekrano nuotrauka po paspaudimo parodė TIKRĄ darbalaukį (visi langai
+  paslėpti), IR `AXFullScreen` atributas per `System Events` liko `false` IR PRIEŠ, IR PO
+  paspaudimo. Paveikia BET KURĮ vartotoją su numatytąja macOS konfigūracija.
+- `Esc` (išėjimas iš fullscreen) — LIEKA nepatikrintas, TIESIOGIAI priklauso nuo radinio #2
+  (žemiau) sprendimo — negalima patekti į fullscreen, kad patikrintum išėjimą iš jo.
+
+**Bandymas ištaisyti radinį #1 (`Cmd+Ctrl+F` alternatyva) atskleidė GILESNĮ, produktinį radinį
+#2, kuris ATŠAUKĖ pradinį sprendimą:** vartotojas pasirinko „pridėti Cmd+Ctrl+F kaip
+alternatyvą" (macOS natūrali fullscreen konvencija, Safari/Chrome ir kt. naudoja tą patį
+chord'ą) — įgyvendinta `nullbyte-emu/src/main.rs::handle_keyboard` specialiu atveju PRIEŠ
+`resolve_hotkey` (tas pats modelis kaip `Space`, nes du vienalaikiai modifikatoriai netelpa į
+`resolve_hotkey`'o `shift`/`primary_modifier` abstrakciją, ir tai yra macOS-specifinė
+konvencija — žr. kodo doc). Realiai testuojant PAAIŠKĖJO, kad `Cmd+Ctrl+F` PASIEKIA app'ą
+teisingai (patvirtinta laikina `tracing::info!` diagnostika: `super_key=true control_key=true
+repeat=false` TIKSLIAI atitiko sąlygą), IR `toggle_fullscreen()` TIKRAI iškviečiamas, IR
+`window.set_fullscreen(Some(Fullscreen::Borderless(None)))` grąžina „sėkmę" (`window.
+fullscreen()` iškart po kvietimo rodo `Some(Borderless(None))`) — BET VIZUALIAI langas
+NIEKADA nepersijungia į fullscreen (dydis/pozicija nepakinta net po >2s). Tai reiškia, kad
+klaida NĖRA klavišo konflikte — ji YRA PAČIAME `window.set_fullscreen()` iškvietime šiame
+lange. Labiausiai tikėtina priežastis: `ActivationPolicy::Accessory` (§10 „macOS Dock"
+pastaba, naudojamas paslėpti Dock ikonai, ADR-numeris nežymimas — tai buvo P2.3/P4.0.2
+sprendimas) trukdo natyviam macOS fullscreen/Space perėjimui, kurį AppKit numato „Regular"
+politikos app'ams. **Šis radinys reiškia, kad fullscreen NIEKADA neveikė macOS per visą MVP
+istoriją** — anksčiau tai buvo paslėpta, nes niekas nesėkmingai nusiuntė `F11` PAČIAM app'ui
+(visada perimdavo sistema), tad „veikia/neveikia" klausimas niekada nebuvo realiai patikrintas
+iki šios sesijos.
+
+**Sprendimas (vartotojo, 2026-08-27):** fiksuoti abu radinius kaip žinomą, NEIŠSPRĘSTĄ MVP
+apribojimą (P4.4 acceptance eilutė), tęsti likusius MVP darbus eilės tvarka. `Cmd+Ctrl+F`
+kodo wiring'as PALIEKAMAS repo (klavišo aptikimo logika teisinga ir bus reikalinga, kai/jei
+fullscreen bug'as bus išspręstas) — tik pats `window.set_fullscreen()` neveikia. Tikras
+fix'as reikalauja gilesnio winit/AppKit `ActivationPolicy::Accessory` + fullscreen sąveikos
+tyrimo — post-MVP darbas.
 
 ---
 

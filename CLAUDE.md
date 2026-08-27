@@ -794,6 +794,16 @@ DB laiko tik **santykinius kelius**, ne absoliučius — kad veiktų perkėlus p
 - **macOS Dock:** winit numatytai naudoja `ActivationPolicy::Regular` — vaiko procesas
   atsirastų Dock'e kaip ANTRA programa. Naudok
   `EventLoopBuilderExtMacOS::with_activation_policy(ActivationPolicy::Accessory)`.
+- **`ActivationPolicy::Accessory` + fullscreen NEVEIKIA kartu (patvirtinta realiai,
+  MVP.md P4.4/ADR-037, 2026-08-27):** `window.set_fullscreen(Some(Fullscreen::Borderless
+  (None)))` VIDUJE „pavyksta" (`window.fullscreen()` iškart grąžina `Some(...)`), bet
+  VIZUALIAI langas niekada nepersijungia — dydis/pozicija nepakinta. Patvirtinta REALIAI
+  gyvame procese (ne tik teorija), diagnostine `tracing::info!` prieš/po `set_fullscreen`
+  kvietimo. Priežastis (tikėtina, netirta iki galo): natyvus macOS fullscreen/Space
+  perėjimas AppKit lygmenyje numatytas „Regular" politikos app'ams — „Accessory" (LSUIElement
+  analogas) galimai jo tiesiog neturi. Jei reikės fullscreen'o — reikės arba laikinai keisti
+  politiką į `Regular` PRIEŠ `set_fullscreen()` kvietimą (grąžinti į `Accessory` išjungus),
+  arba apeiti per žemesnio lygio `NSWindow`/Cocoa API tiesiogiai. Neišspręsta, post-MVP.
 - **Linux/Wayland:** wgpu Vulkan backend'as gali reikalauti `WAYLAND_DISPLAY` handling'o.
   Testuok ir X11, ir Wayland. Jei Wayland problemiškas — leisk force'inti X11 per `WINIT_UNIX_BACKEND=x11`.
 - **`Surface` turi būti kuriamas VAIKO PROCESO main gijoje** (macOS reikalavimas — `NSView`
