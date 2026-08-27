@@ -1211,7 +1211,7 @@ triple'ais, žr. pastabą aukščiau)
 
 ---
 
-### P4.1 — Gamepad aptikimas `[!]` (DualShock 4 + Xbox + hot-plug patikrinti realiai; 8BitDo/Linux — ne)
+### P4.1 — Gamepad aptikimas `[!]` (DualShock 4 + Xbox + hot-plug patikrinti realiai; realaus valdiklio testas Linux'e — ne)
 
 **Priklausomybės:** P0.3 (originaliai), P4.0.1 (kodo perkėlimui į naują crate — žr. pastabą aukščiau)
 **Failai:** `crates/nullbyte-core/src/input/gamepad.rs`
@@ -1249,13 +1249,15 @@ infrastruktūra nustatymų ekranui — tai UI pranešimo kelias, ne žaidimo val
 neprieštarauja `nullbyte-emu` pusės wiring'ui.
 
 **Acceptance:**
-- [!] Aptinka Xbox, DualShock 4/5, 8BitDo valdiklius — **DualShock 4 patikrintas REALIAI**
+- [x] Aptinka Xbox, DualShock 4/5 valdiklius — **DualShock 4 patikrintas REALIAI**
       (2026-08-21): `gilrs prijungtas name="PS4 Controller"`, X/Kvadratas/Trikampis/Nulis
       visi teisingai atpažinti (`South`/`West`/`North`/`East`). **Xbox Wireless Controller
       PATIKRINTAS REALIAI (2026-08-26, macOS):** `gilrs prijungtas name="Xbox Wireless
-      Controller"` iškart, be jokio delsimo ar papildomo setup'o (žr. ADR-026). 8BitDo —
-      VIS DAR NEPATIKRINTA (nė vieno neturėjo po ranka), rizika žema (SDL_GameControllerDB
-      abstrakcija), bet neįrodyta.
+      Controller"` iškart, be jokio delsimo ar papildomo setup'o (žr. ADR-026). **8BitDo
+      IŠIMTAS iš MVP apimties (2026-08-27):** vartotojas jo neturi ir nežino, kada turės —
+      nebėra šio darbo acceptance kriterijus. Jei kada nors atsiras — `gilrs`/
+      SDL_GameControllerDB abstrakcija turėtų jį aptikti be papildomo kodo, bet tai
+      NEPATIKRINTA ir NEBĖRA planuojama patikrinti šios MVP sesijos metu.
 - [x] Prijungimas veikiant nesulaužo (hot-plug) — patikrinta REALIAI: `nullbyte-emu` jau
       veikė (paleistas PRIEŠ prijungiant valdiklį), `Connected` įvykis pagautas gyvai be
       crash'o.
@@ -1389,7 +1391,7 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 
 ---
 
-### P4.4 — Hotkey'ai `[!]` (F1/F2/F5/Cmd+R patikrinti REALIAI 2026-08-25; likusieji — tik unit testais, ta pati kodo šaka)
+### P4.4 — Hotkey'ai `[!]` (F1/F2/F5/Cmd+R/Shift+F5/Space patikrinti REALIAI; F11 — realus konfliktas su macOS; Esc — nepatikrinta)
 
 **Priklausomybės:** P4.3
 **Failai:** `crates/nullbyte-core/src/input/hotkeys.rs` (naujas), `crates/nullbyte-core/src/input/mod.rs`,
@@ -1415,14 +1417,44 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 >
 > **Realiai patikrinta** (SNES ROM, `nullbyte-emu` per FIFO stdin): `F1` (pauzė → `paused=true`
 > log'e), `F2` (quick save), `F5` (save state slot 1), `Cmd+R` (reset) — visi keturi teisingai
-> nusiuntė atitinkamą komandą. **NEpatikrinta gyvai:** `Shift+F5` (load slot), `F11`
-> (fullscreen), `Esc`, `Space` (fast-forward) — `osascript` klavišų injektavimas į macOS
-> Accessory-tipo langą pasirodė nepatikimas (fokusas nuklysdavo atgal į terminalą net po
-> `AXRaise`, tiek globalus, tiek process-scoped `System Events` sintaksės variantas) —
-> testavimo įrankio, ne produkto, problema. Šie keturi padengti unit testais
+> nusiuntė atitinkamą komandą.
+>
+> **Papildomai realiai patikrinta 2026-08-27** (ADR-036 sesijos pratęsimas, `process
+> frontmost` per `System Events` — ANKSTESNĖ „`osascript` nepatikimas" pastaba pasitvirtino
+> TIK dėl fokuso, ne pačio klavišo siuntimo; su `set frontmost to true` prieš kiekvieną
+> `key code` kvietimą viskas suveikė stabiliai):
+> - **`Shift+F5`** (load slot 1) — REALUS `nullbyte-app` log'as parodė
+>   `StateSaved { slot: 1 }` (F5) IŠKART po to `StateLoaded { slot: 1 }` (Shift+F5) — abu
+>   teisingi statusai, teisinga eiliškumas.
+> - **`Space`** (fast-forward, laikant) — patikrinta NETIESIOGIAI, bet MECHANIŠKAI įrodomai:
+>   `key down`/`key up` su 2s pauze tarp jų parodė `audio_buffer_occupancy` REALIAI nukritus
+>   iki `0.0` lygiai per laikymo langą (7 iš eilės `0.0` reikšmės, trukmė ~1.8–2.1s — sutampa
+>   su scenarijaus 2s laikymu), tada atsistačius į normalų ~0.6-0.7 lygį iškart po `key up`.
+>   Tai TIKSLIAI atitinka `core::runner::process_audio_frame` kodą (`if state.fast_forward ||
+>   scratch.is_empty() { return; }` — fast-forward metu jokie audio sample'ai NEPUSHINAMI į
+>   ring bufferį, o cpal consumer'is jį toliau tuština normaliu greičiu → occupancy būtinai
+>   krenta į 0). Realus, paaiškinamas, ne atsitiktinis rezultatas.
+> - **`F11`** (fullscreen) — RASTAS REALUS KONFLIKTAS: macOS numatytoji sisteminė `F11`
+>   priskirtis yra „Show Desktop" (Mission Control) IR ji perima klavišą PRIEŠ jam pasiekiant
+>   `nullbyte-emu` langą. Patvirtinta DVIGUBAI: (1) ekrano nuotrauka po `F11` parodė TIKRĄ
+>   macOS darbalaukį (visi langai paslėpti), (2) `AXFullScreen` atributas `nullbyte-emu` lange
+>   per `System Events` liko `false` IR PRIEŠ, IR PO `F11` paspaudimo — pats app'as niekada
+>   negavo klavišo. **Tai NĖRA nullbyte kodo klaida** — tai numatytosios macOS konfigūracijos
+>   konfliktas, kurį patiria BET KURI app'o su `F11` fullscreen hotkey'u, kol vartotojas
+>   sistemos Nustatymuose neišjungia/nepersirenka Mission Control „Show Desktop" priskirties.
+>   Sprendimas dar NEPRIIMTAS — žr. IDEAS.md/vartotojo diskusiją.
+> - **`Esc`** — paspausta NE fullscreen būsenoje (nes `F11` REALIAI negalėjo įjungti
+>   fullscreen'o dėl aukščiau aprašyto konflikto) — patvirtinta, kad tai NĖRA no-op klaidingai
+>   (procesas necrash'ino, jokio netikėto elgesio), kas atitinka specifikaciją („Esc TIK
+>   išeina iš fullscreen" — ne fullscreen'e turi būti no-op). PATI „išeina iš fullscreen"
+>   elgsena LIEKA nepatikrinta gyvai, nes į fullscreen realiai patekti nepavyko (F11 konfliktas
+>   aukščiau) — tiesiogiai priklauso nuo F11 sprendimo.
+>
+> Visi keturi (Shift+F5, F11, Esc, Space) padengti unit testais
 > (`f5_through_f8_save_without_shift_load_with_shift` patikrina TIKSLIAI Shift+F5 atvejį) IR
-> naudoja LYGIAI TĄ PAČIĄ `resolve_hotkey`/`handle_hotkey_action` kodo šaką, kuri jau
-> patvirtinta gyvai kitiems trims trigger-tipo hotkey'ams.
+> naudoja LYGIAI TĄ PAČIĄ `resolve_hotkey`/`handle_hotkey_action` kodo šaką kaip pirmieji
+> keturi — bet dabar TRYS iš keturių papildomai patvirtinti REALIU gyvu procesu, ne vien
+> unit testais.
 
 **Ką daryti:**
 
@@ -1439,8 +1471,15 @@ neprieštarauja `nullbyte-emu` pusės wiring'ui.
 | `Cmd/Ctrl+R` | Reset |
 
 **Acceptance:**
-- [!] Visi hotkey'ai veikia — 4/9 patikrinti REALIAI, likusieji tik unit testais (žr. pastabą
-      aukščiau); `SaveState`/`LoadState` patys funkcionalumas laukia P8.1
+- [!] Visi hotkey'ai veikia — `F1`/`F2`/`F5`/`Shift+F5`/`Space`/`Cmd+R` REALIAI patikrinti
+      (žr. pastabą aukščiau); `F4`/`F6`-`F8`/`Shift+F6`-`F8` naudoja LYGIAI TĄ PAČIĄ
+      `resolve_hotkey`/`handle_hotkey_action` kodo šaką kaip patikrintieji `F2`/`F5`/`Shift+F5`
+      (tik skiriasi slot'o numeris) — nelaikoma atskira rizika. **`F11` RASTAS REALUS
+      konfliktas su macOS sistemos „Show Desktop" priskirtimi** (žr. pastabą aukščiau) —
+      sprendimas dar nepriimtas. **`Esc`** (išėjimas iš fullscreen) blokuojamas TO PATIES F11
+      konflikto — negalima realiai patekti į fullscreen, kad patikrintum išėjimą iš jo.
+      `SaveState`/`LoadState` patys funkcionalumas — P8.1, nuo ADR-036 REALIAI patikrintas
+      (žr. P8.1).
 - [x] Nekonfliktuoja su žaidimo įvestimi — hotkey klavišai (`F1`-`F11`, `Esc`, `Cmd/Ctrl+R`)
       ir žaidimo klavišai (strėlės, `Z`/`X`/`A`/`S`, `Enter`/`Shift`) visiškai nesikerta pagal
       konstrukciją (`handle_keyboard` patikrina hotkey PIRMIAU, `return` neleidžia patekti į
@@ -4211,6 +4250,41 @@ versijų) — pasitikima 4 vienetų testais + kodo peržiūra.
 (švaru), `cargo test --workspace` — 106 nullbyte-app testų (0 failed, +4 nuo šio ADR:
 `detect_core_mismatch_*`), 91 nullbyte-core, 4 nullbyte-emu; `pnpm check`/`pnpm lint`/`pnpm
 build` — švaru.
+
+---
+
+### ADR-037 — 8BitDo išimtas iš MVP apimties; realus hotkey testas atskleidė macOS F11 konfliktą (P4.1/P4.4)
+
+**Data:** 2026-08-27 · **Statusas:** priimta
+
+**8BitDo (P4.1):** vartotojo sprendimu (2026-08-27) — „neturiu jo ir nežinau, kada turėsiu" —
+8BitDo valdiklių palaikymo patikrinimas PILNAI IŠIMTAS iš MVP acceptance kriterijų, ne tik
+atidėtas. `gilrs`/SDL_GameControllerDB abstrakcija teoriškai turėtų jį aptikti be papildomo
+kodo, jei kada nors atsiras, bet tai NEBĖRA planuojama patikrinti šios MVP sesijos metu.
+DualShock 4 ir Xbox Wireless Controller lieka vieninteliai REALIAI patikrinti valdikliai —
+P4.1 acceptance eilutė dėl to tapo `[x]` (buvęs vienintelis blokatorius pašalintas iš apimties).
+
+**Realus hotkey testas (P4.4):** ankstesnė (2026-08-25) MVP.md pastaba teigė, kad `osascript`
+klavišų injektavimas į `nullbyte-emu` langą yra „nepatikimas". Šioje sesijoje išsiaiškinta
+TIKSLI priežastis — trūko `set frontmost to true` PRIEŠ kiekvieną `key code` kvietimą, ne
+patiems klavišams siunčiant negalima pasitikėti. Su tinkamu fokusavimu PAVYKO realiai
+patikrinti tris papildomus hotkey'us:
+- `Shift+F5` (load) — `StateSaved`→`StateLoaded` seka realiame app'o log'e.
+- `Space` (fast-forward, laikant) — netiesioginis, bet mechaniškai įrodomas testas: `key
+  down`/`key up` su 2s pauze parodė `audio_buffer_occupancy` REALIAI nukritus į `0.0` per
+  TIKSLIAI tą patį 2s langą (paaiškinama `core::runner::process_audio_frame`'o kodu — fast-
+  forward metu jokie sample'ai nepushinami, o consumer'is toliau tuština bufferį).
+- `F11` (fullscreen) — REALUS, PRODUKTINIS radinys: macOS numatytoji sisteminė „Show Desktop"
+  (Mission Control) priskirtis PERIMA `F11` PRIEŠ jam pasiekiant app'o langą. Patvirtinta
+  DVIGUBAI: ekrano nuotrauka po paspaudimo parodė TIKRĄ darbalaukį (visi langai paslėpti), IR
+  `AXFullScreen` atributas per `System Events` liko `false` IR PRIEŠ, IR PO paspaudimo. Tai
+  paveiks BET KURĮ vartotoją su numatytąja macOS konfigūracija, ne tik testavimo aplinką.
+  **Sprendimas NEPRIIMTAS šioje sesijoje** — galimos kryptys: (a) palikti `F11`, README
+  paminėti konfliktą ir kaip jį išjungti Sistemos nustatymuose, (b) pridėti alternatyvų
+  klavišą (pvz. macOS natūrali konvencija `Cmd+Ctrl+F`) šalia `F11`, (c) pakeisti numatytąjį
+  vien į `Cmd+Ctrl+F`. Reikalauja vartotojo sprendimo, ne vien kodo pakeitimo.
+- `Esc` (išėjimas iš fullscreen) — LIEKA nepatikrintas, TIESIOGIAI priklauso nuo `F11`
+  sprendimo (negalima patekti į fullscreen, kad patikrintum išėjimą iš jo).
 
 ---
 
