@@ -213,6 +213,22 @@ sudo pacman -S webkit2gtk-4.1 base-devel curl wget file openssl \
   libappindicator-gtk3 librsvg alsa-lib
 ```
 
+**Linux — also needed at runtime, for the game-hover video preview:** without these,
+WebKitGTK's video player can crash instead of showing a clean error.
+
+```bash
+# Debian / Ubuntu
+sudo apt install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+  gstreamer1.0-plugins-ugly gstreamer1.0-libav
+
+# Fedora
+sudo dnf install gstreamer1-plugins-good gstreamer1-plugins-bad-free \
+  gstreamer1-plugins-ugly-free gstreamer1-libav
+
+# Arch
+sudo pacman -S gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav
+```
+
 ### Running it
 
 ```bash

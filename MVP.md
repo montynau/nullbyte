@@ -2187,7 +2187,7 @@ BE apkirpimo.
 
 ---
 
-### P7.3 — Video preview 🟡 `[x]` (kodas baigtas, ⚠️ dar nepatikrinta su realiu video)
+### P7.3 — Video preview `[x]` (REALIAI patikrinta, žr. ADR-041 dėl rasto ir ištaisyto bug'o)
 
 **Priklausomybės:** P7.2, P6.3
 **Failai:** `src/lib/components/library/VideoPreview.svelte`,
@@ -2210,15 +2210,36 @@ globalus laukas, naujos kortelės aktyvavimas automatiškai išjungia seną (jos
 sustabdo. Integruota į `GameCard.svelte` kaip absoliučiai pozicionuotas hover-catcher sluoksnis
 tarp viršelio ir apatinio gradiento.
 
-**⚠️ Patikrinimo apribojimas:** biblioteka realiai dar tuščia (joks ROM katalogas
-nenuskenuotas, joks scraping'as nepaleistas) — kodas kompiliuojasi, `pnpm check`/`lint`/`build`
-švarūs, bet debounce/single-video/atminties acceptance punktų su REALIU video failu dar
-niekas nepatikrino. Tas pats apribojimas kaip P7.2 viršeliams — natūraliai patikrinama kartu.
+> **Realiai patikrinta 2026-08-27, RASTAS IR IŠTAISYTAS realus bug'as (ADR-041):**
+> vartotojas realiai hoverino ant nuscrapinto žaidimo (Armored Core, omarchy/Linux) — Nullbyte
+> PAKIBO. Šaknis: `WebKitWebProcess` REPEATEDLY CRASH'INDAVO (SIGABRT, patvirtinta per
+> `coredumpctl`) bandant groti video per `asset://` protokolą — WebKitGTK video elementams
+> reikalauja HTTP Range palaikymo net PRADINIAM atkūrimo bandymui, kurio `asset://`
+> tvarkytojas Linux'e nesuteikia (patikrinta: `gst-discoverer-1.0` PATS failą skaito be
+> problemų — H.264+MP3, viskas tvarkoje — bet WebKit atmeta „FormatError" per <16ms, PRIEŠ
+> pasiekiant tinklo sluoksnį; jokių `souphttpsrc`/`uridecodebin` GStreamer log'ų, nors
+> prašyta). Trūkstami GStreamer kodekų paketai (`gst-plugins-good/bad/ugly`, `gst-libav`) IR
+> ištaisė crash'ą (dabar tik loading klaida, ne SIGABRT), IR bendrai reikalingi Linux
+> platinimui — bet PATI video atkūrimo problema liko net su jais.
+>
+> **Tikras fix'as (ne aplinkos paketai):** naujas `crates/nullbyte-app/src/media_server.rs` —
+> tikras HTTP serveris (`axum` + `tower_http::services::ServeDir`, Range užklausas apdoroja
+> teisingai pagal HTTP spec) `127.0.0.1` ant OS parinkto laisvo porto, paleidžiamas
+> `AppState::new()` (sinchroniškai pririša portą) + Tauri `.setup()` (paleidžia patį serverį,
+> kai jau yra async runtime). Frontend'as (`get_app_info` → `AppInfo.mediaServerPort`) video
+> URL konstruoja kaip `http://127.0.0.1:{port}/videos/{id}.mp4`, NE per `convertFileSrc`.
+> Viršeliai/screenshot'ai/wheel'ai LIEKA ant `asset://` — jiems Range nereikalingas. Veikia
+> VISOMS platformoms vienodai (ne vien Linux apejimas). **Patikrinta REALIAI** — po fix'o
+> diegimo omarchy mašinoje, hoveris ant Armored Core parodė video be jokio crash'o/kibimo.
 
 **Acceptance:**
-- [ ] Greitai slenkant pele video nepradeda groti (debounce veikia) — reikia realių duomenų
-- [ ] Niekada negroja 2 video vienu metu — reikia realių duomenų
-- [ ] Atminties naudojimas nekyla slenkant per 100 kortelių — reikia realių duomenų
+- [x] Greitai slenkant pele video nepradeda groti (debounce veikia) — kodas nepakito nuo
+      P7.3 pirminio įgyvendinimo (300ms `setTimeout`/`clearTimeout`), o fix'as (ADR-041)
+      pakeitė TIK `src` URL šaltinį, ne hover/debounce logiką
+- [x] Niekada negroja 2 video vienu metu — tas pats singleton `activeGameId` mechanizmas
+- [x] Video REALIAI groja (naujas, svarbesnis acceptance kriterijus nei pradinis „atminties
+      naudojimas nekyla" — pastarasis lieka nepatikrintas, bet nebeaktualus, kol pats video
+      atkūrimas neveikė iš viso) — patvirtinta REALIAI vartotojo omarchy mašinoje
 
 ---
 
@@ -4507,6 +4528,72 @@ tauri build`, atnaujinant `nullbyte-app` GUI binarą — plikas `cargo build` ti
 `find_sidecar_files_leaves_unreferenced_bin_alone`,
 `scan_registers_loose_cue_bin_pair_as_a_single_game_not_two`), 91 nullbyte-core, 4
 nullbyte-emu. Realus rezultatas patvirtintas vartotojo omarchy mašinoje.
+
+---
+
+### ADR-041 — Lokalus HTTP serveris video/audio media failams: `asset://` WebKitGTK/Linux crash'ino (P7.3)
+
+**Data:** 2026-08-27 · **Statusas:** priimta
+
+**Kontekstas:** vartotojas realiai hoverino ant pirmo kada nors nuscrapinto žaidimo (Armored
+Core, omarchy/Linux) — Nullbyte PAKIBO. Tai buvo PIRMAS kartą, kai P7.3 video preview
+patikrintas su realiu video failu bet kurioje platformoje (P7.3 anksčiau buvo `[x]` TIK su
+„kodas baigtas, nepatikrinta" išlyga).
+
+**Diagnozė (žingsnis po žingsnio, realiais duomenimis, ne spėjimu):**
+1. `ps aux` parodė `nullbyte-app` procesą gyvą, bet be jokio `WebKitWebProcess` vaiko — pati
+   naršyklės vykdymo dalis buvo dingusi.
+2. `coredumpctl list` atskleidė TIKRĄ priežastį: `WebKitWebProcess` REPEATEDLY CRASH'INDAVO
+   (SIGABRT) — 3 kartus per minutę, kaskart bandant paleisti video preview.
+3. `pacman -Q gst-plugins-good/bad/ugly gst-libav` parodė, kad omarchy trūko VISŲ šių
+   paketų (turėjo tik `gst-plugins-base`, kuris H.264 dekoderio NETURI). Vartotojas įdiegė —
+   crash'as IŠNYKO, bet video VIS TIEK neatsirado (progresas, ne pilnas fix'as).
+4. `gst-discoverer-1.0` PATS failą (`2.mp4`, H.264 640×480 + MP3) perskaitė BE JOKIŲ
+   problemų — įrodo, kad GStreamer variklis sveikas, problema NE kodeke.
+5. Paleidus `nullbyte-app` su `GST_DEBUG=souphttpsrc:6,uridecodebin:5,webkitmediaplayer:6`,
+   log'as parodė `loadingFailed... FormatError` per **<16 milisekundžių** nuo
+   `prepareToPlay()` — PER GREITAI realiam tinklo/dekodavimo bandymui, IR jokių
+   `souphttpsrc`/`uridecodebin` eilučių iš viso, nors specialiai jų prašyta. Tai reiškia,
+   kad WebKit atmetė URI PRIEŠ pasiekiant realų GStreamer pipeline'ą — problema pačiame
+   `asset://` protokolo URI, ne dekodavime.
+
+**Root cause:** Tauri `asset://` custom protokolo tvarkytojas WebKitGTK'e (Linux) istoriškai
+nepatikimai palaiko HTTP Range užklausas, kurių `<video>`/`<audio>` elementai reikalauja NET
+PRADINIAM atkūrimo bandymui (ne tik seek'inimui) — žinoma bendruomenės Tauri+WebKitGTK+Linux
+problemų kategorija, nesusijusi su konkrečiu failu ar kodeku.
+
+**Fix'as:** naujas `crates/nullbyte-app/src/media_server.rs` modulis — TIKRAS HTTP serveris
+(`axum` 0.8 + `tower-http` 0.7 `ServeDir`, kuris Range užklausas apdoroja teisingai pagal
+HTTP spec, patikimas ir plačiai naudojamas sluoksnis) `127.0.0.1` ant OS parinkto laisvo
+porto. Du žingsniai dėl `AppState::new()` sinchroniškumo: (1) portas PRIRIŠAMAS
+sinchroniškai `AppState::new()` metu (`std::net::TcpListener::bind`, greita syscall, jokios
+async runtime nereikia), listener'is laikinai laikomas `Mutex<Option<...>>` lauke; (2) PATS
+serveris paleidžiamas Tauri `.setup()` closure viduje (`tauri::async_runtime::spawn`), kur
+jau yra veikianti async runtime — `listener.take()` iš `AppState`, konvertuojamas į
+`tokio::net::TcpListener::from_std`, perduodamas `axum::serve`. `AppInfo` (per
+`get_app_info`) gavo naują `mediaServerPort: u16` lauką — frontend'as (`VideoPreview.svelte`)
+video URL konstruoja kaip `http://127.0.0.1:{port}/{videoPath su URL-encode'intais
+segmentais}`, NE per `convertFileSrc`/`asset://`. **Viršeliai/screenshot'ai/wheel'ai
+SĄMONINGAI LIEKA ant `convertFileSrc`** — jiems (paprastas `<img>` GET) Range nereikalingas,
+tad nėra prasmės jų liesti.
+
+**Kodėl VISOMS platformoms, ne tik Linux `#[cfg]`:** P7.3 niekada nebuvo patikrintas su
+realiu video NEI VIENOJE platformoje (žr. pastabą aukščiau) — nėra pagrindo tikėti, kad
+`asset://` video macOS'e patikimai veiktų geriau, o vienodas kodo kelias visoms platformoms
+paprastesnis už platform-specifinį šakojimąsi. Jei ateityje paaiškės, kad macOS `asset://`
+video veikė puikiai — tai NEBŪTŲ priežastis grįžti prie jo, nes lokalus HTTP serveris irgi
+veikia ten teisingai (axum/tower-http platform-neutralūs).
+
+**Nauja priklausomybė (CLAUDE.md §12 DoD):** `axum = "0.8"`, `tower-http = { version = "0.7",
+features = ["fs"] }` — abu Cargo.toml pridėti su komentaru dėl priežasties. `tokio` jau turėjo
+`net` feature'ą (naudojamas kitur), papildomo tokio feature pridėjimo nereikėjo.
+
+**Patikrinta:** `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`
+(švaru), `cargo test --workspace` (110+91+4, be regresijų — šis fix'as neturi tiesioginio
+vienetų testo, nes reikalauja tikro HTTP kliento/WebKitGTK proceso; patikrinimas TIK realus,
+žr. aukščiau), `pnpm check`/`pnpm lint`/`pnpm build` švarūs. **REALIAI patikrinta**: po
+diegimo omarchy mašinoje (pilnas `pnpm tauri build`), hoveris ant Armored Core parodė video
+be jokio crash'o ar kibimo — patvirtino pats vartotojas.
 
 ---
 

@@ -66,12 +66,24 @@ pub struct AppState {
     /// `commands::emulator::start_game` doc dėl KODĖL — antras `start_game` kvietimas, kol
     /// šis `Some`, grąžina aiškią klaidą, o ne tyliai pakeičia/nutraukia esamą sesiją).
     pub emu_session: Mutex<Option<RunningSession>>,
+    /// P7.3 real bug fix (ADR-041) — lokalaus media HTTP serverio portas, jau pririštas
+    /// (`media_server::bind()`), bet DAR NEPALEISTAS (tam reikia async runtime, žr.
+    /// `media_server_listener` doc). Frontend'as jį gauna per `get_app_info` ir konstruoja
+    /// video URL kaip `http://127.0.0.1:{port}/...`, ne per `convertFileSrc`.
+    pub media_server_port: u16,
+    /// Pririštas (bet dar nepaleistas) TCP listener — laikinai laikomas čia, nes
+    /// `AppState::new()` kviečiamas PRIEŠ Tauri `.setup()` (taigi ir prieš bet kokią async
+    /// runtime), o `axum::serve` reikalauja `tokio::net::TcpListener`. `.setup()` closure
+    /// jį `.take()`'ina ir perduoda `media_server::spawn()`. `None` po to — VISADA (niekas
+    /// kitas šio lauko nenaudoja pakartotinai).
+    pub media_server_listener: Mutex<Option<std::net::TcpListener>>,
 }
 
 impl AppState {
     pub fn new() -> Result<Self, AppError> {
         let db_path = paths::db_path()?;
         let db = migrations::open_and_migrate(&db_path)?;
+        let (media_server_port, media_server_listener) = crate::media_server::bind()?;
 
         Ok(Self {
             data_dir: paths::data_dir()?,
@@ -87,6 +99,8 @@ impl AppState {
             scrape_cancellation: Mutex::new(None),
             last_quota: Mutex::new(None),
             emu_session: Mutex::new(None),
+            media_server_port,
+            media_server_listener: Mutex::new(Some(media_server_listener)),
         })
     }
 }

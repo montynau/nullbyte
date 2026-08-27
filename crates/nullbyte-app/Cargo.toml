@@ -54,6 +54,15 @@ tokio-util = "0.7"
 # CLAUDE.md §3.4). Jau vetuota workspace priklausomybė (naudojama `nullbyte-core`), čia tik
 # nauja NAUDOJIMO vieta, ne nauja priklausomybė kaip tokia.
 cpal = "0.16"
+# P7.3 real bug fix (ADR-041, 2026-08-27): Tauri `asset://` protokolas WebKitGTK (Linux)
+# video/audio elementams nepatikimas — trūksta HTTP Range palaikymo, kurio <video> reikalauja
+# net pradiniam atkūrimo bandymui (patikrinta realiai: WebKit atmeta „FormatError" per kelias
+# milisekundes, PRIEŠ pasiekiant tinklo sluoksnį, nors GStreamer pats failą skaito be
+# problemų). Sprendimas: tikras HTTP serveris 127.0.0.1 ant OS parinkto laisvo porto,
+# `tower_http::services::ServeDir` Range užklausas apdoroja teisingai pagal HTTP spec. Veikia
+# VISOMS platformoms vienodai — supaprastina architektūrą, ne vien Linux apejimas.
+axum = "0.8"
+tower-http = { version = "0.7", features = ["fs"] }
 
 [dev-dependencies]
 # "test" atrakina tauri::test::{mock_builder, mock_context, noop_assets} — naudoja

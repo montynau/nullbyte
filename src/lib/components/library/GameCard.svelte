@@ -42,7 +42,7 @@
     />
   {/if}
 
-  <VideoPreview {game} mediaDir={app.info?.mediaDir ?? null} />
+  <VideoPreview {game} mediaServerPort={app.info?.mediaServerPort ?? null} />
 
   <div
     class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-2 pt-6 opacity-0 transition-opacity duration-150 group-hover:opacity-100"

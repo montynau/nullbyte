@@ -1,14 +1,19 @@
 <script lang="ts">
-  import { convertFileSrc } from "@tauri-apps/api/core";
   import { videoPreview } from "$lib/stores/videoPreview.svelte";
   import type { Game } from "$lib/types";
 
   const HOVER_DELAY_MS = 300;
 
-  let { game, mediaDir }: { game: Game; mediaDir: string | null } = $props();
+  let { game, mediaServerPort }: { game: Game; mediaServerPort: number | null } = $props();
 
+  // P7.3 real bug fix (ADR-041) — TIESIOGIAI per lokalų HTTP serverį, NE `convertFileSrc`/
+  // `asset://` (WebKitGTK/Linux `<video>` reikalauja HTTP Range palaikymo net pradiniam
+  // atkūrimo bandymui, kurio `asset://` tvarkytojas nesuteikia). Kiekvienas kelio segmentas
+  // koduojamas atskirai (NE visas kelias — `/` turi likti keliu skiriančiu simboliu).
   const src = $derived(
-    game.videoPath && mediaDir ? convertFileSrc(`${mediaDir}/${game.videoPath}`) : null,
+    game.videoPath && mediaServerPort != null
+      ? `http://127.0.0.1:${mediaServerPort}/${game.videoPath.split("/").map(encodeURIComponent).join("/")}`
+      : null,
   );
   const active = $derived(videoPreview.activeGameId === game.id);
 

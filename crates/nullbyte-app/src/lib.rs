@@ -3,10 +3,12 @@ mod db;
 mod error;
 mod ipc;
 mod library;
+mod media_server;
 mod paths;
 mod scraper;
 mod state;
 
+use tauri::Manager;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -53,6 +55,12 @@ struct AppInfo {
     states_dir: String,
     media_dir: String,
     db_path: String,
+    /// P7.3 real bug fix (ADR-041) — video/audio URL frontend'e konstruojami kaip
+    /// `http://127.0.0.1:{media_server_port}/...`, ne per `convertFileSrc` (`asset://`
+    /// protokolas WebKitGTK/Linux video elementams nepatikimas — žr. `media_server` modulio
+    /// doc). Viršeliai/screenshot'ai/wheel'ai LIEKA ant `convertFileSrc` — jiems Range
+    /// nereikalingas.
+    media_server_port: u16,
 }
 
 /// Grąžina versiją, platformą ir išspręstus katalogus — naudinga UI Nustatymų ekrane
@@ -69,6 +77,7 @@ fn get_app_info(state: tauri::State<'_, AppState>) -> AppInfo {
         states_dir: state.states_dir.display().to_string(),
         media_dir: state.media_dir.display().to_string(),
         db_path: state.db_path.display().to_string(),
+        media_server_port: state.media_server_port,
     }
 }
 
@@ -91,6 +100,22 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
+        .setup(|app| {
+            // P7.3 real bug fix (ADR-041) — media serverio LISTENER'IS jau pririštas
+            // `AppState::new()` metu (sinchroniškai, prieš bet kokią async runtime), bet
+            // pats serveris paleidžiamas TIK ČIA, kur `tauri::async_runtime` jau veikia.
+            let state = app.state::<AppState>();
+            let listener = state
+                .media_server_listener
+                .lock()
+                .expect("Mutex poisoned")
+                .take();
+            let media_dir = state.media_dir.clone();
+            if let Some(listener) = listener {
+                tauri::async_runtime::spawn(media_server::spawn(listener, media_dir));
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             get_app_info,

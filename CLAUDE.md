@@ -56,6 +56,8 @@ groja trumpas gameplay įrašas, kaip Steam / Epic Games Store).
 | `md-5`, `sha1`, `crc32fast` | — | ROM hash'ai ScreenScraper'iui |
 | `walkdir` | `2.x` | ROM katalogų skenavimas |
 | `zip`, `sevenz-rust` | — | Suarchyvuotų ROM'ų skaitymas |
+| `axum` | `0.8` | `nullbyte-app`: lokalus HTTP serveris video/audio media failams (P7.3, ADR-041) — `asset://` protokolas WebKitGTK/Linux `<video>` elementams nepatikimas (trūksta HTTP Range palaikymo) |
+| `tower-http` | `0.7` + `fs` | `ServeDir` — Range užklausas apdoroja teisingai pagal HTTP spec (žr. `axum` eilutę aukščiau) |
 
 > `bundled` feature `rusqlite` — **privaloma**, kad nereikėtų sistemos SQLite ir build'as veiktų
 > vienodai macOS ir Linux.
@@ -804,6 +806,16 @@ DB laiko tik **santykinius kelius**, ne absoliučius — kad veiktų perkėlus p
   analogas) galimai jo tiesiog neturi. Jei reikės fullscreen'o — reikės arba laikinai keisti
   politiką į `Regular` PRIEŠ `set_fullscreen()` kvietimą (grąžinti į `Accessory` išjungus),
   arba apeiti per žemesnio lygio `NSWindow`/Cocoa API tiesiogiai. Neišspręsta, post-MVP.
+- **Linux video preview per `asset://` — NEVEIKIA patikimai (ADR-041, patvirtinta realiai
+  2026-08-27):** WebKitGTK `<video>` elementams reikalauja HTTP Range palaikymo NET
+  pradiniam atkūrimo bandymui — Tauri `asset://` protokolo tvarkytojas Linux'e to
+  nesuteikia, tad `WebKitWebProcess` arba REPEATEDLY CRASH'INA (SIGABRT, jei trūksta
+  GStreamer kodekų — `gst-plugins-good/bad/ugly`, `gst-libav`), arba (net su kodekais)
+  atmeta URI su `FormatError` per <16ms, PRIEŠ pasiekiant realų GStreamer pipeline'ą.
+  Sprendimas: `crates/nullbyte-app/src/media_server.rs` — lokalus `axum`/`tower-http`
+  HTTP serveris `127.0.0.1`, video URL konstruojami per jį (`AppInfo.mediaServerPort`),
+  NE `convertFileSrc`. Viršeliai/screenshot'ai LIEKA ant `asset://` (paprastam `<img>`
+  Range nereikalingas). Veikia visoms platformoms vienodai, ne vien Linux apejimas.
 - **Linux/Wayland:** wgpu Vulkan backend'as gali reikalauti `WAYLAND_DISPLAY` handling'o.
   Testuok ir X11, ir Wayland. Jei Wayland problemiškas — leisk force'inti X11 per `WINIT_UNIX_BACKEND=x11`.
 - **`Surface` turi būti kuriamas VAIKO PROCESO main gijoje** (macOS reikalavimas — `NSView`

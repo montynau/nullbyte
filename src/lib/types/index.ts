@@ -12,6 +12,11 @@ export interface AppInfo {
   statesDir: string;
   mediaDir: string;
   dbPath: string;
+  /** P7.3 real bug fix (ADR-041) — video/audio URL konstruojami per `http://127.0.0.1:{
+   * mediaServerPort}/...`, NE `convertFileSrc`/`asset://` (WebKitGTK/Linux video
+   * elementams nepatikimas — trūksta HTTP Range palaikymo). Viršeliai/screenshot'ai/
+   * wheel'ai LIEKA ant `convertFileSrc`. */
+  mediaServerPort: number;
 }
 
 /** Atitinka `Platform` (crates/nullbyte-app/src/db/models.rs). */
