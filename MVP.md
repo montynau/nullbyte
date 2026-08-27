@@ -1760,6 +1760,23 @@ CREATE TABLE scrape_cache (
 > ištrintų failų aptikimas realiame failų sistemos kontekste NIEKADA nesuveiktų be
 > `canonicalize()` katalogo keliui prieš `LIKE` palyginimą — atrasta TIK per realų testą su
 > tikru failų ištrynimu, ne sintetiniu keliu.
+>
+> **Rasta ir pataisyta reali sidecar dubliavimosi klaida (2026-08-27, ADR-040):** vartotojas
+> realiai skenavo 7 PSX žaidimus kaip laisvus (NE archyve) `.cue`+`.bin` failus — kiekvienas
+> sudubliavo į 2 bibliotekos įrašus (14 vietoj 7), nes skeneris tikrino TIK ar failo plėtinys
+> priklauso platformos sąrašui, be jokios nuovokos, kad laisvas `.bin` yra tik greta esančio
+> `.cue` NURODOMAS takelis, ne savarankiškas ROM'as. Archyvams (`.zip`/`.7z`) šis radinys
+> NEGALIOJO — ten `resolve_platform_and_hashes` jau IŠ KARTO ištraukia TIK VIENĄ atitinkantį
+> failą. Ištaisyta: nauja `find_sidecar_files()` (prieš skenavimo ciklą) skaito `.cue` sheet'ų
+> `FILE "..."` eilutes IR `.m3u` playlist'ų santykinius kelius, pašalina bet kokį jų nurodytą
+> failą iš skenuojamo sąrašo PRIEŠ apdorojimą — niekada nepatenka nei į progresą, nei į
+> `games` lentelę. Senos klaidingai įrašytos dublikatų eilutės PAČIOS išsivalo per esamą
+> „trūkstamo failo" pašalinimo kelią kito skenavimo metu (jos tiesiog nebeatsiranda
+> `found_paths` rinkinyje) — jokio rankinio DB valymo nereikėjo. Patikrinta REALIAI: 7 tikri
+> PSX žaidimai (Armored Core, Front Mission 3, Ghost in the Shell, Parasite Eve, Resident Evil
+> 3, Tenchu, Vagrant Story) + 3 daugiadiskiai per `.m3u` (Colony Wars, Metal Gear Solid, Syphon
+> Filter 2) — po fix'o ir pakartotinio skenavimo bibliotekoje liko TIKSLIAI 10 įrašų realioje
+> omarchy (Linux) mašinoje.
 
 **Ką daryti:**
 - `walkdir` per `rom_directories`
@@ -4420,6 +4437,76 @@ acceptance eilutė), tęsti likusius MVP darbus. Tikras fix'as reikalauja arba (
 alternatyvaus žemesnio lygio gyvavimo ciklo signalo (pvz. `NSApplication` termination
 notification) — abu variantai reikalauja gilesnio AppKit tyrimo nei ADR-037 fullscreen
 problema. Post-MVP darbas.
+
+---
+
+### ADR-040 — ROM skenerio sidecar dubliavimosi fix'as + omarchy pilnas Tauri diegimas (P5.3)
+
+**Data:** 2026-08-27 · **Statusas:** priimta
+
+**Kontekstas:** vartotojas realiai naudojosi omarchy (Linux) mašina — pridėjo 12 realių PSX
+`.zip` žaidimų (kai kurie daugiadiskiai), paprašė sutvarkyti taip, kad neduplikuotų
+bibliotekoje. Sprendimas apėmė kelis realius, tarpusavyje susijusius radinius.
+
+**1. Archyvų `.cue`/`.bin` sidecar problema.** Patikrinus kodą PRIEŠ ką nors keičiant
+išsiaiškinta: `archive::extract_first_match_to_temp` (naudojama `need_fullpath` core'ams,
+pvz. `mednafen_psx`) ištraukia TIK VIENĄ atitinkantį failą iš archyvo (pvz. `.cue`) — NE
+greta esančius `.bin` takelius, kuriuos tas `.cue` nurodo. Daugiadiskiams `.cue`+`.bin`
+rinkiniams archyve tai reikštų, kad paleidimo metu trūktų duomenų failo. Sprendimas:
+vartotojui rekomenduota IŠSKLEISTI archyvus į realius failus, ne pasikliauti automatiniu
+archyvo skaitymu daugiadiskiams PSX žaidimams — tai NĖRA ištaisyta kodo klaida, tik
+dokumentuota realaus naudojimo rekomendacija (single-file formatai kaip `.chd` šios
+problemos neturėtų).
+
+**2. `.m3u` playlist palaikymas patvirtintas veikiantis.** `psx` platformos `extensions`
+(`cue,bin,chd,pbp,m3u`) jau apėmė `m3u` — daugiadiskiams žaidimams sukurta struktūra:
+`.m3u` playlist'as TOP-LEVEL ROM kataloge (nurodo santykinius kelius į kiekvieno disko
+`.cue`), patys diskai — POAPLANKYJE. Kadangi `rom_directories.recursive=0` (nerekursyvus
+skenavimas, `walkdir` `max_depth(1)`), poaplankio failai skeneriui NEMATOMI — jokio
+dubliavimosi iš `.m3u` pusės.
+
+**3. UI neturi „nerekursyvus" perjungiklio.** `PathsPanel.svelte`/`api/index.ts` kviečia
+`addRomDirectory(path, true, platformId)` — HARDKODINTA `true`, jokios UI kontrolės
+`recursive` laukui, nors backend'as (`add_rom_directory` komanda, DB schema) jį PILNAI
+palaiko. Kadangi vartotojo naudojimo atvejui (daugiadiskiai PSX žaidimai su poaplankiais)
+reikėjo `recursive=0`, ROM katalogas įrašytas TIESIOGIAI per SQL (`INSERT INTO
+rom_directories ... recursive=0 ...`), apeinant UI. **Trūkstamas UI elementas — verta
+pridėti post-MVP** (nebuvo šios sesijos apimtyje, MVP.md UI apimtis apibrėžta anksčiau ir
+`recursive` UI kontrolė ten NEBUVO numatyta).
+
+**4. Realus, tikras skenerio bug'as (ne naudojimo problema).** Net su teisinga katalogų
+struktūra, pirmas skenavimas sudubliavo 7 laisvus (NE archyve) PSX `.cue`+`.bin` žaidimus į
+14 įrašų — `resolve_platform_and_hashes` grynai `.bin`/`.cue` plėtinio pagrindu registravo
+ABU failus kaip ATSKIRUS žaidimus, neturėdama jokios nuovokos apie jų sąryšį. **Tai realus,
+pataisytas kodo bug'as** (žr. P5.3 pastabą aukščiau ir git commit'ą) — `find_sidecar_files()`
+parse'ina `.cue`/`.m3u` turinį ir išfiltruoja jų nurodomus failus PRIEŠ skenavimą. Senos
+klaidingos eilutės savaime išsivalė per esamą „trūkstamo failo" pašalinimo kelią kito
+skenavimo metu — patvirtinta REALIAI: 17 → 10 žaidimų omarchy bibliotekoje po fix'o.
+
+**5. Šalutinis, bet svarbus radinys: omarchy dabar turi PILNĄ Tauri app'ą, ne tik
+`nullbyte-emu`.** Node 26.8.1 (per `mise use -g node@26.8.1`, jokio sudo nereikėjo), pnpm
+(`npm install -g pnpm` — mise'o node build'e NĖRA `corepack` binaro, tad corepack aktyvacija
+neveikia, plikas npm veikia). `pnpm tauri build` sėkmingai sukuria REALŲ `nullbyte-app`
+binarą — `.AppImage` bundle'inimas nepavyksta dėl Arch-specifinio `gdk-pixbuf` bibliotekų
+išdėstymo skirtumo nuo Debian/Ubuntu (kurį `linuxdeploy-plugin-gtk` tikisi) — nesvarbu, nes
+tikslui (paleisti TOJE PAČIOJE mašinoje) tinka tiesioginis `target/release/nullbyte-app`
+binaras + `.desktop` nuoroda (`~/.local/share/applications/nullbyte.desktop`) — veikia kaip
+tikra įdiegta programa, be jokio scenarijaus. **KRITIŠKAI SVARBU (realiai patikrinta klaida):**
+bandant atnaujinti tik Rust kodą per PLIKĄ `cargo build --release -p nullbyte-app` (be pilno
+`pnpm tauri build`), programa paleidus rodė tuščią langą su „Could not connect to localhost:
+Connection refused" — binaras tyliai grįžo prie `devUrl` (Vite dev serverio adreso) vietoj
+embed'intų statinių failų, nes `tauri build` CLI apvalkalas per build metu nustato signalą,
+kurio plikas `cargo build` nesiunčia. Sprendimas: ateityje omarchy VISADA naudoti PILNĄ `pnpm
+tauri build`, atnaujinant `nullbyte-app` GUI binarą — plikas `cargo build` tinka TIK
+`nullbyte-emu`/`run-emu.sh` stiliaus testavimui, kuris niekada neliečia Tauri webview.
+
+**Patikrinta:** `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`
+(švaru), `cargo test --workspace` — 110 nullbyte-app testų (0 failed, +4 nuo šio ADR:
+`parse_cue_file_references_extracts_quoted_filename`,
+`parse_m3u_references_skips_blank_and_comment_lines`,
+`find_sidecar_files_leaves_unreferenced_bin_alone`,
+`scan_registers_loose_cue_bin_pair_as_a_single_game_not_two`), 91 nullbyte-core, 4
+nullbyte-emu. Realus rezultatas patvirtintas vartotojo omarchy mašinoje.
 
 ---
 
