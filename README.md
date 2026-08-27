@@ -15,6 +15,11 @@ Nullbyte loads libretro cores and gives them the UI retro emulation deserves.
 
 </div>
 
+<p align="center">
+  <img src="docs/screenshots/library.png" alt="Nullbyte library grid" width="49%">
+  <img src="docs/screenshots/game-detail.png" alt="Nullbyte game detail page" width="49%">
+</p>
+
 ---
 
 ## What this is

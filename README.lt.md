@@ -15,6 +15,11 @@ Nullbyte įkelia libretro core'us ir suteikia jiems UI, kokio retro emuliacija n
 
 </div>
 
+<p align="center">
+  <img src="docs/screenshots/library.png" alt="Nullbyte bibliotekos tinklelis" width="49%">
+  <img src="docs/screenshots/game-detail.png" alt="Nullbyte žaidimo detalių puslapis" width="49%">
+</p>
+
 ---
 
 ## Kas tai
